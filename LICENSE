@@ -1,0 +1,48 @@
+BINPACK ENTERPRISE SDK - DUAL LICENSING AGREEMENT
+Version 2.0 (2026)
+
+Copyright (c) 2026 Santiago Robledo (<santiagorobledo198@gmail.com>).
+All Rights Reserved.
+
+This software is offered under a DUAL-LICENSING MODEL:
+
+================================================================================
+1. COMMERCIAL / ENTERPRISE PRODUCTION LICENSE
+================================================================================
+
+If you intend to integrate, distribute, or utilize the BinPack SDK in proprietary 
+software, closed-source commercial applications, video games (Unity, Unreal Engine,
+custom engines), automotive/aerospace firmware (OTA update pipelines), or commercial 
+cloud services, you must obtain an Enterprise Commercial License.
+
+Key Benefits of the Enterprise Commercial License:
+- Royalty-free perpetual distribution of runtime binaries (binpack.dll / libbinpack.so).
+- No requirement to open-source your proprietary code or assets.
+- Access to vector-optimized SIMD kernels (AVX2, AVX-512, ARM NEON).
+- Dedicated Service Level Agreement (SLA) and priority technical support.
+- Commercial warranty and intellectual property indemnification.
+
+To inquire about commercial licensing options, pricing tiers, and custom engine 
+integrations, contact:
+  Email: santiagorobledo198@gmail.com
+  Repository: https://github.com/Santirobm/binpack-SDK
+
+================================================================================
+2. COMMUNITY & EVALUATION LICENSE (NON-COMMERCIAL)
+================================================================================
+
+Permission is hereby granted, free of charge, to any person or entity obtaining 
+a copy of this software and associated documentation files (the "Software"), to 
+evaluate, test, research, and integrate the Software strictly for NON-COMMERCIAL, 
+ACADEMIC, and OPEN-SOURCE purposes, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

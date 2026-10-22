@@ -1,0 +1,11 @@
+[package]
+name = "binpack-sdk"
+version = "2.0.0"
+edition = "2021"
+authors = ["Santiago Robledo <santiagorobledo198@gmail.com>"]
+description = "Safe Rust bindings for BinPack Enterprise SDK"
+license = "Proprietary / Dual"
+repository = "https://github.com/Santirobm/binpack-SDK"
+
+[dependencies]
+libc = "0.2"

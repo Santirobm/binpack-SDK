@@ -1,0 +1,50 @@
+# BinPack SDK .gitignore
+
+# Build outputs
+build/
+bin/
+lib/
+out/
+target/
+*.obj
+*.o
+*.pdb
+*.idb
+*.exp
+*.ilk
+
+# Executables & Dynamic Libs (built during testing/compilation)
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+!deps/lib/*.lib
+!deps/lib/*.a
+
+# Temporary & Test files
+*.tmp
+*.bak
+*.bpk
+*.bpk2
+*.binpack
+test_output*
+temp*
+
+# IDE & OS files
+.vscode/
+.vs/
+.idea/
+.DS_Store
+Thumbs.db
+*.suo
+*.user
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Rust build artifacts
+Cargo.lock
