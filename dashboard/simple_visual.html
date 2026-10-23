@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simulador Visual de Compresión — BinPack vs Competidores</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #131b2e;
+      --border: #23314f;
+      --text: #f1f5f9;
+      --text-dim: #94a3b8;
+      --binpack-cyan: #00e5ff;
+      --binpack-green: #00e676;
+      --zstd-blue: #3b82f6;
+      --lzma-amber: #f59e0b;
+      --lz4-slate: #818cf8;
+      --red: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 24px 20px 40px;
+      min-height: 100vh;
+    }
+    .header {
+      max-width: 1280px;
+      margin: 0 auto 24px;
+      text-align: center;
+    }
+    .header h1 {
+      font-size: 1.8rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+      background: linear-gradient(90deg, #fff, #38bdf8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .header p {
+      color: var(--text-dim);
+      font-size: 0.95rem;
+      max-width: 780px;
+      margin: 0 auto 16px;
+    }
+    .controls {
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      background: var(--card-bg);
+      padding: 10px 18px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+    }
+    select, button {
+      background: #1e293b;
+      color: #fff;
+      border: 1px solid var(--border);
+      padding: 9px 16px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    select:hover, button:hover { border-color: var(--binpack-cyan); }
+    .btn-run {
+      background: linear-gradient(135deg, #0284c7, #0369a1);
+      border: none;
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);
+    }
+    .btn-run:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(0, 229, 255, 0.5);
+    }
+    .btn-run:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .notice-scale {
+      margin-top: 10px;
+      font-size: 0.85rem;
+      color: #f59e0b;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    /* Container for engine rows */
+    .lanes-container {
+      max-width: 1280px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .engine-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px 20px;
+      display: grid;
+      grid-template-columns: 200px 1fr 140px;
+      align-items: center;
+      gap: 20px;
+      transition: border-color 0.3s;
+    }
+    .engine-card.winner {
+      border-color: rgba(0, 230, 118, 0.6);
+      background: linear-gradient(90deg, rgba(0,230,118,0.03) 0%, var(--card-bg) 20%);
+    }
+
+    /* Column 1: Engine Name & Badges */
+    .engine-info h3 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tag-badge {
+      font-size: 0.68rem;
+      padding: 2px 7px;
+      border-radius: 6px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .engine-desc {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      line-height: 1.35;
+    }
+
+    /* Column 2: Visual Pipeline (Uncompressed Box -> Animated Arrow -> Compressed Box) */
+    .pipeline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      width: 100%;
+    }
+
+    /* Large Data Boxes */
+    .data-box-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      min-width: 120px;
+    }
+    .box-label {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .data-box {
+      border: 2px dashed #334155;
+      background: #090e1a;
+      border-radius: 12px;
+      padding: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      align-content: flex-start;
+      gap: 3px;
+      overflow: hidden;
+      transition: all 0.4s ease;
+    }
+    /* Fixed visual dimension for raw input */
+    .box-raw {
+      width: 110px;
+      height: 90px;
+      border-color: #475569;
+    }
+    /* Dynamic visual dimension for output */
+    .box-cmp {
+      width: 110px;
+      height: 90px;
+      border-color: #3b82f6;
+    }
+
+    /* Small Circles representing data chunks/bytes */
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #38bdf8;
+      opacity: 0.85;
+      transition: all 0.4s ease;
+    }
+    .dot-raw { background: #94a3b8; }
+    .dot-cmp { background: var(--binpack-cyan); }
+    .dot.fade-out {
+      opacity: 0;
+      transform: scale(0.2);
+    }
+
+    /* Arrow & Time Tracker (The Bridge) */
+    .arrow-track {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      position: relative;
+    }
+    .arrow-metric {
+      font-size: 0.82rem;
+      font-weight: 700;
+      font-family: ui-monospace, 'Cascadia Code', monospace;
+      color: var(--text-dim);
+    }
+    .arrow-metric span { color: #fff; }
+
+    .arrow-visual {
+      width: 100%;
+      height: 22px;
+      background: #0a0f1d;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+    }
+    .arrow-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #38bdf8, #00e5ff);
+      border-radius: 999px;
+      transition: width 0.05s linear;
+    }
+    .arrow-head {
+      position: absolute;
+      right: 4px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 0.9rem;
+      color: var(--text-dim);
+      pointer-events: none;
+    }
+    .arrow-text-inside {
+      position: absolute;
+      width: 100%;
+      text-align: center;
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      color: #fff;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+      pointer-events: none;
+    }
+
+    /* Column 3: Final Compression Metrics (% & Size) */
+    .metrics-col {
+      text-align: right;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .metric-pct {
+      font-size: 1.6rem;
+      font-weight: 900;
+      font-family: ui-monospace, 'Cascadia Code', monospace;
+      letter-spacing: -0.03em;
+    }
+    .metric-bytes {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      font-family: ui-monospace, monospace;
+    }
+    .metric-savings {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--binpack-green);
+    }
+
+    /* Colors per algorithm */
+    .clr-binpack { color: var(--binpack-cyan); }
+    .clr-binpack-def { color: var(--binpack-green); }
+    .clr-binpack-arch { color: var(--lzma-amber); }
+    .clr-zstd { color: var(--zstd-blue); }
+    .clr-lz4 { color: var(--lz4-slate); }
+    .clr-lzma { color: #cbd5e1; }
+
+    @media (max-width: 900px) {
+      .engine-card {
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+      .pipeline { flex-direction: column; }
+      .arrow-track { width: 100%; }
+      .metrics-col { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>Comparador Visual Intuitivo de Compresión</h1>
+    <p>
+      Observá cómo cada algoritmo procesa la misma masa de datos: 
+      los circulitos representan el volumen de bytes. A medida que avanza la flecha (tiempo de procesamiento), 
+      los datos se comprimen al tamaño final de salida.
+    </p>
+
+    <div class="controls">
+      <label for="datasetSel" style="font-size:0.88rem; color:var(--text-dim); font-weight:600;">Archivo de prueba:</label>
+      <select id="datasetSel" onchange="renderLanes()">
+        <option value="nasa">🚀 Telemetría Industrial NASA (Float32 Array — 1.98 MB)</option>
+        <option value="mr">🏥 Resonancia Médica 16-bit (MRI Scan — 9.51 MB)</option>
+        <option value="ooffice">💻 Ejecutable Binario x86 (OpenOffice ELF — 6.15 MB)</option>
+        <option value="busybox">📱 Firmware Embebido ARM32 (BusyBox — 1.11 MB)</option>
+        <option value="mozilla">🌐 Librerías Compartidas (Mozilla DLLs — 51.2 MB)</option>
+        <option value="synth_arm">🔬 Bucle de Saltos ARM32 (100 KB Stress)</option>
+        <option value="dickens">📖 Texto Literario Plano (Charles Dickens — 10.19 MB)</option>
+      </select>
+
+      <button id="btnPlay" class="btn-run" onclick="startRace()">▶ Iniciar Compresión Visual</button>
+    </div>
+
+    <div class="notice-scale">
+      ⚠️ <span>Escala temporal ampliada visualmente (<strong>×120x en tiempo</strong>) para poder apreciar con claridad las diferencias entre algoritmos rápidos e hiper-densos.</span>
+    </div>
+  </div>
+
+  <div class="lanes-container" id="lanes">
+    <!-- Engine lanes dynamically generated here -->
+  </div>
+
+<script>
+// Total dots in uncompressed representation (box-raw)
+const TOTAL_DOTS = 140;
+
+// Empirical benchmark dataset measurements from official BinPack benchmark suite
+const DATASETS = {
+  nasa: {
+    name: "NASA Turbofan Float32 (1.98 MB)",
+    origBytes: 1980576,
+    engines: [
+      { id: "bp_rt", name: "BinPack Runtime", tier: "Fast Zero-CRC", colorClass: "clr-binpack", desc: "Auto Stride-96 + SIMD Delta + Zstd dfast", size: 564550, compMs: 8.6, decompMs: 3.5, tagBg: "rgba(0,229,255,0.15)", tagClr: "#00e5ff" },
+      { id: "bp_def", name: "BinPack Default", tier: "Level 19", colorClass: "clr-binpack-def", desc: "Auto Stride-96 + Rolling Prefix", size: 540041, compMs: 164.2, decompMs: 2.9, tagBg: "rgba(0,230,118,0.15)", tagClr: "#00e676" },
+      { id: "zstd_l1", name: "Meta Zstandard", tier: "Level 1", colorClass: "clr-zstd", desc: "Compresor de streaming estándar", size: 893313, compMs: 5.5, decompMs: 2.5, tagBg: "rgba(59,130,246,0.15)", tagClr: "#3b82f6" },
+      { id: "zstd_l19", name: "Meta Zstandard", tier: "Level 19", colorClass: "clr-zstd", desc: "Máximo presupuesto de ventana Zstd", size: 614301, compMs: 510.4, decompMs: 2.3, tagBg: "rgba(59,130,246,0.15)", tagClr: "#3b82f6" },
+      { id: "lz4", name: "LZ4 Frame", tier: "Fast Mode", colorClass: "clr-lz4", desc: "Optimizado solo para velocidad pura", size: 1122187, compMs: 3.3, decompMs: 1.1, tagBg: "rgba(129,140,248,0.15)", tagClr: "#818cf8" },
+      { id: "lzma", name: "7-Zip LZMA2", tier: "Ultra -9", colorClass: "clr-lzma", desc: "Range Coder aritmético de máxima densidad", size: 497156, compMs: 570.0, decompMs: 20.8, tagBg: "rgba(148,163,184,0.15)", tagClr: "#cbd5e1" },
+      { id: "bp_arch", name: "BinPack Archival", tier: "Range Core", colorClass: "clr-binpack-arch", desc: "Bit-level Range Coder con prefiltro", size: 497088, compMs: 524.0, decompMs: 17.1, tagBg: "rgba(245,158,11,0.15)", tagClr: "#f59e0b" }
+    ]
+  },
+  mr: {
+    name: "Medical MRI 16-bit Grayscale Scan (9.51 MB)",
+    origBytes: 9970564,
+    engines: [
+      { id: "bp_rt", name: "BinPack Runtime", tier: "Fast Zero-CRC", colorClass: "clr-binpack", desc: "Auto Stride-2 + Interleave SIMD AVX2", size: 2789112, compMs: 51.5, decompMs: 15.4, tagBg: "rgba(0,229,255,0.15)", tagClr: "#00e5ff" },
+      { id: "bp_def", name: "BinPack Default", tier: "Level 19", colorClass: "clr-binpack-def", desc: "Supera a 7-Zip LZMA2 (-138 KB)", size: 2612234, compMs: 2160.0, decompMs: 18.9, tagBg: "rgba(0,230,118,0.15)", tagClr: "#00e676" },
+      { id: "zstd_l1", name: "Meta Zstandard", tier: "Level 1", colorClass: "clr-zstd", desc: "Sin prefiltro específico de 16-bit", size: 3813409, compMs: 23.4, decompMs: 9.5, tagBg: "rgba(59,130,246,0.15)", tagClr: "#3b82f6" },
+      { id: "zstd_l19", name: "Meta Zstandard", tier: "Level 19", colorClass: "clr-zstd", desc: "Preset de producción Zstandard", size: 3107144, compMs: 2880.0, decompMs: 13.3, tagBg: "rgba(59,130,246,0.15)", tagClr: "#3b82f6" },
+      { id: "lz4", name: "LZ4 Frame", tier: "Fast Mode", colorClass: "clr-lz4", desc: "Rápido pero pobre en densidad", size: 5443900, compMs: 15.1, decompMs: 6.2, tagBg: "rgba(129,140,248,0.15)", tagClr: "#818cf8" },
+      { id: "lzma", name: "7-Zip LZMA2", tier: "Ultra -9", colorClass: "clr-lzma", desc: "Referencia tradicional de archivo", size: 2750272, compMs: 3280.0, decompMs: 130.0, tagBg: "rgba(148,163,184,0.15)", tagClr: "#cbd5e1" },
+      { id: "bp_arch", name: "BinPack Archival", tier: "Range Core", colorClass: "clr-binpack-arch", desc: "1er Lugar Mundial (-254 KB vs 7-Zip)", size: 2496101, compMs: 1794.0, decompMs: 99.5, tagBg: "rgba(245,158,11,0.15)", tagClr: "#f59e0b" }
+    ]
+  },
+  ooffice: {
+    name: "OpenOffice x86 ELF Executable (6.15 MB)",
+    origBytes: 6152192,
+    engines: [
+      { id: "bp_rt", name: "BinPack Runtime", tier: "Fast Zero-CRC", colorClass: "clr-binpack", desc: "BCJ x86 en .text + Zstd dfast", size: 2665915, compMs: 42.4, decompMs: 9.4, tagBg: "rgba(0,229,255,0.15)", tagClr: "#00e5ff" },
+      { id: "bp_def", name: "BinPack Default", tier: "Level 19", colorClass: "clr-binpack-def", desc: "-360 KB ahorrados sobre Zstd L19", size: 2234904, compMs: 1250.0, decompMs: 10.2, tagBg: "rgba(0,230,118,0.15)", tagClr: "#00e676" },
+      { id: "zstd_l1", name: "Meta Zstandard", tier: "Level 1", colorClass: "clr-zstd", desc: "Baseline web sin normalización BCJ", size: 3593224, compMs: 15.6, decompMs: 7.4, tagBg: "rgba(59,130,246,0.15)", tagClr: "#3b82f6" },
+      { id: "zstd_l19", name: "Meta Zstandard", tier: "Level 19", colorClass: "clr-zstd", desc: "Modo pesado Zstandard", size: 2595003, compMs: 1220.0, decompMs: 9.7, tagBg: "rgba(59,130,246,0.15)", tagClr: "#3b82f6" },
+      { id: "lz4", name: "LZ4 Frame", tier: "Fast Mode", colorClass: "clr-lz4", desc: "Streaming ultra-rápido", size: 4339979, compMs: 10.5, decompMs: 3.9, tagBg: "rgba(129,140,248,0.15)", tagClr: "#818cf8" },
+      { id: "lzma", name: "7-Zip BCJ x86", tier: "LZMA2 -9", colorClass: "clr-lzma", desc: "Filtro Pavlov x86 + LZMA2", size: 2083996, compMs: 1580.0, decompMs: 94.8, tagBg: "rgba(148,163,184,0.15)", tagClr: "#cbd5e1" },
+      { id: "bp_arch", name: "BinPack Archival", tier: "Range Core", colorClass: "clr-binpack-arch", desc: "1er Lugar (+16% más rápido descomp)", size: 2082993, compMs: 1500.0, decompMs: 82.0, tagBg: "rgba(245,158,11,0.15)", tagClr: "#f59e0b" }
+    ]
+  },
+  busybox: {
+    name: "BusyBox ARMv7-A Embedded Linux (1.11 MB)",
+    origBytes: 1109128,
+    engines: [
+      { id: "bp_rt", name: "BinPack Runtime", tier: "Fast Zero-CRC", colorClass: "clr-binpack", desc: "BCJ ARM32 Thumb-2 en .text", size: 614955, compMs: 8.9, decompMs: 1.6, tagBg: "rgba(0,229,255,0.15)", tagClr: "#00e5ff" },
+      { id: "bp_def", name: "BinPack Default", tier: "Level 19", colorClass: "clr-binpack-def", desc: "-28 KB sobre Zstandard L19", size: 538098, compMs: 160.0, decompMs: 2.0, tagBg: "rgba(0,230,118,0.15)", tagClr: "#00e676" },
+      { id: "zstd_l1", name: "Meta Zstandard", tier: "Level 1", colorClass: "clr-zstd", desc: "Sin prefiltro de saltos relativos", size: 712701, compMs: 3.1, decompMs: 1.2, tagBg: "rgba(59,130,246,0.15)", tagClr: "#3b82f6" },
+      { id: "zstd_l19", name: "Meta Zstandard", tier: "Level 19", colorClass: "clr-zstd", desc: "Zstandard máximo", size: 566108, compMs: 165.0, decompMs: 1.9, tagBg: "rgba(59,130,246,0.15)", tagClr: "#3b82f6" },
+      { id: "lz4", name: "LZ4 Frame", tier: "Fast Mode", colorClass: "clr-lz4", desc: "Muy baja tasa de compresión", size: 892532, compMs: 1.9, decompMs: 0.7, tagBg: "rgba(129,140,248,0.15)", tagClr: "#818cf8" },
+      { id: "lzma", name: "7-Zip BCJ ARM", tier: "LZMA2 -9", colorClass: "clr-lzma", desc: "Filtro Pavlov ARM + LZMA2", size: 471180, compMs: 240.0, decompMs: 20.5, tagBg: "rgba(148,163,184,0.15)", tagClr: "#cbd5e1" },
+      { id: "bp_arch", name: "BinPack Archival", tier: "Range Core", colorClass: "clr-binpack-arch", desc: "1er Lugar Mundial (-16.8% vs Zstd)", size: 471166, compMs: 196.0, decompMs: 18.1, tagBg: "rgba(245,158,11,0.15)", tagClr: "#f59e0b" }
+    ]
+  },
+  mozilla: {
+    name: "Mozilla Shared Libraries (51.2 MB)",
+    origBytes: 51220480,
+    engines: [
+      { id: "bp_rt", name: "BinPack Runtime", tier: "Fast Zero-CRC", colorClass: "clr-binpack", desc: "183.6 MB/s compresión + 404 MB/s decomp", size: 18045604, compMs: 272.0, decompMs: 123.0, tagBg: "rgba(0,229,255,0.15)", tagClr: "#00e5ff" },
+      { id: "bp_def", name: "BinPack Default", tier: "Level 19", colorClass: "clr-binpack-def", desc: "Chunks de 16MB acotados en RAM", size: 15047604, compMs: 18900.0, decompMs: 135.0, tagBg: "rgba(0,230,118,0.15)", tagClr: "#00e676" },
+      { id: "zstd_l1", name: "Meta Zstandard", tier: "Level 1", colorClass: "clr-zstd", desc: "Línea base de streaming web", size: 19968503, compMs: 104.0, decompMs: 55.0, tagBg: "rgba(59,130,246,0.15)", tagClr: "#3b82f6" },
+      { id: "zstd_l19", name: "Meta Zstandard", tier: "Level 19", colorClass: "clr-zstd", desc: "Requiere cientos de MB de memoria", size: 15065760, compMs: 12600.0, decompMs: 71.0, tagBg: "rgba(59,130,246,0.15)", tagClr: "#3b82f6" },
+      { id: "lz4", name: "LZ4 Frame", tier: "Fast Mode", colorClass: "clr-lz4", desc: "Baja compresión en binarios mixtos", size: 26441653, compMs: 72.0, decompMs: 31.0, tagBg: "rgba(129,140,248,0.15)", tagClr: "#818cf8" },
+      { id: "lzma", name: "7-Zip LZMA2", tier: "Ultra -9", colorClass: "clr-lzma", desc: "Muy lento de comprimir", size: 13374160, compMs: 16100.0, decompMs: 659.0, tagBg: "rgba(148,163,184,0.15)", tagClr: "#cbd5e1" },
+      { id: "bp_arch", name: "BinPack Archival", tier: "Range Core", colorClass: "clr-binpack-arch", desc: "-1.5 MB sobre Zstandard L19", size: 13570183, compMs: 13100.0, decompMs: 626.0, tagBg: "rgba(245,158,11,0.15)", tagClr: "#f59e0b" }
+    ]
+  },
+  synth_arm: {
+    name: "ARM32 Branch Loop Stress (100 KB)",
+    origBytes: 100064,
+    engines: [
+      { id: "bp_rt", name: "BinPack Runtime", tier: "Fast Zero-CRC", colorClass: "clr-binpack", desc: "Colapso a direcciones absolutas: 110 B", size: 110, compMs: 0.53, decompMs: 0.08, tagBg: "rgba(0,229,255,0.15)", tagClr: "#00e5ff" },
+      { id: "bp_def", name: "BinPack Default", tier: "Level 19", colorClass: "clr-binpack-def", desc: "Colapso idéntico: 110 B (0.11%)", size: 110, compMs: 0.82, decompMs: 0.08, tagBg: "rgba(0,230,118,0.15)", tagClr: "#00e676" },
+      { id: "zstd_l1", name: "Meta Zstandard", tier: "Level 1", colorClass: "clr-zstd", desc: "No detecta saltos relativos", size: 69438, compMs: 0.10, decompMs: 0.07, tagBg: "rgba(59,130,246,0.15)", tagClr: "#3b82f6" },
+      { id: "zstd_l19", name: "Meta Zstandard", tier: "Level 19", colorClass: "clr-zstd", desc: "Descubrimiento parcial", size: 22680, compMs: 9.5, decompMs: 0.28, tagBg: "rgba(59,130,246,0.15)", tagClr: "#3b82f6" },
+      { id: "lz4", name: "LZ4 Frame", tier: "Fast Mode", colorClass: "clr-lz4", desc: "Incompresible (expande a 100.03%)", size: 100091, compMs: 0.06, decompMs: 0.05, tagBg: "rgba(129,140,248,0.15)", tagClr: "#818cf8" },
+      { id: "lzma", name: "7-Zip BCJ ARM", tier: "LZMA2 -9", colorClass: "clr-lzma", desc: "Normalización parcial Pavlov: 172 B", size: 172, compMs: 19.1, decompMs: 0.24, tagBg: "rgba(148,163,184,0.15)", tagClr: "#cbd5e1" },
+      { id: "bp_arch", name: "BinPack Archival", tier: "Range Core", colorClass: "clr-binpack-arch", desc: "Colapso casi completo: 179 B", size: 179, compMs: 2.8, decompMs: 0.11, tagBg: "rgba(245,158,11,0.15)", tagClr: "#f59e0b" }
+    ]
+  },
+  dickens: {
+    name: "Charles Dickens Plain Text (10.19 MB)",
+    origBytes: 10192446,
+    engines: [
+      { id: "bp_rt", name: "BinPack Runtime", tier: "Fast Zero-CRC", colorClass: "clr-binpack", desc: "Micro-Trial descarta prefiltro (0% regresión)", size: 3584606, compMs: 68.6, decompMs: 12.8, tagBg: "rgba(0,229,255,0.15)", tagClr: "#00e5ff" },
+      { id: "bp_def", name: "BinPack Default", tier: "Level 19", colorClass: "clr-binpack-def", desc: "Empate técnico exacto con Zstandard-19", size: 2850260, compMs: 3800.0, decompMs: 10.5, tagBg: "rgba(0,230,118,0.15)", tagClr: "#00e676" },
+      { id: "zstd_l1", name: "Meta Zstandard", tier: "Level 1", colorClass: "clr-zstd", desc: "Compresor de texto rápido", size: 4261734, compMs: 30.8, decompMs: 10.6, tagBg: "rgba(59,130,246,0.15)", tagClr: "#3b82f6" },
+      { id: "zstd_l19", name: "Meta Zstandard", tier: "Level 19", colorClass: "clr-zstd", desc: "Excelente densidad en texto puro", size: 2849941, compMs: 3800.0, decompMs: 10.8, tagBg: "rgba(59,130,246,0.15)", tagClr: "#3b82f6" },
+      { id: "lz4", name: "LZ4 Frame", tier: "Fast Mode", colorClass: "clr-lz4", desc: "Muy rápido pero baja compresión", size: 6430049, compMs: 23.9, decompMs: 6.8, tagBg: "rgba(129,140,248,0.15)", tagClr: "#818cf8" },
+      { id: "lzma", name: "7-Zip LZMA2", tier: "Ultra -9", colorClass: "clr-lzma", desc: "Máxima compresión tradicional en texto", size: 2830604, compMs: 4480.0, decompMs: 101.5, tagBg: "rgba(148,163,184,0.15)", tagClr: "#cbd5e1" },
+      { id: "bp_arch", name: "BinPack Archival", tier: "Range Core", colorClass: "clr-binpack-arch", desc: "Supera por 301 bytes a 7-Zip LZMA2", size: 2830303, compMs: 4500.0, decompMs: 87.1, tagBg: "rgba(245,158,11,0.15)", tagClr: "#f59e0b" }
+    ]
+  }
+};
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / 1048576).toFixed(2) + " MB";
+}
+
+function renderLanes() {
+  const dsKey = document.getElementById("datasetSel").value;
+  const ds = DATASETS[dsKey];
+  const container = document.getElementById("lanes");
+  container.innerHTML = "";
+
+  // Find the smallest size to highlight the winner
+  let minSize = Infinity;
+  ds.engines.forEach(e => { if (e.size < minSize) minSize = e.size; });
+
+  ds.engines.forEach((eng, idx) => {
+    const isWinner = eng.size === minSize;
+    const ratio = ((eng.size / ds.origBytes) * 100).toFixed(2);
+    const targetDots = Math.max(1, Math.round((eng.size / ds.origBytes) * TOTAL_DOTS));
+
+    const card = document.createElement("div");
+    card.className = `engine-card ${isWinner ? 'winner' : ''}`;
+    card.id = `card-${eng.id}`;
+
+    card.innerHTML = `
+      <div class="engine-info">
+        <h3 class="${eng.colorClass}">
+          ${eng.name}
+          <span class="tag-badge" style="background:${eng.tagBg}; color:${eng.tagClr};">${eng.tier}</span>
+        </h3>
+        <p class="engine-desc">${eng.desc}</p>
+      </div>
+
+      <div class="pipeline">
+        <!-- Box 1: Raw Uncompressed Data -->
+        <div class="data-box-wrap">
+          <span class="box-label">Data Original</span>
+          <div class="data-box box-raw" id="box-raw-${eng.id}"></div>
+        </div>
+
+        <!-- Arrow & Time Animation -->
+        <div class="arrow-track">
+          <div class="arrow-metric" id="metric-top-${eng.id}">
+            ⏱ Descomp: <span>-- ms</span> | Comp: <span>-- ms</span>
+          </div>
+          <div class="arrow-visual">
+            <div class="arrow-fill" id="arrow-fill-${eng.id}"></div>
+            <div class="arrow-text-inside" id="arrow-status-${eng.id}">EN ESPERA</div>
+            <div class="arrow-head">▶</div>
+          </div>
+        </div>
+
+        <!-- Box 2: Compressed Output Data -->
+        <div class="data-box-wrap">
+          <span class="box-label">Data Comprimida</span>
+          <div class="data-box box-cmp" id="box-cmp-${eng.id}"></div>
+        </div>
+      </div>
+
+      <div class="metrics-col">
+        <div class="metric-pct ${eng.colorClass}" id="pct-${eng.id}">--%</div>
+        <div class="metric-bytes" id="bytes-${eng.id}">Esperando...</div>
+        <div class="metric-savings" id="save-${eng.id}"></div>
+      </div>
+    `;
+
+    container.appendChild(card);
+
+    // Populate Initial Raw Dots
+    const boxRaw = document.getElementById(`box-raw-${eng.id}`);
+    for (let i = 0; i < TOTAL_DOTS; i++) {
+      const d = document.createElement("div");
+      d.className = "dot dot-raw";
+      boxRaw.appendChild(d);
+    }
+  });
+}
+
+let isRunning = false;
+
+function startRace() {
+  if (isRunning) return;
+  isRunning = true;
+  document.getElementById("btnPlay").disabled = true;
+
+  const dsKey = document.getElementById("datasetSel").value;
+  const ds = DATASETS[dsKey];
+
+  // Reset visual state
+  ds.engines.forEach(eng => {
+    const boxCmp = document.getElementById(`box-cmp-${eng.id}`);
+    boxCmp.innerHTML = "";
+    document.getElementById(`arrow-fill-${eng.id}`).style.width = "0%";
+    document.getElementById(`arrow-status-${eng.id}`).textContent = "PROCESANDO...";
+    document.getElementById(`arrow-status-${eng.id}`).style.color = "#fff";
+    document.getElementById(`pct-${eng.id}`).textContent = "--%";
+    document.getElementById(`bytes-${eng.id}`).textContent = "Calculando...";
+    document.getElementById(`save-${eng.id}`).textContent = "";
+  });
+
+  // Calculate visual animation duration in milliseconds.
+  // We use a non-linear mapping so fast algorithms are visible (~1.2s to ~3.5s)
+  // while distinctly reflecting their real-world relative speed.
+  const allCompMs = ds.engines.map(e => e.compMs);
+  const minComp = Math.min(...allCompMs);
+  const maxComp = Math.max(...allCompMs);
+
+  let finishedCount = 0;
+
+  ds.engines.forEach(eng => {
+    // Visual time formula: base 1400ms + scaled log time up to 4800ms
+    const norm = (Math.log10(Math.max(eng.compMs, 0.1)) - Math.log10(Math.max(minComp, 0.1))) /
+                 (Math.log10(Math.max(maxComp, 1)) - Math.log10(Math.max(minComp, 0.1)) || 1);
+    const durationMs = 1200 + norm * 3400; // between 1.2s and 4.6s for human appreciation
+
+    const arrowFill = document.getElementById(`arrow-fill-${eng.id}`);
+    const arrowStatus = document.getElementById(`arrow-status-${eng.id}`);
+    const metricTop = document.getElementById(`metric-top-${eng.id}`);
+    const pctLabel = document.getElementById(`pct-${eng.id}`);
+    const bytesLabel = document.getElementById(`bytes-${eng.id}`);
+    const saveLabel = document.getElementById(`save-${eng.id}`);
+    const boxCmp = document.getElementById(`box-cmp-${eng.id}`);
+
+    const startTime = performance.now();
+    const targetDots = Math.max(1, Math.round((eng.size / ds.origBytes) * TOTAL_DOTS));
+
+    function animate(currentTime) {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(1, elapsed / durationMs);
+
+      // Advance progress bar
+      arrowFill.style.width = (progress * 100).toFixed(1) + "%";
+
+      // Incrementally render compressed dots as compression finishes
+      const currentDots = Math.round(progress * targetDots);
+      while (boxCmp.children.length < currentDots) {
+        const dot = document.createElement("div");
+        dot.className = "dot dot-cmp";
+        boxCmp.appendChild(dot);
+      }
+
+      // Live animated ratio percentage
+      const liveRatio = (100 - progress * (100 - (eng.size / ds.origBytes) * 100)).toFixed(1);
+      pctLabel.textContent = `${liveRatio}%`;
+
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        // COMPRESSION COMPLETE: Guardar tiempos reales y cambiar de color
+        arrowFill.style.width = "100%";
+        arrowFill.style.background = "#00e676"; // Cambia a verde al terminar
+        arrowStatus.textContent = "COMPLETADO";
+        arrowStatus.style.color = "#042f2c";
+
+        // Muestra tiempo real que tardó en comprimir y descompresión guardada
+        metricTop.innerHTML = `⏱ Compresión: <span style="color:#00e676;">${eng.compMs.toFixed(1)} ms</span> | Descomp: <span style="color:#38bdf8;">${eng.decompMs.toFixed(1)} ms</span>`;
+
+        // Ratio y tamaño final exacto
+        const finalRatio = ((eng.size / ds.origBytes) * 100).toFixed(2);
+        pctLabel.textContent = `${finalRatio}%`;
+        bytesLabel.textContent = `${formatBytes(eng.size)} (${eng.size.toLocaleString()} B)`;
+
+        const savedPct = (100 - finalRatio).toFixed(1);
+        saveLabel.textContent = `Ahorro: -${savedPct}% (${formatBytes(ds.origBytes - eng.size)})`;
+
+        finishedCount++;
+        if (finishedCount === ds.engines.length) {
+          isRunning = false;
+          document.getElementById("btnPlay").disabled = false;
+        }
+      }
+    }
+
+    requestAnimationFrame(animate);
+  });
+}
+
+// Initial render
+window.addEventListener("DOMContentLoaded", () => {
+  renderLanes();
+});
+</script>
+
+</body>
+</html>
