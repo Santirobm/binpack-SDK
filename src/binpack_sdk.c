@@ -5,6 +5,15 @@
 
 #include "binpack_internal.h"
 
+#if defined(_WIN32)
+    #define binpack_fseek64 _fseeki64
+    #define binpack_ftell64 _ftelli64
+#else
+    #define _FILE_OFFSET_BITS 64
+    #define binpack_fseek64 fseeko
+    #define binpack_ftell64 ftello
+#endif
+
 /* ========================================================================= */
 /* Options & Utility Helpers                                                 */
 /* ========================================================================= */
@@ -302,9 +311,9 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_file(
     if (!fin) return BINPACK_ERR_IO;
 
     /* Get file size */
-    _fseeki64(fin, 0, SEEK_END);
-    uint64_t total_sz = (uint64_t)_ftelli64(fin);
-    _fseeki64(fin, 0, SEEK_SET);
+    binpack_fseek64(fin, 0, SEEK_END);
+    uint64_t total_sz = (uint64_t)binpack_ftell64(fin);
+    binpack_fseek64(fin, 0, SEEK_SET);
 
     FILE *fout = fopen(out_path, "wb");
     if (!fout) {
@@ -367,9 +376,9 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_query_file_info(
     FILE *f = fopen(path, "rb");
     if (!f) return BINPACK_ERR_IO;
 
-    _fseeki64(f, 0, SEEK_END);
-    uint64_t file_len = (uint64_t)_ftelli64(f);
-    _fseeki64(f, 0, SEEK_SET);
+    binpack_fseek64(f, 0, SEEK_END);
+    uint64_t file_len = (uint64_t)binpack_ftell64(f);
+    binpack_fseek64(f, 0, SEEK_SET);
 
     if (file_len < 16) {
         fclose(f);
@@ -384,7 +393,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_query_file_info(
 
     if (magic == BINPACK_MAGIC_V2) {
         binpack_v2_header_t hdr;
-        _fseeki64(f, 0, SEEK_SET);
+        binpack_fseek64(f, 0, SEEK_SET);
         if (fread(&hdr, 1, sizeof(hdr), f) != sizeof(hdr)) {
             fclose(f);
             return BINPACK_ERR_IO;
@@ -397,7 +406,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_query_file_info(
         /* Read footer if present */
         if (file_len >= sizeof(binpack_v2_header_t) + sizeof(binpack_v2_footer_t)) {
             binpack_v2_footer_t footer;
-            _fseeki64(f, file_len - sizeof(binpack_v2_footer_t), SEEK_SET);
+            binpack_fseek64(f, file_len - sizeof(binpack_v2_footer_t), SEEK_SET);
             if (fread(&footer, 1, sizeof(footer), f) == sizeof(footer) &&
                 footer.footer_magic == BINPACK_MAGIC_FOOTER) {
                 info->uncompressed_size = footer.total_uncompressed;

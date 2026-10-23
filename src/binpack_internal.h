@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <zstd.h>
+#include <zdict.h>
 #include "../deps/lzma/LzmaLib.h"
 #include "../deps/lzma/Bra.h"
 
@@ -64,6 +65,22 @@ typedef struct binpack_v2_footer_s {
     uint32_t stream_crc32;       /* Full uncompressed stream CRC32 */
 } binpack_v2_footer_t;
 
+/**
+ * @brief Binary Differential Patch Container Header (36 bytes).
+ */
+typedef struct binpack_patch_header_s {
+    uint32_t patch_magic;        /* 0x504B5042 'BPKP' */
+    uint8_t  version_major;      /* 2 */
+    uint8_t  version_minor;      /* 2 */
+    uint16_t flags;              /* Patch flags */
+    uint64_t old_sz;             /* Baseline expected original size */
+    uint64_t new_sz;             /* Restored target size */
+    uint32_t old_crc32;          /* Baseline uncompressed CRC32 */
+    uint32_t new_crc32;          /* Restored target CRC32 */
+    uint8_t  filter_id;          /* Prefilter used on both buffers */
+    uint8_t  reserved[7];        /* Alignment padding */
+} binpack_patch_header_t;
+
 #pragma pack(pop)
 
 #define BP_FLAG_CHECKSUM     0x0001
@@ -71,6 +88,28 @@ typedef struct binpack_v2_footer_s {
 #define BP_CHUNK_FLAG_BOUNDS 0x01
 #define BP_CHUNK_FLAG_PREFIX 0x02
 #define BP_CHUNK_FLAG_LZMA   0x04
+
+/**
+ * @brief Internal definition of pre-trained dictionary structure.
+ */
+struct binpack_dict_s {
+    void *buffer;
+    size_t size;
+    ZSTD_CDict *cdict;
+    ZSTD_DDict *ddict;
+};
+
+/**
+ * @brief Internal definition of seekable random-access archive structure.
+ */
+struct binpack_archive_s {
+    FILE *fp;
+    binpack_v2_header_t header;
+    binpack_v2_footer_t footer;
+    uint32_t chunk_count;
+    binpack_chunk_info_t *chunks;
+    ZSTD_DCtx *dctx;
+};
 
 /* Internal Function Declarations */
 uint32_t binpack_crc32(uint32_t crc, const uint8_t *buf, size_t len);
@@ -97,5 +136,7 @@ int binpack_texture_bcn_filter(uint8_t *data, size_t size, uint16_t stride);
 int binpack_texture_bcn_unfilter(uint8_t *data, size_t size, uint16_t stride);
 
 binpack_filter_t binpack_auto_select_filter(const uint8_t *data, size_t size, uint16_t *out_param);
+
+int binpack_get_cpu_cores(void);
 
 #endif /* BINPACK_INTERNAL_H */

@@ -6,7 +6,7 @@ Copyright (c) 2026 Santiago Robledo. All Rights Reserved.
 import ctypes
 import os
 import sys
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 class BinPackStatus:
     OK = 0
@@ -19,6 +19,7 @@ class BinPackStatus:
     ERR_IO = -7
     ERR_UNSUPPORTED_VERSION = -8
     ERR_BUFFER_TOO_SMALL = -9
+    ERR_PATCH_MISMATCH = -10
 
 class BinPackFilter:
     AUTO = 0
@@ -57,8 +58,18 @@ class _BinPackFileInfo(ctypes.Structure):
         ("flags", ctypes.c_uint8),
     ]
 
+class _BinPackChunkInfo(ctypes.Structure):
+    _fields_ = [
+        ("chunk_index", ctypes.c_uint32),
+        ("file_offset", ctypes.c_uint64),
+        ("uncompressed_sz", ctypes.c_uint32),
+        ("compressed_sz", ctypes.c_uint32),
+        ("filter_id", ctypes.c_uint8),
+        ("filter_flags", ctypes.c_uint8),
+        ("chunk_crc32", ctypes.c_uint32),
+    ]
+
 def _load_library():
-    # Search locations
     cur_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.join(cur_dir, "binpack.dll"),
@@ -66,6 +77,8 @@ def _load_library():
         os.path.join(cur_dir, "..", "..", "bin", "binpack.dll"),
         os.path.join(cur_dir, "libbinpack.so"),
         os.path.join(cur_dir, "..", "..", "libbinpack.so"),
+        os.path.join(cur_dir, "libbinpack.dylib"),
+        os.path.join(cur_dir, "..", "..", "libbinpack.dylib"),
         "binpack.dll",
         "libbinpack.so",
     ]
@@ -134,58 +147,117 @@ if _LIB:
     ]
     _LIB.binpack_query_file_info.restype = ctypes.c_int
 
+    # Dictionary API
+    _LIB.binpack_train_dict.argtypes = [
+        ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t), ctypes.c_size_t, ctypes.c_size_t
+    ]
+    _LIB.binpack_train_dict.restype = ctypes.c_void_p
+
+    _LIB.binpack_create_dict.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+    _LIB.binpack_create_dict.restype = ctypes.c_void_p
+
+    _LIB.binpack_get_dict_buffer.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t)]
+    _LIB.binpack_get_dict_buffer.restype = ctypes.c_void_p
+
+    _LIB.binpack_compress_dict.argtypes = [
+        ctypes.c_void_p, ctypes.c_size_t,
+        ctypes.c_void_p, ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p
+    ]
+    _LIB.binpack_compress_dict.restype = ctypes.c_int
+
+    _LIB.binpack_decompress_dict.argtypes = [
+        ctypes.c_void_p, ctypes.c_size_t,
+        ctypes.c_void_p, ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p
+    ]
+    _LIB.binpack_decompress_dict.restype = ctypes.c_int
+
+    _LIB.binpack_free_dict.argtypes = [ctypes.c_void_p]
+    _LIB.binpack_free_dict.restype = None
+
+    # Patch API
+    _LIB.binpack_create_patch.argtypes = [
+        ctypes.c_void_p, ctypes.c_size_t,
+        ctypes.c_void_p, ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(_BinPackOptions)
+    ]
+    _LIB.binpack_create_patch.restype = ctypes.c_int
+
+    _LIB.binpack_apply_patch.argtypes = [
+        ctypes.c_void_p, ctypes.c_size_t,
+        ctypes.c_void_p, ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_size_t)
+    ]
+    _LIB.binpack_apply_patch.restype = ctypes.c_int
+
+    # Archive API
+    _LIB.binpack_archive_open.argtypes = [ctypes.c_char_p]
+    _LIB.binpack_archive_open.restype = ctypes.c_void_p
+
+    _LIB.binpack_archive_get_chunk_count.argtypes = [ctypes.c_void_p]
+    _LIB.binpack_archive_get_chunk_count.restype = ctypes.c_uint32
+
+    _LIB.binpack_archive_get_total_uncompressed_size.argtypes = [ctypes.c_void_p]
+    _LIB.binpack_archive_get_total_uncompressed_size.restype = ctypes.c_uint64
+
+    _LIB.binpack_archive_get_chunk_info.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(_BinPackChunkInfo)
+    ]
+    _LIB.binpack_archive_get_chunk_info.restype = ctypes.c_int
+
+    _LIB.binpack_archive_decompress_chunk.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint32,
+        ctypes.c_void_p, ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t)
+    ]
+    _LIB.binpack_archive_decompress_chunk.restype = ctypes.c_int
+
+    _LIB.binpack_archive_close.argtypes = [ctypes.c_void_p]
+    _LIB.binpack_archive_close.restype = None
+
 class BinPackException(Exception):
     pass
 
 def version() -> str:
-    if not _LIB: return "2.0.0 (unloaded)"
+    if not _LIB: raise RuntimeError("BinPack library missing")
     return _LIB.binpack_version_string().decode("utf-8")
 
-def compress(data: bytes, level: int = 19, threads: int = 0, 
-             chunk_size_mb: int = 64, micro_trial: bool = True, 
-             filter_mode = BinPackFilter.AUTO, stride: int = 4,
-             mode = BinPackEngineMode.DEFAULT) -> bytes:
-    """Compress in-memory bytes into BinPack V2 stream."""
-    if not _LIB:
-        raise RuntimeError("BinPack shared library (binpack.dll / libbinpack.so) could not be loaded.")
-    
-    if isinstance(mode, str):
-        m = mode.strip().lower()
-        if m in ("runtime", "fast"):
-            mode = BinPackEngineMode.RUNTIME
-        elif m in ("archival", "ultra", "lzma"):
-            mode = BinPackEngineMode.ARCHIVAL
-        else:
-            mode = BinPackEngineMode.DEFAULT
-
-    if isinstance(filter_mode, str):
-        f = filter_mode.strip().lower()
-        if f in ("none", "raw"):
-            filter_mode = BinPackFilter.NONE
-        elif f in ("x86", "x86_64", "x64", "exe"):
-            filter_mode = BinPackFilter.X86_64
-        elif f in ("arm", "arm32", "thumb"):
-            filter_mode = BinPackFilter.ARM32
-        elif f in ("aarch64", "arm64"):
-            filter_mode = BinPackFilter.AARCH64
-        elif f in ("transpose", "delta", "transpose_delta"):
-            filter_mode = BinPackFilter.TRANSPOSE_DELTA
-        elif f in ("bitshuffle", "float", "double", "audio"):
-            filter_mode = BinPackFilter.BITSHUFFLE
-        elif f in ("texture", "bcn", "bc1", "bc7", "dds"):
-            filter_mode = BinPackFilter.TEXTURE_BCN
-        else:
-            filter_mode = BinPackFilter.AUTO
+def compress(
+    data: bytes, 
+    level: int = 19, 
+    filter_mode: str = "auto", 
+    stride: int = 4, 
+    threads: int = 0,
+    mode: str = "default"
+) -> bytes:
+    if not _LIB: raise RuntimeError("BinPack shared library could not be loaded.")
 
     opts = _BinPackOptions()
     _LIB.binpack_default_options(ctypes.byref(opts))
     opts.clevel = level
     opts.nb_workers = threads
-    opts.chunk_size = chunk_size_mb * 1024 * 1024
-    opts.enable_micro_trial = 1 if micro_trial else 0
-    opts.filter = int(filter_mode)
     opts.transpose_stride = stride
-    opts.mode = int(mode)
+
+    f_map = {
+        "auto": BinPackFilter.AUTO,
+        "none": BinPackFilter.NONE,
+        "x86": BinPackFilter.X86_64,
+        "arm": BinPackFilter.ARM32,
+        "arm64": BinPackFilter.AARCH64,
+        "delta": BinPackFilter.TRANSPOSE_DELTA,
+        "bitshuffle": BinPackFilter.BITSHUFFLE,
+        "texture": BinPackFilter.TEXTURE_BCN,
+    }
+    opts.filter = f_map.get(filter_mode.lower(), BinPackFilter.AUTO)
+
+    m_map = {
+        "default": BinPackEngineMode.DEFAULT,
+        "runtime": BinPackEngineMode.RUNTIME,
+        "archival": BinPackEngineMode.ARCHIVAL,
+    }
+    opts.mode = m_map.get(mode.lower(), BinPackEngineMode.DEFAULT)
 
     dst_ptr = ctypes.c_void_p()
     dst_sz = ctypes.c_size_t()
@@ -202,9 +274,7 @@ def compress(data: bytes, level: int = 19, threads: int = 0,
         _LIB.binpack_free(dst_ptr)
 
 def decompress(compressed_data: bytes, verify_checksum: bool = True) -> bytes:
-    """Decompress in-memory BinPack bytes. Set verify_checksum=False for ultra-fast game asset loading (>640 MB/s)."""
-    if not _LIB:
-        raise RuntimeError("BinPack shared library could not be loaded.")
+    if not _LIB: raise RuntimeError("BinPack shared library could not be loaded.")
 
     dst_ptr = ctypes.c_void_p()
     dst_sz = ctypes.c_size_t()
@@ -258,3 +328,156 @@ def query_info(archive_path: str) -> Dict[str, Any]:
         "crc32": hex(info.original_crc32),
         "primary_filter": info.primary_filter,
     }
+
+# =============================================================================
+# Pre-trained Dictionary API
+# =============================================================================
+
+class Dictionary:
+    def __init__(self, handle: ctypes.c_void_p):
+        self._handle = handle
+
+    @classmethod
+    def train(cls, samples: List[bytes], dict_capacity: int = 32768) -> "Dictionary":
+        if not _LIB: raise RuntimeError("BinPack library missing")
+        flat = b"".join(samples)
+        sizes = (ctypes.c_size_t * len(samples))(*[len(s) for s in samples])
+        handle = _LIB.binpack_train_dict(flat, sizes, len(samples), dict_capacity)
+        if not handle:
+            raise BinPackException("Failed to train dictionary from samples")
+        return cls(handle)
+
+    @classmethod
+    def load(cls, dict_bytes: bytes, level: int = 19) -> "Dictionary":
+        if not _LIB: raise RuntimeError("BinPack library missing")
+        handle = _LIB.binpack_create_dict(dict_bytes, len(dict_bytes), level)
+        if not handle:
+            raise BinPackException("Failed to load dictionary from buffer")
+        return cls(handle)
+
+    def to_bytes(self) -> bytes:
+        sz = ctypes.c_size_t()
+        buf = _LIB.binpack_get_dict_buffer(self._handle, ctypes.byref(sz))
+        return ctypes.string_at(buf, sz.value)
+
+    def compress(self, payload: bytes) -> bytes:
+        dst_cap = len(payload) + 512
+        dst = (ctypes.c_ubyte * dst_cap)()
+        cmp_sz = ctypes.c_size_t()
+        st = _LIB.binpack_compress_dict(payload, len(payload), dst, dst_cap, ctypes.byref(cmp_sz), self._handle)
+        if st != BinPackStatus.OK:
+            raise BinPackException(f"Dictionary compression failed ({st})")
+        return bytes(dst[:cmp_sz.value])
+
+    def decompress(self, compressed_payload: bytes, expected_max_sz: int = 65536) -> bytes:
+        dst = (ctypes.c_ubyte * expected_max_sz)()
+        dec_sz = ctypes.c_size_t()
+        st = _LIB.binpack_decompress_dict(compressed_payload, len(compressed_payload), dst, expected_max_sz, ctypes.byref(dec_sz), self._handle)
+        if st != BinPackStatus.OK:
+            raise BinPackException(f"Dictionary decompression failed ({st})")
+        return bytes(dst[:dec_sz.value])
+
+    def __del__(self):
+        if hasattr(self, "_handle") and self._handle and _LIB:
+            _LIB.binpack_free_dict(self._handle)
+            self._handle = None
+
+# =============================================================================
+# Binary Differential Patch API
+# =============================================================================
+
+def create_patch(old_bytes: bytes, new_bytes: bytes, level: int = 19) -> bytes:
+    if not _LIB: raise RuntimeError("BinPack library missing")
+    opts = _BinPackOptions()
+    _LIB.binpack_default_options(ctypes.byref(opts))
+    opts.clevel = level
+
+    patch_ptr = ctypes.c_void_p()
+    patch_sz = ctypes.c_size_t()
+    st = _LIB.binpack_create_patch(
+        old_bytes, len(old_bytes),
+        new_bytes, len(new_bytes),
+        ctypes.byref(patch_ptr), ctypes.byref(patch_sz),
+        ctypes.byref(opts)
+    )
+    if st != BinPackStatus.OK:
+        raise BinPackException(f"Patch creation failed ({st})")
+    try:
+        return ctypes.string_at(patch_ptr, patch_sz.value)
+    finally:
+        _LIB.binpack_free(patch_ptr)
+
+def apply_patch(old_bytes: bytes, patch_bytes: bytes) -> bytes:
+    if not _LIB: raise RuntimeError("BinPack library missing")
+    new_ptr = ctypes.c_void_p()
+    new_sz = ctypes.c_size_t()
+    st = _LIB.binpack_apply_patch(
+        old_bytes, len(old_bytes),
+        patch_bytes, len(patch_bytes),
+        ctypes.byref(new_ptr), ctypes.byref(new_sz)
+    )
+    if st != BinPackStatus.OK:
+        raise BinPackException(f"Patch application failed ({st})")
+    try:
+        return ctypes.string_at(new_ptr, new_sz.value)
+    finally:
+        _LIB.binpack_free(new_ptr)
+
+# =============================================================================
+# Seekable Random-Access Archive API
+# =============================================================================
+
+class Archive:
+    def __init__(self, filepath: str):
+        if not _LIB: raise RuntimeError("BinPack library missing")
+        self._handle = _LIB.binpack_archive_open(filepath.encode("utf-8"))
+        if not self._handle:
+            raise BinPackException(f"Failed to open archive: {filepath}")
+
+    @property
+    def chunk_count(self) -> int:
+        return _LIB.binpack_archive_get_chunk_count(self._handle)
+
+    @property
+    def total_uncompressed_size(self) -> int:
+        return _LIB.binpack_archive_get_total_uncompressed_size(self._handle)
+
+    def get_chunk_info(self, index: int) -> Dict[str, Any]:
+        info = _BinPackChunkInfo()
+        st = _LIB.binpack_archive_get_chunk_info(self._handle, index, ctypes.byref(info))
+        if st != BinPackStatus.OK:
+            raise BinPackException(f"Failed to get chunk info ({st})")
+        return {
+            "chunk_index": info.chunk_index,
+            "file_offset": info.file_offset,
+            "uncompressed_sz": info.uncompressed_sz,
+            "compressed_sz": info.compressed_sz,
+            "filter_id": info.filter_id,
+            "filter_flags": info.filter_flags,
+            "chunk_crc32": hex(info.chunk_crc32)
+        }
+
+    def decompress_chunk(self, index: int) -> bytes:
+        info = self.get_chunk_info(index)
+        dst = (ctypes.c_ubyte * info["uncompressed_sz"])()
+        dec_sz = ctypes.c_size_t()
+        st = _LIB.binpack_archive_decompress_chunk(
+            self._handle, index, dst, info["uncompressed_sz"], ctypes.byref(dec_sz)
+        )
+        if st != BinPackStatus.OK:
+            raise BinPackException(f"Failed to decompress chunk ({st})")
+        return bytes(dst[:dec_sz.value])
+
+    def close(self):
+        if hasattr(self, "_handle") and self._handle and _LIB:
+            _LIB.binpack_archive_close(self._handle)
+            self._handle = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def __del__(self):
+        self.close()

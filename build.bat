@@ -7,7 +7,7 @@ setlocal
 set INCLUDES=-Iinclude -Ideps/include -Ideps/lzma
 set ZSTD_LIB=deps/lib/libzstd_static.lib
 set LZMA_LIB=deps/lib/liblzma_static.lib
-set SRC_FILES=src/binpack_core.c src/binpack_eval.c src/binpack_stream.c src/binpack_sdk.c
+set SRC_FILES=src/binpack_core.c src/binpack_eval.c src/binpack_stream.c src/binpack_sdk.c src/binpack_dict.c src/binpack_patch.c src/binpack_archive.c
 
 where zig >nul 2>nul
 if %ERRORLEVEL% equ 0 (
@@ -35,7 +35,10 @@ if %ERRORLEVEL% equ 0 (
     zig cc -O3 -mavx2 -c %INCLUDES% src/binpack_eval.c -o binpack_eval.obj
     zig cc -O3 -mavx2 -c %INCLUDES% src/binpack_stream.c -o binpack_stream.obj
     zig cc -O3 -mavx2 -c %INCLUDES% src/binpack_sdk.c -o binpack_sdk.obj
-    zig ar rcs binpack.lib binpack_core.obj binpack_eval.obj binpack_stream.obj binpack_sdk.obj
+    zig cc -O3 -mavx2 -c %INCLUDES% src/binpack_dict.c -o binpack_dict.obj
+    zig cc -O3 -mavx2 -c %INCLUDES% src/binpack_patch.c -o binpack_patch.obj
+    zig cc -O3 -mavx2 -c %INCLUDES% src/binpack_archive.c -o binpack_archive.obj
+    zig ar rcs binpack.lib binpack_core.obj binpack_eval.obj binpack_stream.obj binpack_sdk.obj binpack_dict.obj binpack_patch.obj binpack_archive.obj
     if exist *.obj del *.obj
     
     echo [3/4] Compiling Standalone Enterprise CLI: binpack-sdk.exe
@@ -63,7 +66,7 @@ if %ERRORLEVEL% equ 0 (
     echo [BUILD] Building with MSVC cl.exe...
     cl /O2 /arch:AVX2 /W3 /DBINPACK_BUILD_DLL %INCLUDES% %SRC_FILES% %ZSTD_LIB% %LZMA_LIB% /LD /Fe:binpack.dll
     cl /O2 /arch:AVX2 /W3 /c %INCLUDES% %SRC_FILES%
-    lib /OUT:binpack.lib binpack_core.obj binpack_eval.obj binpack_stream.obj binpack_sdk.obj
+    lib /OUT:binpack.lib binpack_core.obj binpack_eval.obj binpack_stream.obj binpack_sdk.obj binpack_dict.obj binpack_patch.obj binpack_archive.obj
     cl /O2 /arch:AVX2 /W3 %INCLUDES% cli/binpack_cli.c binpack.lib %ZSTD_LIB% %LZMA_LIB% /Fe:binpack-sdk.exe
     cl /O2 /arch:AVX2 /W3 %INCLUDES% tests/test_sdk.c binpack.lib %ZSTD_LIB% %LZMA_LIB% /Fe:test_sdk.exe
     if exist *.obj del *.obj

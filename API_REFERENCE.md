@@ -18,6 +18,7 @@ All declarations reside in [`include/binpack_sdk.h`](include/binpack_sdk.h).
 | `BINPACK_ERR_IO` | `-7` | File read, write, or seek error. |
 | `BINPACK_ERR_UNSUPPORTED_VERSION` | `-8` | Stream requires a higher SDK version than the current library. |
 | `BINPACK_ERR_BUFFER_TOO_SMALL` | `-9` | Destination buffer capacity is insufficient. |
+| `BINPACK_ERR_PATCH_MISMATCH` | `-10` | Differential patch baseline CRC32 or size mismatch. |
 
 ---
 
@@ -47,8 +48,6 @@ Populates the options struct with enterprise defaults:
 - `filter = BINPACK_FILTER_AUTO`
 - `transpose_stride = 4`
 - `mode = BINPACK_MODE_DEFAULT`
-- `filter = BINPACK_FILTER_AUTO`
-- `transpose_stride = 4`
 
 ---
 
@@ -85,14 +84,14 @@ binpack_status_t binpack_decompress_buffer_ex(
 ```
 Extended high-throughput in-memory buffer decompressor.
 * `verify_checksum = 1`: Performs full chunk CRC32 integrity verification (standard safety mode, ~500–700 MB/s).
-* `verify_checksum = 0`: Fast-path zero-copy mode bypassing CRC recalculation for ultra-low latency runtime asset loading in game engines, delivering **650–1,060 MB/s** throughput.
+* `verify_checksum = 0`: Fast-path zero-copy mode bypassing CRC recalculation for ultra-low latency runtime asset loading in game engines, delivering **650–1,060 MB/s** throughput.  
 **Caller contract**: The caller must free `*dst` using `binpack_free()`.
 
 ### `binpack_free`
 ```c
 void binpack_free(void *ptr);
 ```
-Frees memory allocated by `binpack_compress_buffer` or `binpack_decompress_buffer`.
+Frees memory allocated by `binpack_compress_buffer`, `binpack_decompress_buffer`, `binpack_create_patch`, or `binpack_apply_patch`.
 
 ---
 
@@ -133,3 +132,94 @@ binpack_status_t binpack_query_file_info(
 );
 ```
 Inspects the archive container header and footer without performing full decompression. Populates `uncompressed_size`, `compressed_size`, `chunk_count`, `original_crc32`, and format version.
+
+---
+
+## 6. Pre-trained Dictionary API (Micro-Telemetry & CAN-bus)
+
+Designed for packet sizes under 512 bytes (CAN-bus frames, sensor telemetry, IoT payloads) where container framing is avoided:
+
+```c
+// Train dictionary on representative samples
+binpack_dict_t* binpack_train_dict(
+    const void *samples,
+    const size_t *sample_sizes,
+    size_t sample_count,
+    size_t dict_capacity
+);
+
+// Compress single packet using pre-trained dictionary
+binpack_status_t binpack_compress_dict(
+    const void *src, size_t src_sz,
+    void *dst, size_t dst_cap,
+    size_t *compressed_sz,
+    const binpack_dict_t *dict
+);
+
+// Decompress single packet using dictionary
+binpack_status_t binpack_decompress_dict(
+    const void *src, size_t src_sz,
+    void *dst, size_t dst_cap,
+    size_t *decompressed_sz,
+    const binpack_dict_t *dict
+);
+
+// Free dictionary handle
+void binpack_free_dict(binpack_dict_t *dict);
+```
+
+---
+
+## 7. Binary Differential Patching API (OTA Firmware & Assets)
+
+Generates micro-patches for software/firmware updates by combining architecture-aware branch normalization with prefix differential matching:
+
+```c
+// Create patch from baseline old_buf to target new_buf
+binpack_status_t binpack_create_patch(
+    const void *old_buf, size_t old_sz,
+    const void *new_buf, size_t new_sz,
+    void **patch_out, size_t *patch_sz,
+    const binpack_options_t *opts
+);
+
+// Apply patch to reconstruct new_buf from baseline old_buf
+binpack_status_t binpack_apply_patch(
+    const void *old_buf, size_t old_sz,
+    const void *patch_buf, size_t patch_sz,
+    void **new_out, size_t *new_sz
+);
+```
+
+---
+
+## 8. Seekable Random-Access Archive API (Virtual Texturing & Streaming)
+
+Enables instantaneous random-access reading of individual chunks from multi-gigabyte packages without unpacking the entire file:
+
+```c
+// Open archive for random access queries
+binpack_archive_t* binpack_archive_open(const char *filepath);
+
+// Query chunk count and total uncompressed size
+uint32_t binpack_archive_get_chunk_count(const binpack_archive_t *archive);
+uint64_t binpack_archive_get_total_uncompressed_size(const binpack_archive_t *archive);
+
+// Query metadata of a specific chunk
+binpack_status_t binpack_archive_get_chunk_info(
+    const binpack_archive_t *archive,
+    uint32_t chunk_idx,
+    binpack_chunk_info_t *info
+);
+
+// Decompress single chunk directly into memory buffer
+binpack_status_t binpack_archive_decompress_chunk(
+    binpack_archive_t *archive,
+    uint32_t chunk_idx,
+    void *dst, size_t dst_capacity,
+    size_t *decompressed_sz
+);
+
+// Close archive handle
+void binpack_archive_close(binpack_archive_t *archive);
+```

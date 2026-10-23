@@ -7,6 +7,8 @@
 
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 #include <immintrin.h>
+#elif defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(_M_ARM64)
+#include <arm_neon.h>
 #endif
 
 /* ========================================================================= */
@@ -219,7 +221,8 @@ void binpack_bcj_aarch64_filter(uint8_t *data, size_t size) {
     for (size_t i = 0; i + 4 <= size; i += 4) {
         uint32_t instr = (uint32_t)data[i] | ((uint32_t)data[i+1] << 8) |
                          ((uint32_t)data[i+2] << 16) | ((uint32_t)data[i+3] << 24);
-        if ((instr >> 26) == 0x25) {
+        uint32_t op = instr >> 26;
+        if (op == 0x25 || op == 0x05) { /* BL (0x25) and B (0x05) */
             uint32_t src = instr & 0x03FFFFFF;
             uint32_t dest = src + (uint32_t)(i >> 2);
             instr = (instr & 0xFC000000) | (dest & 0x03FFFFFF);
@@ -236,7 +239,8 @@ void binpack_bcj_aarch64_unfilter(uint8_t *data, size_t size) {
     for (size_t i = 0; i + 4 <= size; i += 4) {
         uint32_t instr = (uint32_t)data[i] | ((uint32_t)data[i+1] << 8) |
                          ((uint32_t)data[i+2] << 16) | ((uint32_t)data[i+3] << 24);
-        if ((instr >> 26) == 0x25) {
+        uint32_t op = instr >> 26;
+        if (op == 0x25 || op == 0x05) { /* BL (0x25) and B (0x05) */
             uint32_t src = instr & 0x03FFFFFF;
             uint32_t dest = src - (uint32_t)(i >> 2);
             instr = (instr & 0xFC000000) | (dest & 0x03FFFFFF);

@@ -1,7 +1,7 @@
 /**
  * @file binpack_sdk.h
  * @brief BinPack Enterprise SDK - High-Performance Compression & Context Prefiltering Engine
- * @version 2.0.0
+ * @version 2.2.0
  * @copyright (c) 2026 Santiago Robledo. All Rights Reserved.
  *
  * Licensed under the BinPack Dual Licensing Agreement (Commercial & Community).
@@ -52,9 +52,10 @@ extern "C" {
 /**
  * @brief Magic numbers for file container headers.
  */
-#define BINPACK_MAGIC_V1 0x504E4942 /* 'BINP' (Legacy single-block format) */
-#define BINPACK_MAGIC_V2 0x324B5042 /* 'BPK2' (Enterprise streaming & chunked format) */
+#define BINPACK_MAGIC_V1     0x504E4942 /* 'BINP' (Legacy single-block format) */
+#define BINPACK_MAGIC_V2     0x324B5042 /* 'BPK2' (Enterprise streaming & chunked format) */
 #define BINPACK_MAGIC_FOOTER 0x324B5046 /* 'FPK2' */
+#define BINPACK_MAGIC_PATCH  0x504B5042 /* 'BPKP' (Binary differential OTA patch) */
 
 #define BINPACK_DEFAULT_CHUNK_SIZE (16 * 1024 * 1024) /* 16 MB chunk default */
 #define BINPACK_MAX_CHUNK_SIZE     (64 * 1024 * 1024) /* 64 MB chunk limit */
@@ -74,7 +75,8 @@ typedef enum binpack_status_e {
     BINPACK_ERR_CHECKSUM_MISMATCH    = -6, /**< CRC32 integrity check failed */
     BINPACK_ERR_IO                   = -7, /**< File read, write, or seek failure */
     BINPACK_ERR_UNSUPPORTED_VERSION  = -8, /**< Stream requires higher SDK version */
-    BINPACK_ERR_BUFFER_TOO_SMALL     = -9  /**< Destination buffer capacity insufficient */
+    BINPACK_ERR_BUFFER_TOO_SMALL     = -9, /**< Destination buffer capacity insufficient */
+    BINPACK_ERR_PATCH_MISMATCH       = -10 /**< Differential patch baseline CRC/size mismatch */
 } binpack_status_t;
 
 /* ========================================================================= */
@@ -86,7 +88,7 @@ typedef enum binpack_filter_e {
     BINPACK_FILTER_NONE             = 1, /**< Raw pass-through (no prefilter applied) */
     BINPACK_FILTER_X86_64           = 2, /**< x86/x64 BCJ relative jump & call translation */
     BINPACK_FILTER_ARM32            = 3, /**< ARMv7-A 32-bit & Thumb-2 branch normalization */
-    BINPACK_FILTER_AARCH64          = 4, /**< ARMv8-A / ARM64 26-bit jump offset normalization */
+    BINPACK_FILTER_AARCH64          = 4, /**< ARMv8-A / ARM64 26-bit B/BL jump offset normalization */
     BINPACK_FILTER_TRANSPOSE_DELTA  = 5, /**< Stride-N transpose + delta for floats & telemetry */
     BINPACK_FILTER_BITSHUFFLE       = 6, /**< Bit-level transposition for tensors & scientific IEEE 754 data */
     BINPACK_FILTER_TEXTURE_BCN      = 7  /**< GPU texture block decoupling (BC1-BC7 & ASTC formats) */
@@ -97,7 +99,7 @@ typedef enum binpack_filter_e {
  */
 typedef enum binpack_engine_mode_e {
     BINPACK_MODE_DEFAULT  = 0, /**< Balanced production profile (Level 19, high ratio, fast decode) */
-    BINPACK_MODE_RUNTIME  = 1, /**< Maximum decompression throughput profile (1.5 - 2.5 GB/s) */
+    BINPACK_MODE_RUNTIME  = 1, /**< Maximum decompression throughput profile (650 - 1060 MB/s) */
     BINPACK_MODE_ARCHIVAL = 2  /**< Maximum compression density profile (btultra2, beats 7-Zip LZMA2) */
 } binpack_engine_mode_t;
 
@@ -131,106 +133,65 @@ typedef struct binpack_file_info_s {
     uint8_t  flags;              /**< Stream flags (e.g., checksum enabled) */
 } binpack_file_info_t;
 
+/**
+ * @brief Information for an individual seekable chunk.
+ */
+typedef struct binpack_chunk_info_s {
+    uint32_t chunk_index;        /**< Zero-based index of chunk */
+    uint64_t file_offset;        /**< Byte offset of chunk payload in archive file */
+    uint32_t uncompressed_sz;    /**< Restored uncompressed byte size of chunk */
+    uint32_t compressed_sz;      /**< Compressed payload size of chunk */
+    uint8_t  filter_id;          /**< Filter ID utilized */
+    uint8_t  filter_flags;       /**< Filter flags (bounds, prefix, backend) */
+    uint32_t chunk_crc32;        /**< Expected CRC32 checksum of chunk */
+} binpack_chunk_info_t;
+
+/**
+ * @brief Opaque handle for random-access archives.
+ */
+typedef struct binpack_archive_s binpack_archive_t;
+
+/**
+ * @brief Opaque pre-trained dictionary handle.
+ */
+typedef struct binpack_dict_s binpack_dict_t;
+
 /* ========================================================================= */
 /* Stream Callbacks for Custom I/O & Progress                                */
 /* ========================================================================= */
 
-/**
- * @brief Read callback function for custom stream sources.
- * @return Bytes read, or 0 on EOF / error.
- */
 typedef size_t (BINPACK_CALL *binpack_read_fn)(void *user_data, void *buffer, size_t size);
-
-/**
- * @brief Write callback function for custom stream sinks.
- * @return Bytes written, or 0 on error.
- */
 typedef size_t (BINPACK_CALL *binpack_write_fn)(void *user_data, const void *buffer, size_t size);
-
-/**
- * @brief Progress callback.
- */
 typedef void (BINPACK_CALL *binpack_progress_fn)(void *user_data, 
                                                  uint64_t bytes_in_processed, 
                                                  uint64_t total_in_bytes, 
                                                  uint64_t bytes_out_written);
 
 /* ========================================================================= */
-/* Public API Functions                                                      */
+/* Core In-Memory & File API Functions                                       */
 /* ========================================================================= */
 
-/**
- * @brief Populate options structure with recommended enterprise defaults.
- */
 BINPACK_API void BINPACK_CALL binpack_default_options(binpack_options_t *opts);
 
-/**
- * @brief Compress an in-memory buffer into a dynamically allocated BinPack buffer.
- *
- * Caller MUST free *dst using binpack_free().
- *
- * @param src Input uncompressed data pointer.
- * @param src_sz Size in bytes of input.
- * @param dst Address of pointer to receive newly allocated compressed buffer.
- * @param dst_sz Pointer to receive size in bytes of compressed buffer.
- * @param opts Optional compression options (NULL for defaults).
- * @return BINPACK_OK on success, or negative error code.
- */
 BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_buffer(
     const void *src, size_t src_sz,
     void **dst, size_t *dst_sz,
     const binpack_options_t *opts
 );
 
-/**
- * @brief Decompress an in-memory BinPack buffer.
- *
- * Caller MUST free *dst using binpack_free().
- *
- * @param src Input compressed data pointer.
- * @param src_sz Size in bytes of compressed input.
- * @param dst Address of pointer to receive newly allocated uncompressed buffer.
- * @param dst_sz Pointer to receive size in bytes of restored uncompressed data.
- * @return BINPACK_OK on success, or negative error code.
- */
 BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_buffer(
     const void *src, size_t src_sz,
     void **dst, size_t *dst_sz
 );
 
-/**
- * @brief Extended in-memory buffer decompressor with fast-path option to bypass checksum.
- *
- * @param src Input compressed data pointer.
- * @param src_sz Size in bytes of compressed input.
- * @param dst Address of pointer to receive newly allocated uncompressed buffer.
- * @param dst_sz Pointer to receive size in bytes of restored uncompressed data.
- * @param verify_checksum 1 = perform full CRC32 check, 0 = fast-path skip CRC32 (>640 MB/s).
- * @return BINPACK_OK on success, or negative error code.
- */
 BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_buffer_ex(
     const void *src, size_t src_sz,
     void **dst, size_t *dst_sz,
     int verify_checksum
 );
 
-/**
- * @brief Free a buffer allocated by binpack_compress_buffer or binpack_decompress_buffer.
- */
 BINPACK_API void BINPACK_CALL binpack_free(void *ptr);
 
-/**
- * @brief Compress a file on disk using streaming chunk framing and bounded memory.
- *
- * Operates with bounded RAM regardless of input file size (1 MB to 100+ GB).
- *
- * @param in_path Source file path.
- * @param out_path Destination archive file path.
- * @param opts Optional compression options (NULL for defaults).
- * @param progress Optional progress callback (NULL if not needed).
- * @param user_data Context pointer passed to progress callback.
- * @return BINPACK_OK on success, or negative error code.
- */
 BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_file(
     const char *in_path,
     const char *out_path,
@@ -239,15 +200,6 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_file(
     void *user_data
 );
 
-/**
- * @brief Decompress an archive file on disk using streaming chunk framing and bounded memory.
- *
- * @param in_path Source archive file path.
- * @param out_path Destination restored file path.
- * @param progress Optional progress callback (NULL if not needed).
- * @param user_data Context pointer passed to progress callback.
- * @return BINPACK_OK on success, or negative error code.
- */
 BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_file(
     const char *in_path,
     const char *out_path,
@@ -255,9 +207,6 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_file(
     void *user_data
 );
 
-/**
- * @brief Generic stream compression using abstract read/write callbacks.
- */
 BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
     binpack_read_fn reader,
     binpack_write_fn writer,
@@ -267,9 +216,6 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
     binpack_progress_fn progress
 );
 
-/**
- * @brief Generic stream decompression using abstract read/write callbacks.
- */
 BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_stream(
     binpack_read_fn reader,
     binpack_write_fn writer,
@@ -277,36 +223,174 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_stream(
     binpack_progress_fn progress
 );
 
-/**
- * @brief Inspect archive header and chunk metadata without full decompression.
- */
 BINPACK_API binpack_status_t BINPACK_CALL binpack_query_file_info(
     const char *path,
     binpack_file_info_t *info
 );
 
-/**
- * @brief Evaluate whether a prefilter improves compressibility on a sample block.
- *
- * @param sample Pointer to sample bytes.
- * @param sample_sz Size of sample (up to 64 KB).
- * @param filter Candidate filter ID.
- * @param stride Stride parameter for transpose filter.
- * @return 1 if prefilter yields positive gain, 0 if it causes regression or zero gain.
- */
 BINPACK_API int BINPACK_CALL binpack_evaluate_filter_gain(
     const uint8_t *sample, size_t sample_sz,
     binpack_filter_t filter, uint16_t stride
 );
 
-/**
- * @brief Return version string ("2.0.0").
- */
-BINPACK_API const char* BINPACK_CALL binpack_version_string(void);
+/* ========================================================================= */
+/* Pre-trained Dictionary API (Micro-Telemetry & CAN-bus Packets)            */
+/* ========================================================================= */
 
 /**
- * @brief Return human-readable error description string.
+ * @brief Train an optimized dictionary from a collection of sample payloads.
+ *
+ * @param samples Flat buffer containing all sample concatenated payloads.
+ * @param sample_sizes Array of sizes for each individual sample payload.
+ * @param sample_count Number of samples in sample_sizes.
+ * @param dict_capacity Desired maximum dictionary size in bytes (e.g. 32768 or 65536).
+ * @return Newly allocated dictionary handle, or NULL on failure. Free with binpack_free_dict().
  */
+BINPACK_API binpack_dict_t* BINPACK_CALL binpack_train_dict(
+    const void *samples,
+    const size_t *sample_sizes,
+    size_t sample_count,
+    size_t dict_capacity
+);
+
+/**
+ * @brief Create a dictionary handle from an existing pre-trained dictionary buffer.
+ */
+BINPACK_API binpack_dict_t* BINPACK_CALL binpack_create_dict(
+    const void *dict_buffer,
+    size_t dict_size,
+    int clevel
+);
+
+/**
+ * @brief Extract raw dictionary bytes from a dictionary handle for saving to disk or transmission.
+ */
+BINPACK_API const void* BINPACK_CALL binpack_get_dict_buffer(
+    const binpack_dict_t *dict,
+    size_t *out_size
+);
+
+/**
+ * @brief Compress a single micro-payload using a pre-trained dictionary with zero framing overhead.
+ */
+BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_dict(
+    const void *src, size_t src_sz,
+    void *dst, size_t dst_cap,
+    size_t *compressed_sz,
+    const binpack_dict_t *dict
+);
+
+/**
+ * @brief Decompress a single micro-payload using a pre-trained dictionary.
+ */
+BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_dict(
+    const void *src, size_t src_sz,
+    void *dst, size_t dst_cap,
+    size_t *decompressed_sz,
+    const binpack_dict_t *dict
+);
+
+/**
+ * @brief Free a dictionary handle.
+ */
+BINPACK_API void BINPACK_CALL binpack_free_dict(binpack_dict_t *dict);
+
+/* ========================================================================= */
+/* Binary Differential Patching API (OTA Firmware & Asset Updates)           */
+/* ========================================================================= */
+
+/**
+ * @brief Generate a binary differential patch between old_buf (base) and new_buf (target).
+ * Combines architecture-aware BCJ branch normalization with prefix differential matching.
+ *
+ * @param old_buf Pointer to baseline original data.
+ * @param old_sz Size of baseline original data.
+ * @param new_buf Pointer to updated target data.
+ * @param new_sz Size of updated target data.
+ * @param patch_out Address of pointer to receive allocated patch buffer (Caller frees via binpack_free).
+ * @param patch_sz Pointer to receive size of patch buffer.
+ * @param opts Optional compression options (NULL for defaults).
+ * @return BINPACK_OK on success, or negative error code.
+ */
+BINPACK_API binpack_status_t BINPACK_CALL binpack_create_patch(
+    const void *old_buf, size_t old_sz,
+    const void *new_buf, size_t new_sz,
+    void **patch_out, size_t *patch_sz,
+    const binpack_options_t *opts
+);
+
+/**
+ * @brief Apply a binary differential patch to reconstruct the updated new_buf from old_buf.
+ *
+ * @param old_buf Pointer to baseline original data.
+ * @param old_sz Size of baseline original data.
+ * @param patch_buf Pointer to patch data generated by binpack_create_patch.
+ * @param patch_sz Size of patch data.
+ * @param new_out Address of pointer to receive allocated restored data (Caller frees via binpack_free).
+ * @param new_sz Pointer to receive size of restored data.
+ * @return BINPACK_OK on success, or negative error code.
+ */
+BINPACK_API binpack_status_t BINPACK_CALL binpack_apply_patch(
+    const void *old_buf, size_t old_sz,
+    const void *patch_buf, size_t patch_sz,
+    void **new_out, size_t *new_sz
+);
+
+/* ========================================================================= */
+/* Seekable Chunk Archive API (Random Access & Virtual Texturing)             */
+/* ========================================================================= */
+
+/**
+ * @brief Open an archive file for random-access chunk queries and zero-allocation decompression.
+ */
+BINPACK_API binpack_archive_t* BINPACK_CALL binpack_archive_open(const char *filepath);
+
+/**
+ * @brief Return total number of chunks present in the opened archive.
+ */
+BINPACK_API uint32_t BINPACK_CALL binpack_archive_get_chunk_count(const binpack_archive_t *archive);
+
+/**
+ * @brief Return total uncompressed payload size of the opened archive.
+ */
+BINPACK_API uint64_t BINPACK_CALL binpack_archive_get_total_uncompressed_size(const binpack_archive_t *archive);
+
+/**
+ * @brief Query metadata for a specific chunk index without reading or decompressing it.
+ */
+BINPACK_API binpack_status_t BINPACK_CALL binpack_archive_get_chunk_info(
+    const binpack_archive_t *archive,
+    uint32_t chunk_idx,
+    binpack_chunk_info_t *info
+);
+
+/**
+ * @brief Decompress a single chunk directly into a caller-provided destination memory buffer.
+ *
+ * @param archive Open archive handle.
+ * @param chunk_idx Zero-based index of target chunk.
+ * @param dst Caller-provided destination buffer (capacity >= uncompressed_sz).
+ * @param dst_capacity Capacity in bytes of dst.
+ * @param decompressed_sz Pointer to receive actual bytes decompressed.
+ * @return BINPACK_OK on success, or negative error code.
+ */
+BINPACK_API binpack_status_t BINPACK_CALL binpack_archive_decompress_chunk(
+    binpack_archive_t *archive,
+    uint32_t chunk_idx,
+    void *dst, size_t dst_capacity,
+    size_t *decompressed_sz
+);
+
+/**
+ * @brief Close an opened archive handle and release its internal resources.
+ */
+BINPACK_API void BINPACK_CALL binpack_archive_close(binpack_archive_t *archive);
+
+/* ========================================================================= */
+/* Informational & Status Functions                                          */
+/* ========================================================================= */
+
+BINPACK_API const char* BINPACK_CALL binpack_version_string(void);
 BINPACK_API const char* BINPACK_CALL binpack_error_string(binpack_status_t status);
 
 #ifdef __cplusplus

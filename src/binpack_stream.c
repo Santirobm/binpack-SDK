@@ -7,18 +7,18 @@
 
 #if defined(_WIN32)
 #include <windows.h>
-static int binpack_get_cpu_cores(void) {
+int binpack_get_cpu_cores(void) {
     DWORD count = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
     return count > 0 ? (int)count : 4;
 }
 #elif defined(__APPLE__) || defined(__linux__)
 #include <unistd.h>
-static int binpack_get_cpu_cores(void) {
+int binpack_get_cpu_cores(void) {
     long count = sysconf(_SC_NPROCESSORS_ONLN);
     return count > 0 ? (int)count : 4;
 }
 #else
-static int binpack_get_cpu_cores(void) {
+int binpack_get_cpu_cores(void) {
     return 4;
 }
 #endif

@@ -22,6 +22,9 @@ target/
 *.lib
 !deps/lib/*.lib
 !deps/lib/*.a
+!integrations/unity/com.binpack.enterprise/Plugins/**/*.dll
+!integrations/unity/com.binpack.enterprise/Plugins/**/*.so
+!integrations/unity/com.binpack.enterprise/Plugins/**/*.dylib
 
 # Temporary & Test files
 *.tmp

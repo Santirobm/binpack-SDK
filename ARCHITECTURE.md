@@ -15,7 +15,8 @@ The BinPack Enterprise SDK is engineered as an industrial-grade compression and 
 +-----------------------------------------------------------------------------------+
 |                      BINPACK PUBLIC C-ABI (binpack_sdk.h)                         |
 |   binpack_compress_buffer()                 binpack_compress_file()               |
-|   binpack_decompress_buffer()               binpack_decompress_stream()           |
+|   binpack_train_dict()                      binpack_create_patch()                |
+|   binpack_archive_open()                    binpack_archive_decompress_chunk()    |
 +-----------------------------------------------------------------------------------+
                                          |
                                          v
@@ -32,8 +33,8 @@ The BinPack Enterprise SDK is engineered as an industrial-grade compression and 
 |  - Fast 32-64 KB sample evaluation     |  | - PE/ELF .text section bounds parser  |
 |  - Compares compressed size vs raw     |  | - BCJ x86 branch state machine (Pavlov)|
 |  - Rejects filter if gain <= 0%        |  | - BCJ ARM32 Thumb-2 branch converter  |
-|  - Zero-Regression Guarantee           |  | - BCJ AArch64 (ARM64 26-bit branches) |
-|                                        |  | - AVX2 Bitshuffle 8x8 bit transposition|
+|  - Zero-Regression Guarantee           |  | - BCJ AArch64 (B/BL 26-bit branches)  |
+|                                        |  | - AVX2 / NEON Bitshuffle 8x8 matrix   |
 +----------------------------------------+  +---------------------------------------+
                                          |
                                          v
@@ -95,7 +96,7 @@ BinPack Enterprise SDK solves this via **Bounded-Memory Chunk Framing (`BPK2`)**
 ## 3. Dual Engine Profiles: Runtime vs. Archival
 
 1. **`BINPACK_MODE_RUNTIME`**:
-   * Prioritizes decompression throughput ($1.5 - 2.5\text{ GB/s}$).
+   * Prioritizes decompression throughput ($650 - 1,060\text{ MB/s}$ in Fast-Path zero-CRC mode).
    * Strategy: `ZSTD_dfast`, compression level 12.
    * Ideal for real-time asset streaming, game asset loading, and microservice RPCs.
 
@@ -108,3 +109,30 @@ BinPack Enterprise SDK solves this via **Bounded-Memory Chunk Framing (`BPK2`)**
    * Prioritizes absolute maximum compression density.
    * Strategy: Integrated 64-bit Bit-Level Range Coder (LZMA2 Core) with deep binary trees and Markov context models.
    * Outperforms 7-Zip LZMA2 on binary code (`ooffice`), Windows PE DLLs, and scientific datasets.
+
+---
+
+## 4. Pre-trained Dictionary Engine (IoT & Telemetry Micro-Packets)
+
+For micro-packets under 512 bytes (e.g. CAN-bus sensor frames of 64 bytes), standard container framing incurs a proportional overhead.
+BinPack resolves this with **trained static dictionaries**:
+* `binpack_train_dict()` digests hundreds of typical telemetry payloads into a compact 16–64 KB dictionary matrix.
+* `binpack_compress_dict()` compresses micro-packets without framing headers, yielding **60–75% net space reduction** on 64-byte payloads with sub-millisecond execution.
+
+---
+
+## 5. Binary Differential OTA Patching (Courgette-Style)
+
+When updating executable firmware or game executables, code insertions cause relative branch targets to shift, creating massive diffs in traditional compressors.
+BinPack resolves this through **Courgette-style normalized differential matching**:
+1. Both baseline and target binaries are normalized via BCJ filters (x86, ARM32, or AArch64), converting shifted relative offsets into static absolute targets.
+2. The normalized baseline binary is injected as a sliding reference dictionary.
+3. The resulting patch file (`BPKP`) compresses only the genuine semantic modifications, yielding patches under **100–400 bytes** for typical security fixes and minor firmware updates.
+
+---
+
+## 6. Seekable Random-Access Archive Engine (Virtual Texturing)
+
+Game engines and virtual texturing pipelines require random-access retrieval of individual assets without reading or decompressing entire multi-gigabyte packages.
+* `binpack_archive_open()` reads container headers and constructs an in-memory index table of chunk byte offsets.
+* `binpack_archive_decompress_chunk()` performs direct `fseek` and decompresses individual target chunks in $\sim 2\text{ ms}$, enabling non-blocking background asset loading.

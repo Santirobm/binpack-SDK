@@ -38,6 +38,8 @@ static void print_usage(const char *prog) {
     printf("Usage:\n");
     printf("  %s -c <input> <output.bpk2> [options]   Compress file in bounded streaming chunks\n", prog);
     printf("  %s -d <input.bpk2> <output>             Decompress archive\n", prog);
+    printf("  %s -p <old_base> <new_target> <patch>  Generate binary differential OTA patch\n", prog);
+    printf("  %s -a <old_base> <patch> <restored>     Apply binary differential OTA patch\n", prog);
     printf("  %s -i <archive.bpk2>                    Inspect archive metadata\n", prog);
     printf("  %s -b <input>                           Run compression & throughput benchmark\n", prog);
     printf("\nOptions:\n");
@@ -192,6 +194,122 @@ int main(int argc, char **argv) {
         printf("[OK] Compression completed in %.3f s (Throughput: %.2f MB/s)\n", t1 - t0, speed);
         printf("[OK] Original: %llu bytes | Compressed: %llu bytes (Ratio: %.2f%%)\n",
                (unsigned long long)info.uncompressed_size, (unsigned long long)info.compressed_size, ratio);
+        return 0;
+    }
+
+    /* Mode: Create Differential Patch */
+    if (strcmp(argv[1], "-p") == 0) {
+        if (argc < 5) {
+            fprintf(stderr, "[ERROR] Usage: %s -p <old_base> <new_target> <patch.bpkp>\n", argv[0]);
+            return 1;
+        }
+        const char *old_path = argv[2];
+        const char *new_path = argv[3];
+        const char *patch_path = argv[4];
+
+        FILE *f_old = fopen(old_path, "rb");
+        FILE *f_new = fopen(new_path, "rb");
+        if (!f_old || !f_new) {
+            if (f_old) fclose(f_old);
+            if (f_new) fclose(f_new);
+            fprintf(stderr, "[ERROR] Cannot open input files for patching\n");
+            return 1;
+        }
+
+        fseek(f_old, 0, SEEK_END); long old_sz = ftell(f_old); fseek(f_old, 0, SEEK_SET);
+        fseek(f_new, 0, SEEK_END); long new_sz = ftell(f_new); fseek(f_new, 0, SEEK_SET);
+
+        uint8_t *old_buf = (uint8_t*)malloc(old_sz);
+        uint8_t *new_buf = (uint8_t*)malloc(new_sz);
+        fread(old_buf, 1, old_sz, f_old); fclose(f_old);
+        fread(new_buf, 1, new_sz, f_new); fclose(f_new);
+
+        printf("[INFO] Generating binary differential patch: '%s' -> '%s'...\n", old_path, new_path);
+        double t0 = get_time_sec();
+        void *patch_out = NULL;
+        size_t patch_sz = 0;
+        binpack_status_t st = binpack_create_patch(old_buf, old_sz, new_buf, new_sz, &patch_out, &patch_sz, NULL);
+        double t1 = get_time_sec();
+
+        free(old_buf);
+        free(new_buf);
+
+        if (st != BINPACK_OK) {
+            fprintf(stderr, "[ERROR] Patch creation failed: %s\n", binpack_error_string(st));
+            return 1;
+        }
+
+        FILE *f_patch = fopen(patch_path, "wb");
+        if (!f_patch) {
+            binpack_free(patch_out);
+            fprintf(stderr, "[ERROR] Cannot write patch file '%s'\n", patch_path);
+            return 1;
+        }
+        fwrite(patch_out, 1, patch_sz, f_patch);
+        fclose(f_patch);
+        binpack_free(patch_out);
+
+        double pct = (double)patch_sz * 100.0 / (double)new_sz;
+        printf("[OK] Patch generated successfully in %.3f s\n", t1 - t0);
+        printf("[OK] Target Size: %ld bytes | Patch Size: %llu bytes (%.2f%% of target)\n",
+               new_sz, (unsigned long long)patch_sz, pct);
+        return 0;
+    }
+
+    /* Mode: Apply Differential Patch */
+    if (strcmp(argv[1], "-a") == 0) {
+        if (argc < 5) {
+            fprintf(stderr, "[ERROR] Usage: %s -a <old_base> <patch.bpkp> <restored_target>\n", argv[0]);
+            return 1;
+        }
+        const char *old_path = argv[2];
+        const char *patch_path = argv[3];
+        const char *restored_path = argv[4];
+
+        FILE *f_old = fopen(old_path, "rb");
+        FILE *f_patch = fopen(patch_path, "rb");
+        if (!f_old || !f_patch) {
+            if (f_old) fclose(f_old);
+            if (f_patch) fclose(f_patch);
+            fprintf(stderr, "[ERROR] Cannot open input files for applying patch\n");
+            return 1;
+        }
+
+        fseek(f_old, 0, SEEK_END); long old_sz = ftell(f_old); fseek(f_old, 0, SEEK_SET);
+        fseek(f_patch, 0, SEEK_END); long patch_sz = ftell(f_patch); fseek(f_patch, 0, SEEK_SET);
+
+        uint8_t *old_buf = (uint8_t*)malloc(old_sz);
+        uint8_t *patch_buf = (uint8_t*)malloc(patch_sz);
+        fread(old_buf, 1, old_sz, f_old); fclose(f_old);
+        fread(patch_buf, 1, patch_sz, f_patch); fclose(f_patch);
+
+        printf("[INFO] Applying binary differential patch '%s' onto base '%s'...\n", patch_path, old_path);
+        double t0 = get_time_sec();
+        void *new_out = NULL;
+        size_t new_sz = 0;
+        binpack_status_t st = binpack_apply_patch(old_buf, old_sz, patch_buf, patch_sz, &new_out, &new_sz);
+        double t1 = get_time_sec();
+
+        free(old_buf);
+        free(patch_buf);
+
+        if (st != BINPACK_OK) {
+            fprintf(stderr, "[ERROR] Patch application failed: %s\n", binpack_error_string(st));
+            return 1;
+        }
+
+        FILE *f_rest = fopen(restored_path, "wb");
+        if (!f_rest) {
+            binpack_free(new_out);
+            fprintf(stderr, "[ERROR] Cannot write restored file '%s'\n", restored_path);
+            return 1;
+        }
+        fwrite(new_out, 1, new_sz, f_rest);
+        fclose(f_rest);
+        binpack_free(new_out);
+
+        printf("[OK] Patch applied successfully in %.3f s (Restored: %llu bytes)\n",
+               t1 - t0, (unsigned long long)new_sz);
         return 0;
     }
 
