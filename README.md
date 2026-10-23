@@ -25,7 +25,9 @@ It combines architecture-aware binary preconditioning (x86/x64, ARM32 Thumb-2, A
 
 ## Comparative Benchmarks
 
-Evaluated on x64 production binaries and numerical matrices using native Zstandard Level 19 vs. BinPack Enterprise SDK v2.0:
+> **Full empirical multi-engine benchmark report available in [`BENCHMARKS.md`](BENCHMARKS.md).**
+
+Evaluated on x64 production binaries and numerical matrices using native Zstandard Level 19 vs. BinPack Enterprise SDK v2.1:
 
 | Asset / Payload | Raw Size | Zstandard Level 19 | BinPack SDK v2.0 | Net Reduction | Throughput (Decompress) |
 | :--- | :---: | :---: | :---: | :---: | :---: |
