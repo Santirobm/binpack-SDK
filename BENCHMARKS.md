@@ -50,15 +50,15 @@ Comparing compression engines requires evaluating trade-offs along the Pareto ef
 
 | Engine & Configuration | Evaluation Tier | Compressed Size | Ratio | Comp Speed | Decomp Speed | Result vs. Competitors |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **LZ4 (Frame Fast)** | Tier 1 (Speed) | 892,532 B | 80.47% | 760.1 MB/s | 1,480.2 MB/s | High speed, poor density |
-| **Meta Zstandard (Level 1)** | Tier 1 (Speed) | 712,701 B | 64.26% | 480.5 MB/s | 890.3 MB/s | Standard web baseline |
-| **BinPack Runtime (Fast-Path)** | Tier 1 (Speed) | **586,925 B** | **52.92%** | 38.5 MB/s | **920.4 MB/s** | **-125 KB (-17.6%) vs Zstd L1** |
-| **Meta Zstandard (Level 19)** | Tier 2 (Balanced) | 566,108 B | 51.04% | 4.8 MB/s | 680.1 MB/s | Zstandard high preset |
-| **Meta Zstandard (Level 22 Ultra)**| Tier 3 (Density) | 566,114 B | 51.04% | 3.2 MB/s | 675.2 MB/s | Zstandard max preset |
-| **BinPack Default (Level 19)** | Tier 2 (Balanced) | **537,850 B** | **48.49%** | 5.1 MB/s | **740.8 MB/s** | **-28,258 B (-5.0%) vs Zstd L22** |
-| **7-Zip (LZMA2 -9)** | Tier 3 (Density) | 497,024 B | 44.81% | 2.9 MB/s | 72.1 MB/s | Generic LZMA2 |
-| **7-Zip (BCJ ARM + LZMA2 -9)** | Tier 3 (Density) | 471,180 B | 42.48% | 2.8 MB/s | 74.3 MB/s | Pavlov BCJ filter |
-| **BinPack Archival Core** | Tier 3 (Density) | **471,166 B** | **42.48%** | 3.1 MB/s | **86.4 MB/s** | **1st Place Worldwide** |
+| **LZ4 (Frame Fast)** | Tier 1 (Speed) | 892,532 B | 80.47% | 549.0 MB/s | 1,566.8 MB/s | High speed, poor density |
+| **Meta Zstandard (Level 1)** | Tier 1 (Speed) | 712,701 B | 64.26% | 343.4 MB/s | 849.8 MB/s | Standard web baseline |
+| **BinPack Runtime (Fast Zero-CRC)** | Tier 1 (Speed) | **614,955 B** | **55.44%** | **118.2 MB/s** | **639.9 MB/s** | **-97.7 KB (-13.7%) vs Zstd L1** |
+| **BinPack Runtime (Strict CRC32)** | Tier 1 (Speed) | **614,955 B** | **55.44%** | **114.6 MB/s** | **484.2 MB/s** | **Full CRC32 verified** |
+| **Meta Zstandard (Level 19)** | Tier 2 (Balanced) | 566,108 B | 51.04% | 6.4 MB/s | 559.4 MB/s | Zstandard high preset |
+| **BinPack Default (Level 19)** | Tier 2 (Balanced) | **538,098 B** | **48.52%** | **6.6 MB/s** | **527.4 MB/s** | **-28,010 B (-5.0%) vs Zstd L19** |
+| **7-Zip (LZMA2 -9)** | Tier 3 (Density) | 497,024 B | 44.81% | 4.3 MB/s | 49.2 MB/s | Generic LZMA2 |
+| **7-Zip (BCJ ARM + LZMA2 -9)** | Tier 3 (Density) | 471,180 B | 42.48% | 4.4 MB/s | 51.5 MB/s | Pavlov BCJ filter |
+| **BinPack Archival Core** | Tier 3 (Density) | **471,166 B** | **42.48%** | **5.4 MB/s** | **58.3 MB/s** | **1st Place (+13% faster decomp)** |
 
 > **Audit Finding**: On real-world compiled embedded Linux binaries, BinPack Default saves **28.2 KB (-5.0%)** over Zstandard Level 22 Ultra while decompressing faster (**740 MB/s vs 675 MB/s**). In Archival mode, BinPack takes **1st place** worldwide, surpassing 7-Zip (BCJ ARM + LZMA2) and beating Zstandard by **94,948 bytes (-16.8%)**.
 
@@ -81,39 +81,48 @@ Comparing compression engines requires evaluating trade-offs along the Pareto ef
 
 ---
 
-### C. Industrial Telemetry: NASA C-MAPSS Turbofan Sensor Array
-* **File Description**: NASA Prognostics Center of Excellence Turbofan Engine Degradation Simulation (21 sensors + 3 operational settings).
-* **Binary Dataset (`Float32`)**: 1,980,576 bytes (1.89 MB) packed IEEE 754 binary floats.
-* **Text Dataset (`ASCII`)**: 3,515,356 bytes (3.35 MB) tabular CSV log.
+### C. Industrial Telemetry & Medical Imaging (`nasa_turbofan_float32` & `mr`)
+* **NASA C-MAPSS Turbofan (`Float32`)**: 1,980,576 bytes (1.89 MB) packed IEEE 754 binary floats (24 sensor channels per row, auto-detected `stride = 96`).
+* **Medical MRI Scan (`mr`)**: 9,970,564 bytes (9.51 MB) 16-bit grayscale medical imaging array (auto-detected `stride = 2`).
 
-| Dataset / Representation | Engine & Preset | Compressed Size | Ratio | Decomp Speed | Net Savings |
-| :--- | :--- | :---: | :---: | :---: | :--- |
-| **NASA Turbofan Float32 Array** | LZ4 (Frame Fast) | 1,122,187 B | 56.66% | 2,284 MB/s | Baseline |
-| | Meta Zstandard (Level 3 Default) | 757,770 B | 38.26% | 848 MB/s | Standard compressor |
-| | Meta Zstandard (Level 19) | 614,301 B | 31.02% | 842 MB/s | Zstd max window |
-| | **BinPack Runtime (Fast-Path)** | **675,906 B** | **34.13%** | **906 MB/s** | **Fast decompression** |
-| | **BinPack Default (Level 19)** | **614,369 B** | **31.02%** | **927 MB/s** | **+85 MB/s faster decomp than Zstd** |
-| | **BinPack Archival Core** | **497,088 B** | **25.10%** | **110 MB/s** | **1st Place (-117 KB vs Zstd L19)** |
-| **NASA Turbofan ASCII Table** | Meta Zstandard (Level 19) | 656,851 B | 18.69% | 1,003 MB/s | Standard log compression |
-| | **BinPack Default (Level 19)** | **656,919 B** | **18.69%** | **1,035 MB/s** | **Equivalent density, faster decomp** |
-| | **BinPack Archival Core** | **581,759 B** | **16.55%** | **136 MB/s** | **1st Place (-75 KB vs Zstd L19)** |
+| Dataset / Representation | Engine & Preset | Compressed Size | Ratio | Comp Speed | Decomp Speed | Net Savings |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- |
+| **NASA Turbofan Float32 Array** | LZ4 (Frame Fast) | 1,122,187 B | 56.66% | 578.9 MB/s | 1,714.8 MB/s | Baseline |
+| | Meta Zstandard (Level 1) | 893,313 B | 45.10% | 341.5 MB/s | 744.2 MB/s | Standard fast preset |
+| | Meta Zstandard (Level 19) | 614,301 B | 31.02% | 3.7 MB/s | 811.2 MB/s | Zstd max window |
+| | **BinPack Runtime (Fast Zero-CRC)** | **564,550 B** | **28.50%** | **219.6 MB/s** | **550.0 MB/s** | **Beats Zstd-19 at 59x comp speed!** |
+| | **BinPack Default (Level 19)** | **540,041 B** | **27.27%** | **11.5 MB/s** | **643.9 MB/s** | **-74.3 KB (-12.1%) vs Zstd L19** |
+| | **BinPack Archival Core** | **497,088 B** | **25.10%** | **3.6 MB/s** | **110.8 MB/s** | **1st Place (-117 KB vs Zstd L19)** |
+| **Medical MRI 16-bit (`mr`)** | LZ4 (Frame Fast) | 5,443,900 B | 54.60% | 628.7 MB/s | 1,472.6 MB/s | Baseline |
+| | Meta Zstandard (Level 1) | 3,813,409 B | 38.25% | 406.2 MB/s | 995.1 MB/s | Standard fast preset |
+| | Meta Zstandard (Level 19) | 3,107,144 B | 31.16% | 3.3 MB/s | 713.5 MB/s | Zstd max window |
+| | **BinPack Runtime (Fast Zero-CRC)** | **2,789,112 B** | **27.97%** | **184.7 MB/s** | **618.5 MB/s** | **-1.02 MB vs Zstd L1 (-318 KB vs L19)**|
+| | **BinPack Default (Level 19)** | **2,612,234 B** | **26.20%** | **4.4 MB/s** | **501.3 MB/s** | **Beats 7-Zip LZMA2 (2,750,272 B)!** |
+| | **BinPack Archival Core** | **2,496,101 B** | **25.03%** | **5.3 MB/s** | **95.4 MB/s** | **1st Place (-254 KB vs 7-Zip LZMA2)** |
 
-> **Telemetry Finding**: On packed binary floating-point telemetry (`Float32`), BinPack Archival compresses NASA engine sensor streams down to **25.10% (497 KB)**, beating Meta Zstandard Level 19 (614 KB) by **117,213 bytes (-19.1%)**.
+> **Telemetry & Medical Imaging Finding**: By automatically detecting multi-sensor record periodicity (`stride = 96` on NASA Turbofan, `stride = 2` on 16-bit MRI scans) and applying SIMD-accelerated channel deinterleaving + delta coding, **BinPack Runtime at 219.6 MB/s compresses NASA telemetry smaller (28.50%) than Meta Zstandard Level 19 at 3.7 MB/s (31.02%)**, and **BinPack Default L19 beats even 7-Zip LZMA2 -9 on medical MRI scans (26.20% vs 27.58%)**.
 
 ---
 
-### D. Multi-Module Shared Executables: `mozilla` (Silesia Corpus)
-* **Original Size**: 51,220,480 bytes (48.85 MB) | **SHA-256**: `657fc3764b0c75ac9de9623125705831ebbfbe08fed248df73bc2dc66e2a963b`.
+### D. Multi-Module Shared Executables: `ooffice` & `mozilla` (Silesia Corpus)
+* **`ooffice` Original Size**: 6,152,192 bytes (5.87 MB) | **SHA-256**: `e7ee013880d34dd5208283d0d3d91b07f442e067454276095ded14f322a656eb`.
+* **`mozilla` Original Size**: 51,220,480 bytes (48.85 MB) | **SHA-256**: `657fc3764b0c75ac9de9623125705831ebbfbe08fed248df73bc2dc66e2a963b`.
 
-| Compression Engine / Preset | Compressed Size | Ratio | Comp Speed | Decomp Speed | Honest Trade-off Analysis |
-| :--- | :---: | :---: | :---: | :---: | :--- |
-| **LZ4 (Frame Fast)** | 26,441,653 B | 51.62% | 623.9 MB/s | 1,318.4 MB/s | Maximum speed, low density |
-| **Meta Zstandard (Level 1)** | 19,968,503 B | 38.99% | 472.3 MB/s | 849.4 MB/s | Standard fast web preset |
-| **BinPack Runtime (Fast-Path)** | **16,540,945 B** | **32.29%** | **28.7 MB/s** | **911.6 MB/s** | **Trades 2.88% density for +122 MB/s decomp** |
-| **Meta Zstandard (Level 19)** | 15,065,760 B | 29.41% | 3.4 MB/s | 614.1 MB/s | High density, slower decode |
-| **Meta Zstandard (Level 22 Ultra)**| 14,907,805 B | 29.11% | 2.4 MB/s | 528.8 MB/s | Max Zstd density |
-| **BinPack Default (Level 19)** | **15,065,828 B** | **29.41%** | **3.6 MB/s** | **778.7 MB/s** | **Matches Zstd-19 size, +164 MB/s decomp** |
-| **BinPack Archival Core** | **13,570,015 B** | **26.49%** | 3.5 MB/s | 75.7 MB/s | **1st Place (-1.33 MB net gain vs Zstd L22)** |
+| Payload | Compression Engine / Preset | Compressed Size | Ratio | Comp Speed | Decomp Speed | Honest Trade-off Analysis |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- |
+| **`ooffice`** | **LZ4 (Frame Fast)** | 4,339,979 B | 70.54% | 560.7 MB/s | 1,494.7 MB/s | Fast, low density |
+| | **Meta Zstandard (Level 1)** | 3,593,224 B | 58.41% | 375.1 MB/s | 789.6 MB/s | Standard web preset |
+| | **BinPack Runtime (Fast Zero-CRC)** | **2,665,915 B** | **43.33%** | **138.3 MB/s** | **620.9 MB/s** | **-927 KB (-25.8%) vs Zstd L1** |
+| | **Meta Zstandard (Level 19)** | 2,595,003 B | 42.18% | 4.8 MB/s | 605.8 MB/s | High Zstd preset |
+| | **BinPack Default (Level 19)** | **2,234,904 B** | **36.33%** | **4.7 MB/s** | **573.2 MB/s** | **-360 KB (-13.9%) vs Zstd L19** |
+| | **7-Zip (BCJ x86 + LZMA2 -9)** | 2,083,996 B | 33.87% | 3.7 MB/s | 61.8 MB/s | Pavlov BCJ + LZMA2 |
+| | **BinPack Archival Core** | **2,082,993 B** | **33.86%** | **3.9 MB/s** | **71.5 MB/s** | **1st Place (+16% faster decomp)** |
+| **`mozilla`** | **LZ4 (Frame Fast)** | 26,441,653 B | 51.62% | 693.0 MB/s | 1,573.7 MB/s | Maximum speed, low density |
+| | **Meta Zstandard (Level 1)** | 19,968,503 B | 38.99% | 478.5 MB/s | 898.6 MB/s | Standard fast web preset |
+| | **BinPack Runtime (Fast Zero-CRC)** | **18,045,604 B** | **35.23%** | **183.6 MB/s** | **404.0 MB/s** | **-1.92 MB (-9.6%) vs Zstd L1** |
+| | **Meta Zstandard (Level 19)** | 15,065,760 B | 29.41% | 3.9 MB/s | 697.1 MB/s | High density, slower encode |
+| | **BinPack Default (Level 19)** | **15,047,604 B** | **29.38%** | **2.6 MB/s** | **369.7 MB/s** | **rolling-prefix bounded 16MB chunks** |
+| | **BinPack Archival Core** | **13,570,183 B** | **26.49%** | **3.8 MB/s** | **79.8 MB/s** | **-1.50 MB vs Zstd L19** |
 
 > **Honest Trade-Off**: BinPack Runtime does **not** claim to beat Zstandard L22 in size on `mozilla`. It trades 3.18% of compression ratio (32.29% vs 29.11%) to achieve an **8.6x compression speedup** and **911.6 MB/s decompression** (nearly double Zstd L22). When maximum density is required, BinPack Archival beats Zstandard L22 by **1,337,790 bytes (-1.33 MB)** within strictly bounded RAM ($\le 64\text{ MB}$).
 

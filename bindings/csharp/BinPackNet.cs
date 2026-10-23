@@ -32,7 +32,8 @@ namespace BinPack.Enterprise
         AArch64 = 4,
         TransposeDelta = 5,
         Bitshuffle = 6,
-        TextureBCn = 7
+        TextureBCn = 7,
+        RiscV = 8
     }
 
     public enum BinPackEngineMode
@@ -110,6 +111,9 @@ namespace BinPack.Enterprise
         public uint CompressedSize;
         public byte FilterId;
         public byte FilterFlags;
+        public ushort FilterParam;
+        public uint CodeOffset;
+        public uint CodeLength;
         public uint ChunkCrc32;
     }
 

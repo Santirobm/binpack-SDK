@@ -30,6 +30,7 @@ class BinPackFilter:
     TRANSPOSE_DELTA = 5
     BITSHUFFLE = 6
     TEXTURE_BCN = 7
+    RISCV = 8
 
 class BinPackEngineMode:
     DEFAULT = 0
@@ -66,6 +67,9 @@ class _BinPackChunkInfo(ctypes.Structure):
         ("compressed_sz", ctypes.c_uint32),
         ("filter_id", ctypes.c_uint8),
         ("filter_flags", ctypes.c_uint8),
+        ("filter_param", ctypes.c_uint16),
+        ("code_offset", ctypes.c_uint32),
+        ("code_length", ctypes.c_uint32),
         ("chunk_crc32", ctypes.c_uint32),
     ]
 
@@ -125,6 +129,25 @@ if _LIB:
         ctypes.c_int
     ]
     _LIB.binpack_decompress_buffer_ex.restype = ctypes.c_int
+
+    _LIB.binpack_compress_bound.argtypes = [ctypes.c_size_t]
+    _LIB.binpack_compress_bound.restype = ctypes.c_size_t
+
+    _LIB.binpack_compress_into.argtypes = [
+        ctypes.c_void_p, ctypes.c_size_t,
+        ctypes.c_void_p, ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(_BinPackOptions)
+    ]
+    _LIB.binpack_compress_into.restype = ctypes.c_int
+
+    _LIB.binpack_decompress_into.argtypes = [
+        ctypes.c_void_p, ctypes.c_size_t,
+        ctypes.c_void_p, ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.c_int
+    ]
+    _LIB.binpack_decompress_into.restype = ctypes.c_int
 
     _LIB.binpack_free.argtypes = [ctypes.c_void_p]
     _LIB.binpack_free.restype = None
@@ -246,6 +269,7 @@ def compress(
         "x86": BinPackFilter.X86_64,
         "arm": BinPackFilter.ARM32,
         "arm64": BinPackFilter.AARCH64,
+        "riscv": BinPackFilter.RISCV,
         "delta": BinPackFilter.TRANSPOSE_DELTA,
         "bitshuffle": BinPackFilter.BITSHUFFLE,
         "texture": BinPackFilter.TEXTURE_BCN,

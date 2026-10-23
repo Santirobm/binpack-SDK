@@ -12,6 +12,8 @@
 /* Internal test declaration */
 void binpack_bcj_aarch64_filter(uint8_t *data, size_t size);
 void binpack_bcj_aarch64_unfilter(uint8_t *data, size_t size);
+void binpack_bcj_riscv_filter(uint8_t *data, size_t size);
+void binpack_bcj_riscv_unfilter(uint8_t *data, size_t size);
 
 static void test_version(void) {
     printf("[TEST] Checking version & error descriptions... ");
@@ -283,6 +285,73 @@ static void test_aarch64_bcj_filter(void) {
     printf("PASS\n");
 }
 
+static void test_riscv_bcj_filter(void) {
+    printf("[TEST] Checking RISC-V (RV32I/RV64I) JAL Branch Normalization... ");
+    const size_t sz = 16 * 1024;
+    uint8_t *orig = (uint8_t*)malloc(sz);
+    uint8_t *work = (uint8_t*)malloc(sz);
+    assert(orig != NULL && work != NULL);
+
+    /* Generate synthetic RISC-V JAL instructions (opcode 0x6F, rd = x1) */
+    for (size_t i = 0; i < sz; i += 4) {
+        uint32_t offset20 = (uint32_t)(0x80000 - (i >> 1)) & 0xFFFFF;
+        uint32_t inst = 0x6F | (1 << 7) |
+                        (((offset20 >> 19) & 1) << 31) |
+                        ((offset20 & 0x3FF) << 21) |
+                        (((offset20 >> 10) & 1) << 20) |
+                        (((offset20 >> 11) & 0xFF) << 12);
+        orig[i]   = (uint8_t)(inst);
+        orig[i+1] = (uint8_t)(inst >> 8);
+        orig[i+2] = (uint8_t)(inst >> 16);
+        orig[i+3] = (uint8_t)(inst >> 24);
+    }
+    memcpy(work, orig, sz);
+
+    binpack_bcj_riscv_filter(work, sz);
+    assert(memcmp(work, orig, sz) != 0);
+
+    binpack_bcj_riscv_unfilter(work, sz);
+    assert(memcmp(work, orig, sz) == 0);
+
+    free(orig);
+    free(work);
+    printf("PASS\n");
+}
+
+static void test_zero_alloc_api(void) {
+    printf("[TEST] Checking Zero-Allocation Pre-Allocated Buffer API... ");
+    const size_t sz = 64 * 1024;
+    uint8_t *orig = (uint8_t*)malloc(sz);
+    size_t bound = binpack_compress_bound(sz);
+    uint8_t *cmp = (uint8_t*)malloc(bound);
+    uint8_t *rest = (uint8_t*)malloc(sz);
+    assert(orig && cmp && rest);
+
+    for (size_t i = 0; i < sz; i++) {
+        orig[i] = (uint8_t)((i * 3) ^ (i >> 4));
+    }
+
+    binpack_options_t opts;
+    binpack_default_options(&opts);
+    opts.mode = BINPACK_MODE_RUNTIME;
+
+    size_t cmp_sz = 0;
+    binpack_status_t st_c = binpack_compress_into(orig, sz, cmp, bound, &cmp_sz, &opts);
+    assert(st_c == BINPACK_OK);
+    assert(cmp_sz > 0 && cmp_sz < bound);
+
+    size_t rest_sz = 0;
+    binpack_status_t st_d = binpack_decompress_into(cmp, cmp_sz, rest, sz, &rest_sz, 1);
+    assert(st_d == BINPACK_OK);
+    assert(rest_sz == sz);
+    assert(memcmp(orig, rest, sz) == 0);
+
+    free(orig);
+    free(cmp);
+    free(rest);
+    printf("PASS\n");
+}
+
 static void test_dictionary_engine(void) {
     printf("[TEST] Checking Pre-trained Dictionary Engine (Micro-Telemetry)... ");
     const size_t sample_count = 100;
@@ -438,6 +507,8 @@ int main(void) {
     test_bitshuffle_roundtrip();
     test_texture_bcn_roundtrip();
     test_aarch64_bcj_filter();
+    test_riscv_bcj_filter();
+    test_zero_alloc_api();
     test_dictionary_engine();
     test_differential_patching();
     test_streaming_file_roundtrip();
@@ -445,7 +516,7 @@ int main(void) {
     test_corrupt_data_resilience();
 
     printf("=========================================================\n");
-    printf("[SUCCESS] All 12 regression test suites passed flawlessly!\n");
+    printf("[SUCCESS] All 14 regression test suites passed flawlessly!\n");
     printf("=========================================================\n");
     return 0;
 }

@@ -6,6 +6,10 @@
 #ifndef BINPACK_INTERNAL_H
 #define BINPACK_INTERNAL_H
 
+#if !defined(_WIN32) && !defined(_FILE_OFFSET_BITS)
+    #define _FILE_OFFSET_BITS 64
+#endif
+
 #include "../include/binpack_sdk.h"
 #include <stdlib.h>
 #include <string.h>
@@ -15,7 +19,16 @@
 #include "../deps/lzma/LzmaLib.h"
 #include "../deps/lzma/Bra.h"
 
+#if defined(_WIN32)
+    #define binpack_fseek64 _fseeki64
+    #define binpack_ftell64 _ftelli64
+#else
+    #define binpack_fseek64 fseeko
+    #define binpack_ftell64 ftello
+#endif
+
 #define BINPACK_MAGIC_CHUNK  0x4B4E4843 /* 'CHNK' */
+#define BINPACK_MAGIC_INDEX  0x58444942 /* 'BIDX' */
 #define BINPACK_MAGIC_FOOTER 0x324B5046 /* 'FPK2' */
 
 #pragma pack(push, 1)
@@ -27,7 +40,7 @@ typedef struct binpack_v2_header_s {
     uint32_t magic;              /* 0x324B5042 'BPK2' */
     uint8_t  version_major;      /* 2 */
     uint8_t  version_minor;      /* 2 */
-    uint16_t flags;              /* Bit 0: Checksum enabled */
+    uint16_t flags;              /* Bit 0: Checksum enabled, Bit 1: O(1) Seek Table present */
     uint32_t default_chunk_sz;   /* Standard chunk size */
     uint32_t reserved;           /* 0 */
 } binpack_v2_header_t;
@@ -53,6 +66,14 @@ typedef struct binpack_chunk_bounds_s {
     uint32_t code_offset;        /* Offset within chunk where executable section begins */
     uint32_t code_length;        /* Length of executable section */
 } binpack_chunk_bounds_t;
+
+/**
+ * @brief O(1) Seek Table Index Block Header (12 bytes).
+ */
+typedef struct binpack_index_header_s {
+    uint32_t index_magic;        /* 0x58444942 'BIDX' */
+    uint32_t entry_count;        /* Number of binpack_chunk_info_t entries following */
+} binpack_index_header_t;
 
 /**
  * @brief V2 Container Stream Footer (28 bytes).
@@ -84,6 +105,7 @@ typedef struct binpack_patch_header_s {
 #pragma pack(pop)
 
 #define BP_FLAG_CHECKSUM     0x0001
+#define BP_FLAG_SEEK_INDEX   0x0002
 
 #define BP_CHUNK_FLAG_BOUNDS 0x01
 #define BP_CHUNK_FLAG_PREFIX 0x02
@@ -104,6 +126,7 @@ struct binpack_dict_s {
  */
 struct binpack_archive_s {
     FILE *fp;
+    char filepath[1024];
     binpack_v2_header_t header;
     binpack_v2_footer_t footer;
     uint32_t chunk_count;
@@ -123,6 +146,9 @@ void binpack_bcj_arm32_unfilter(uint8_t *data, size_t size);
 
 void binpack_bcj_aarch64_filter(uint8_t *data, size_t size);
 void binpack_bcj_aarch64_unfilter(uint8_t *data, size_t size);
+
+void binpack_bcj_riscv_filter(uint8_t *data, size_t size);
+void binpack_bcj_riscv_unfilter(uint8_t *data, size_t size);
 
 int binpack_transpose_delta_filter(uint8_t *data, size_t size, uint16_t stride);
 int binpack_transpose_delta_unfilter(uint8_t *data, size_t size, uint16_t stride);

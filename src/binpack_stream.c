@@ -72,20 +72,24 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
             return BINPACK_ERR_OUT_OF_MEMORY;
         }
 
-        int num_workers = opt.nb_workers > 0 ? opt.nb_workers : binpack_get_cpu_cores();
-        if (num_workers < 1) num_workers = 1;
-        if (num_workers > 32) num_workers = 32;
-        ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, num_workers);
-
         if (opt.mode == BINPACK_MODE_RUNTIME) {
-            if (clevel > 12) clevel = 12;
+            if (clevel > 4) clevel = 4;
+            ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, clevel);
             ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, ZSTD_dfast);
         } else {
             /* BINPACK_MODE_DEFAULT: Balanced High-Efficiency Profile */
             if (clevel > 19) clevel = 19;
+            ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, clevel);
             ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, ZSTD_btultra);
         }
-        ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, clevel);
+
+        /* Enable multi-threaded worker pool when requested or on large streams (>= 16 MB) */
+        if (opt.nb_workers > 0 || total_input_size == 0 || total_input_size >= (16ULL * 1024 * 1024)) {
+            int num_workers = opt.nb_workers > 0 ? opt.nb_workers : binpack_get_cpu_cores();
+            if (num_workers < 1) num_workers = 1;
+            if (num_workers > 32) num_workers = 32;
+            ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, num_workers);
+        }
     }
 
     /* 1. Write Stream Header */
@@ -94,7 +98,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
     hdr.magic = BINPACK_MAGIC_V2;
     hdr.version_major = BINPACK_SDK_VERSION_MAJOR;
     hdr.version_minor = BINPACK_SDK_VERSION_MINOR;
-    hdr.flags = BP_FLAG_CHECKSUM;
+    hdr.flags = BP_FLAG_CHECKSUM | BP_FLAG_SEEK_INDEX;
     hdr.default_chunk_sz = (uint32_t)chunk_size;
 
     if (writer(user_data, &hdr, sizeof(hdr)) != sizeof(hdr)) {
@@ -111,6 +115,16 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
     uint32_t stream_crc = 0;
     size_t prev_raw_len = 0;
 
+    size_t idx_cap = 16;
+    binpack_chunk_info_t *idx_table = (binpack_chunk_info_t*)malloc(idx_cap * sizeof(binpack_chunk_info_t));
+    if (!idx_table) {
+        if (cctx) ZSTD_freeCCtx(cctx);
+        free(raw_chunk);
+        free(prev_raw);
+        free(cmp_chunk);
+        return BINPACK_ERR_OUT_OF_MEMORY;
+    }
+
     /* 2. Process Input in Bounded Chunks */
     while (1) {
         size_t bytes_read = reader(user_data, raw_chunk, chunk_size);
@@ -126,10 +140,31 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
             filter = binpack_auto_select_filter(raw_chunk, bytes_read, &filter_param);
         }
 
+        /* In Archival LZMA2 mode, preserve native 4-byte pb=2 alignment when table stride > 16 */
+        if (opt.mode == BINPACK_MODE_ARCHIVAL &&
+            filter == BINPACK_FILTER_TRANSPOSE_DELTA && filter_param > 16) {
+            filter = BINPACK_FILTER_NONE;
+        }
+
+        /* Resolve .text section boundaries BEFORE micro-trial so executable sampling hits code */
+        size_t code_off = 0, code_len = bytes_read;
+        if (filter == BINPACK_FILTER_X86_64 || filter == BINPACK_FILTER_ARM32 ||
+            filter == BINPACK_FILTER_AARCH64 || filter == BINPACK_FILTER_RISCV) {
+            binpack_find_code_bounds(raw_chunk, bytes_read, &code_off, &code_len);
+            if (code_len == 0 || code_off >= bytes_read || (code_off + code_len) > bytes_read) {
+                code_off = 0;
+                code_len = bytes_read;
+            }
+        }
+
         /* Micro-Trial zero-regression validation */
         if (opt.enable_micro_trial && filter != BINPACK_FILTER_NONE) {
-            if (!binpack_evaluate_filter_gain(raw_chunk, bytes_read, filter, filter_param)) {
+            const uint8_t *eval_ptr = raw_chunk + code_off;
+            size_t eval_len = code_len;
+            if (!binpack_evaluate_filter_gain(eval_ptr, eval_len, filter, filter_param)) {
                 filter = BINPACK_FILTER_NONE;
+                code_off = 0;
+                code_len = bytes_read;
             }
         }
 
@@ -139,9 +174,8 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
         bounds.code_length = (uint32_t)bytes_read;
 
         /* Apply Prefilter */
-        if (filter == BINPACK_FILTER_X86_64 || filter == BINPACK_FILTER_ARM32 || filter == BINPACK_FILTER_AARCH64) {
-            size_t code_off = 0, code_len = bytes_read;
-            binpack_find_code_bounds(raw_chunk, bytes_read, &code_off, &code_len);
+        if (filter == BINPACK_FILTER_X86_64 || filter == BINPACK_FILTER_ARM32 ||
+            filter == BINPACK_FILTER_AARCH64 || filter == BINPACK_FILTER_RISCV) {
             if (code_len > 0 && code_off < bytes_read && (code_off + code_len) <= bytes_read) {
                 if (code_off > 0 || code_len < bytes_read) {
                     filter_flags |= BP_CHUNK_FLAG_BOUNDS;
@@ -155,6 +189,8 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
                     binpack_bcj_arm32_filter(target, code_len);
                 } else if (filter == BINPACK_FILTER_AARCH64) {
                     binpack_bcj_aarch64_filter(target, code_len);
+                } else if (filter == BINPACK_FILTER_RISCV) {
+                    binpack_bcj_riscv_filter(target, code_len);
                 }
             }
         } else if (filter == BINPACK_FILTER_TRANSPOSE_DELTA) {
@@ -192,6 +228,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
 
             if (lzma_res != SZ_OK) {
                 if (cctx) ZSTD_freeCCtx(cctx);
+                free(idx_table);
                 free(raw_chunk);
                 free(prev_raw);
                 free(cmp_chunk);
@@ -215,6 +252,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
                 size_t zret = ZSTD_compressStream2(cctx, &out_buf, &in_buf, ZSTD_e_end);
                 if (ZSTD_isError(zret) || in_buf.pos != in_buf.size) {
                     ZSTD_freeCCtx(cctx);
+                    free(idx_table);
                     free(raw_chunk);
                     free(prev_raw);
                     free(cmp_chunk);
@@ -223,9 +261,10 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
                 c_size = out_buf.pos;
             } else {
                 ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
-                c_size = ZSTD_compressCCtx(cctx, cmp_chunk, cmp_bound, raw_chunk, bytes_read, clevel);
+                c_size = ZSTD_compress2(cctx, cmp_chunk, cmp_bound, raw_chunk, bytes_read);
                 if (ZSTD_isError(c_size)) {
                     ZSTD_freeCCtx(cctx);
+                    free(idx_table);
                     free(raw_chunk);
                     free(prev_raw);
                     free(cmp_chunk);
@@ -251,6 +290,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
 
         if (writer(user_data, &chdr, sizeof(chdr)) != sizeof(chdr)) {
             if (cctx) ZSTD_freeCCtx(cctx);
+            free(idx_table);
             free(raw_chunk);
             free(prev_raw);
             free(cmp_chunk);
@@ -262,6 +302,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
         if (filter_flags & BP_CHUNK_FLAG_BOUNDS) {
             if (writer(user_data, &bounds, sizeof(bounds)) != sizeof(bounds)) {
                 if (cctx) ZSTD_freeCCtx(cctx);
+                free(idx_table);
                 free(raw_chunk);
                 free(prev_raw);
                 free(cmp_chunk);
@@ -270,15 +311,44 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
             total_out += sizeof(bounds);
         }
 
+        uint64_t payload_offset = total_out;
+
         /* Write Compressed Payload */
         if (writer(user_data, cmp_chunk, c_size) != c_size) {
             if (cctx) ZSTD_freeCCtx(cctx);
+            free(idx_table);
             free(raw_chunk);
             free(prev_raw);
             free(cmp_chunk);
             return BINPACK_ERR_IO;
         }
         total_out += c_size;
+
+        /* Record entry in O(1) Seek Table Index */
+        if (chunk_count >= idx_cap) {
+            idx_cap *= 2;
+            binpack_chunk_info_t *new_idx = (binpack_chunk_info_t*)realloc(idx_table, idx_cap * sizeof(binpack_chunk_info_t));
+            if (!new_idx) {
+                if (cctx) ZSTD_freeCCtx(cctx);
+                free(idx_table);
+                free(raw_chunk);
+                free(prev_raw);
+                free(cmp_chunk);
+                return BINPACK_ERR_OUT_OF_MEMORY;
+            }
+            idx_table = new_idx;
+        }
+        binpack_chunk_info_t *info = &idx_table[chunk_count];
+        info->chunk_index = chunk_count;
+        info->file_offset = payload_offset;
+        info->uncompressed_sz = (uint32_t)bytes_read;
+        info->compressed_sz = (uint32_t)c_size;
+        info->filter_id = (uint8_t)filter;
+        info->filter_flags = filter_flags;
+        info->filter_param = filter_param;
+        info->code_offset = bounds.code_offset;
+        info->code_length = bounds.code_length;
+        info->chunk_crc32 = chunk_crc;
 
         total_in += bytes_read;
         chunk_count++;
@@ -288,7 +358,25 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
         }
     }
 
-    /* 3. Write V2 Container Stream Footer */
+    /* 3. Write O(1) Seek Table Index for Multi-Chunk Archives */
+    if (chunk_count > 1) {
+        binpack_index_header_t idx_hdr;
+        idx_hdr.index_magic = BINPACK_MAGIC_INDEX;
+        idx_hdr.entry_count = chunk_count;
+        size_t table_bytes = (size_t)chunk_count * sizeof(binpack_chunk_info_t);
+        if (writer(user_data, &idx_hdr, sizeof(idx_hdr)) != sizeof(idx_hdr) ||
+            writer(user_data, idx_table, table_bytes) != table_bytes) {
+            if (cctx) ZSTD_freeCCtx(cctx);
+            free(idx_table);
+            free(raw_chunk);
+            free(prev_raw);
+            free(cmp_chunk);
+            return BINPACK_ERR_IO;
+        }
+        total_out += sizeof(idx_hdr) + table_bytes;
+    }
+
+    /* 4. Write V2 Container Stream Footer */
     binpack_v2_footer_t footer;
     memset(&footer, 0, sizeof(footer));
     footer.footer_magic = BINPACK_MAGIC_FOOTER;
@@ -299,6 +387,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
 
     if (writer(user_data, &footer, sizeof(footer)) != sizeof(footer)) {
         if (cctx) ZSTD_freeCCtx(cctx);
+        free(idx_table);
         free(raw_chunk);
         free(prev_raw);
         free(cmp_chunk);
@@ -306,6 +395,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
     }
 
     if (cctx) ZSTD_freeCCtx(cctx);
+    free(idx_table);
     free(raw_chunk);
     free(prev_raw);
     free(cmp_chunk);
@@ -371,6 +461,32 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_stream(
                 return BINPACK_ERR_CORRUPT_DATA;
             }
 
+            /* Seek Table Index reached before footer */
+            if (tag == BINPACK_MAGIC_INDEX) {
+                uint32_t entry_count = 0;
+                if (reader(user_data, &entry_count, 4) != 4 || entry_count > 1000000) {
+                    ZSTD_freeDCtx(dctx);
+                    free(raw_buf);
+                    free(cmp_buf);
+                    free(prev_raw);
+                    return BINPACK_ERR_CORRUPT_DATA;
+                }
+                size_t skip_bytes = (size_t)entry_count * sizeof(binpack_chunk_info_t);
+                uint8_t skip_buf[512];
+                while (skip_bytes > 0) {
+                    size_t step = skip_bytes > sizeof(skip_buf) ? sizeof(skip_buf) : skip_bytes;
+                    if (reader(user_data, skip_buf, step) != step) {
+                        ZSTD_freeDCtx(dctx);
+                        free(raw_buf);
+                        free(cmp_buf);
+                        free(prev_raw);
+                        return BINPACK_ERR_CORRUPT_DATA;
+                    }
+                    skip_bytes -= step;
+                }
+                continue;
+            }
+
             /* Stream footer reached */
             if (tag == BINPACK_MAGIC_FOOTER) {
                 binpack_v2_footer_t footer;
@@ -409,12 +525,29 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_stream(
             }
             total_in += sizeof(binpack_chunk_header_t);
 
+            /* Anti-zip-bomb / corrupt header validation */
+            if (chdr.uncompressed_sz == 0 || chdr.uncompressed_sz > (BINPACK_MAX_CHUNK_SIZE * 4ULL) ||
+                chdr.compressed_sz == 0 || chdr.compressed_sz > (BINPACK_MAX_CHUNK_SIZE * 5ULL)) {
+                ZSTD_freeDCtx(dctx);
+                free(raw_buf);
+                free(cmp_buf);
+                free(prev_raw);
+                return BINPACK_ERR_CORRUPT_DATA;
+            }
+
             /* Check bounds subheader */
             binpack_chunk_bounds_t bounds;
             bounds.code_offset = 0;
             bounds.code_length = chdr.uncompressed_sz;
             if (chdr.filter_flags & BP_CHUNK_FLAG_BOUNDS) {
                 if (reader(user_data, &bounds, sizeof(bounds)) != sizeof(bounds)) {
+                    ZSTD_freeDCtx(dctx);
+                    free(raw_buf);
+                    free(cmp_buf);
+                    free(prev_raw);
+                    return BINPACK_ERR_CORRUPT_DATA;
+                }
+                if ((uint64_t)bounds.code_offset + (uint64_t)bounds.code_length > (uint64_t)chdr.uncompressed_sz) {
                     ZSTD_freeDCtx(dctx);
                     free(raw_buf);
                     free(cmp_buf);
@@ -545,16 +678,19 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_stream(
 
             /* Inverse Prefilter */
             uint8_t filter_id = chdr.filter_id;
-            if (filter_id == BINPACK_FILTER_X86_64 || filter_id == BINPACK_FILTER_ARM32 || filter_id == BINPACK_FILTER_AARCH64) {
+            if (filter_id == BINPACK_FILTER_X86_64 || filter_id == BINPACK_FILTER_ARM32 ||
+                filter_id == BINPACK_FILTER_AARCH64 || filter_id == BINPACK_FILTER_RISCV) {
                 uint8_t *target = raw_buf + bounds.code_offset;
                 size_t tlen = bounds.code_length;
-                if (bounds.code_offset + tlen <= chdr.uncompressed_sz) {
+                if ((uint64_t)bounds.code_offset + (uint64_t)tlen <= (uint64_t)chdr.uncompressed_sz) {
                     if (filter_id == BINPACK_FILTER_X86_64) {
                         binpack_bcj_x86_unfilter(target, tlen);
                     } else if (filter_id == BINPACK_FILTER_ARM32) {
                         binpack_bcj_arm32_unfilter(target, tlen);
                     } else if (filter_id == BINPACK_FILTER_AARCH64) {
                         binpack_bcj_aarch64_unfilter(target, tlen);
+                    } else if (filter_id == BINPACK_FILTER_RISCV) {
+                        binpack_bcj_riscv_unfilter(target, tlen);
                     }
                 }
             } else if (filter_id == BINPACK_FILTER_TRANSPOSE_DELTA) {

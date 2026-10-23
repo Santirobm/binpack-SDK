@@ -51,6 +51,9 @@ int BINPACK_CALL binpack_evaluate_filter_gain(
         case BINPACK_FILTER_AARCH64:
             binpack_bcj_aarch64_filter(sample_copy, eval_len);
             break;
+        case BINPACK_FILTER_RISCV:
+            binpack_bcj_riscv_filter(sample_copy, eval_len);
+            break;
         case BINPACK_FILTER_TRANSPOSE_DELTA:
             if (stride < 2) stride = 4;
             binpack_transpose_delta_filter(sample_copy, eval_len, stride);

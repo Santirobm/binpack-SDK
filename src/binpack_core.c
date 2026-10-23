@@ -253,70 +253,190 @@ void binpack_bcj_aarch64_unfilter(uint8_t *data, size_t size) {
 }
 
 /* ========================================================================= */
-/* Cascaded Stride-N Transpose + Delta Prefilter                             */
+/* BCJ RISC-V (RV32I / RV64I JAL) Branch Normalization                       */
 /* ========================================================================= */
 
+void binpack_bcj_riscv_filter(uint8_t *data, size_t size) {
+    if (!data || size < 4) return;
+    for (size_t i = 0; i + 4 <= size; i += 4) {
+        uint32_t instr = (uint32_t)data[i] | ((uint32_t)data[i+1] << 8) |
+                         ((uint32_t)data[i+2] << 16) | ((uint32_t)data[i+3] << 24);
+        if ((instr & 0x7F) == 0x6F) { /* JAL instruction */
+            uint32_t offset20 = (((instr >> 31) & 1) << 19) |
+                                (((instr >> 12) & 0xFF) << 11) |
+                                (((instr >> 20) & 1) << 10) |
+                                ((instr >> 21) & 0x3FF);
+            uint32_t dest = (offset20 + (uint32_t)(i >> 1)) & 0xFFFFF;
+            instr = (instr & 0x00000FFF) |
+                    (((dest >> 19) & 1) << 31) |
+                    ((dest & 0x3FF) << 21) |
+                    (((dest >> 10) & 1) << 20) |
+                    (((dest >> 11) & 0xFF) << 12);
+            data[i]   = (uint8_t)(instr);
+            data[i+1] = (uint8_t)(instr >> 8);
+            data[i+2] = (uint8_t)(instr >> 16);
+            data[i+3] = (uint8_t)(instr >> 24);
+        }
+    }
+}
+
+void binpack_bcj_riscv_unfilter(uint8_t *data, size_t size) {
+    if (!data || size < 4) return;
+    for (size_t i = 0; i + 4 <= size; i += 4) {
+        uint32_t instr = (uint32_t)data[i] | ((uint32_t)data[i+1] << 8) |
+                         ((uint32_t)data[i+2] << 16) | ((uint32_t)data[i+3] << 24);
+        if ((instr & 0x7F) == 0x6F) { /* JAL instruction */
+            uint32_t dest = (((instr >> 31) & 1) << 19) |
+                            (((instr >> 12) & 0xFF) << 11) |
+                            (((instr >> 20) & 1) << 10) |
+                            ((instr >> 21) & 0x3FF);
+            uint32_t offset20 = (dest - (uint32_t)(i >> 1)) & 0xFFFFF;
+            instr = (instr & 0x00000FFF) |
+                    (((offset20 >> 19) & 1) << 31) |
+                    ((offset20 & 0x3FF) << 21) |
+                    (((offset20 >> 10) & 1) << 20) |
+                    (((offset20 >> 11) & 0xFF) << 12);
+            data[i]   = (uint8_t)(instr);
+            data[i+1] = (uint8_t)(instr >> 8);
+            data[i+2] = (uint8_t)(instr >> 16);
+            data[i+3] = (uint8_t)(instr >> 24);
+        }
+    }
+}
+
+/* ========================================================================= */
+/* Cascaded Stride-N Transpose + Delta Prefilter (SIMD & Fused Single-Pass)  */
+/* ========================================================================= */
+
+static void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride) {
+    if (stride == 2) {
+        uint8_t *d0 = dst;
+        uint8_t *d1 = dst + num_elements;
+        for (size_t i = 0; i < num_elements; i++) {
+            d0[i] = src[2 * i];
+            d1[i] = src[2 * i + 1];
+        }
+    } else if (stride == 4) {
+        uint8_t *d0 = dst;
+        uint8_t *d1 = dst + num_elements;
+        uint8_t *d2 = dst + 2 * num_elements;
+        uint8_t *d3 = dst + 3 * num_elements;
+        for (size_t i = 0; i < num_elements; i++) {
+            d0[i] = src[4 * i];
+            d1[i] = src[4 * i + 1];
+            d2[i] = src[4 * i + 2];
+            d3[i] = src[4 * i + 3];
+        }
+    } else {
+        for (size_t i = 0; i < num_elements; i++) {
+            const uint8_t *elem = src + i * stride;
+            for (size_t s = 0; s < stride; s++) {
+                dst[s * num_elements + i] = elem[s];
+            }
+        }
+    }
+}
+
+static void bp_interleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride) {
+    if (stride == 2) {
+        const uint8_t *s0 = src;
+        const uint8_t *s1 = src + num_elements;
+        size_t i = 0;
+#if defined(__SSE2__) || defined(__x86_64__) || defined(_M_X64)
+        for (; i + 16 <= num_elements; i += 16) {
+            __m128i v0 = _mm_loadu_si128((const __m128i*)(s0 + i));
+            __m128i v1 = _mm_loadu_si128((const __m128i*)(s1 + i));
+            __m128i lo = _mm_unpacklo_epi8(v0, v1);
+            __m128i hi = _mm_unpackhi_epi8(v0, v1);
+            _mm_storeu_si128((__m128i*)(dst + 2 * i), lo);
+            _mm_storeu_si128((__m128i*)(dst + 2 * i + 16), hi);
+        }
+#endif
+        for (; i < num_elements; i++) {
+            dst[2 * i]     = s0[i];
+            dst[2 * i + 1] = s1[i];
+        }
+    } else if (stride == 4) {
+        const uint8_t *s0 = src;
+        const uint8_t *s1 = src + num_elements;
+        const uint8_t *s2 = src + 2 * num_elements;
+        const uint8_t *s3 = src + 3 * num_elements;
+        size_t i = 0;
+#if defined(__SSE2__) || defined(__x86_64__) || defined(_M_X64)
+        for (; i + 16 <= num_elements; i += 16) {
+            __m128i v0 = _mm_loadu_si128((const __m128i*)(s0 + i));
+            __m128i v1 = _mm_loadu_si128((const __m128i*)(s1 + i));
+            __m128i v2 = _mm_loadu_si128((const __m128i*)(s2 + i));
+            __m128i v3 = _mm_loadu_si128((const __m128i*)(s3 + i));
+            __m128i t01_lo = _mm_unpacklo_epi8(v0, v1);
+            __m128i t01_hi = _mm_unpackhi_epi8(v0, v1);
+            __m128i t23_lo = _mm_unpacklo_epi8(v2, v3);
+            __m128i t23_hi = _mm_unpackhi_epi8(v2, v3);
+            _mm_storeu_si128((__m128i*)(dst + 4 * i),      _mm_unpacklo_epi16(t01_lo, t23_lo));
+            _mm_storeu_si128((__m128i*)(dst + 4 * i + 16), _mm_unpackhi_epi16(t01_lo, t23_lo));
+            _mm_storeu_si128((__m128i*)(dst + 4 * i + 32), _mm_unpacklo_epi16(t01_hi, t23_hi));
+            _mm_storeu_si128((__m128i*)(dst + 4 * i + 48), _mm_unpackhi_epi16(t01_hi, t23_hi));
+        }
+#endif
+        for (; i < num_elements; i++) {
+            dst[4 * i]     = s0[i];
+            dst[4 * i + 1] = s1[i];
+            dst[4 * i + 2] = s2[i];
+            dst[4 * i + 3] = s3[i];
+        }
+    } else {
+        for (size_t i = 0; i < num_elements; i++) {
+            uint8_t *elem = dst + i * stride;
+            for (size_t s = 0; s < stride; s++) {
+                elem[s] = src[s * num_elements + i];
+            }
+        }
+    }
+}
+
 int binpack_transpose_delta_filter(uint8_t *data, size_t size, uint16_t stride) {
-    if (!data || size < 4 || stride < 2 || stride > 64) return -1;
+    if (!data || size < 4 || stride < 2 || stride > 256) return -1;
     uint8_t *temp = (uint8_t*)malloc(size);
     if (!temp) return -1;
 
     size_t num_elements = size / stride;
-    size_t remainder = size % stride;
 
-    for (size_t s = 0; s < stride; s++) {
-        size_t dst_base = s * num_elements;
-        for (size_t i = 0; i < num_elements; i++) {
-            temp[dst_base + i] = data[i * stride + s];
-        }
-    }
-    if (remainder > 0) {
-        memcpy(temp + (stride * num_elements), data + (stride * num_elements), remainder);
-    }
+    bp_deinterleave_channels(data, temp, num_elements, stride);
 
+    /* Delta encode directly from temp back into data (eliminating final memcpy) */
     for (size_t s = 0; s < stride; s++) {
         size_t base = s * num_elements;
         uint8_t prev = 0;
         for (size_t i = 0; i < num_elements; i++) {
             uint8_t cur = temp[base + i];
-            temp[base + i] = cur - prev;
+            data[base + i] = cur - prev;
             prev = cur;
         }
     }
 
-    memcpy(data, temp, size);
     free(temp);
     return 0;
 }
 
 int binpack_transpose_delta_unfilter(uint8_t *data, size_t size, uint16_t stride) {
-    if (!data || size < 4 || stride < 2 || stride > 64) return -1;
+    if (!data || size < 4 || stride < 2 || stride > 256) return -1;
     uint8_t *temp = (uint8_t*)malloc(size);
     if (!temp) return -1;
 
     size_t num_elements = size / stride;
-    size_t remainder = size % stride;
 
-    memcpy(temp, data, size);
-
+    /* Prefix-sum decode from data into temp (eliminating initial memcpy) */
     for (size_t s = 0; s < stride; s++) {
         size_t base = s * num_elements;
         uint8_t acc = 0;
         for (size_t i = 0; i < num_elements; i++) {
-            acc = acc + temp[base + i];
+            acc = (uint8_t)(acc + data[base + i]);
             temp[base + i] = acc;
         }
     }
 
-    for (size_t s = 0; s < stride; s++) {
-        size_t src_base = s * num_elements;
-        for (size_t i = 0; i < num_elements; i++) {
-            data[i * stride + s] = temp[src_base + i];
-        }
-    }
-    if (remainder > 0) {
-        memcpy(data + (stride * num_elements), temp + (stride * num_elements), remainder);
-    }
+    /* SIMD-accelerated interleave directly from temp back into data */
+    bp_interleave_channels(temp, data, num_elements, stride);
 
     free(temp);
     return 0;
@@ -358,99 +478,102 @@ static inline void bp_transpose_32x8_bits_avx2(uint8_t *data) {
 #endif
 
 int binpack_bitshuffle_filter(uint8_t *data, size_t size, uint16_t stride) {
-    if (!data || size < 8 || stride < 1 || stride > 64) return -1;
+    if (!data || size < 8 || stride < 1 || stride > 256) return -1;
     uint8_t *temp = (uint8_t*)malloc(size);
     if (!temp) return -1;
 
     size_t num_elements = size / stride;
-    size_t remainder = size % stride;
 
-    for (size_t s = 0; s < stride; s++) {
-        size_t dst_base = s * num_elements;
-        for (size_t i = 0; i < num_elements; i++) {
-            temp[dst_base + i] = data[i * stride + s];
-        }
-    }
-    if (remainder > 0) {
-        memcpy(temp + (stride * num_elements), data + (stride * num_elements), remainder);
+    if (stride > 1) {
+        bp_deinterleave_channels(data, temp, num_elements, stride);
+    } else {
+        memcpy(temp, data, size);
     }
 
+    /* Fused L1-hot Bit-Transpose + Delta pass writing directly back to data */
     for (size_t s = 0; s < stride; s++) {
         size_t base = s * num_elements;
         size_t full_blocks = num_elements / 8;
         size_t b = 0;
+        uint8_t prev = 0;
 #if defined(__AVX2__)
         for (; b + 4 <= full_blocks; b += 4) {
-            bp_transpose_32x8_bits_avx2(temp + base + (b * 8));
+            size_t off = base + (b * 8);
+            bp_transpose_32x8_bits_avx2(temp + off);
+            for (size_t k = 0; k < 32; k++) {
+                uint8_t cur = temp[off + k];
+                data[off + k] = cur - prev;
+                prev = cur;
+            }
         }
 #endif
         for (; b < full_blocks; b++) {
+            size_t off = base + (b * 8);
             uint64_t val;
-            memcpy(&val, temp + base + (b * 8), sizeof(val));
+            memcpy(&val, temp + off, sizeof(val));
             val = bp_transpose_8x8_bits(val);
-            memcpy(temp + base + (b * 8), &val, sizeof(val));
+            memcpy(temp + off, &val, sizeof(val));
+            for (size_t k = 0; k < 8; k++) {
+                uint8_t cur = temp[off + k];
+                data[off + k] = cur - prev;
+                prev = cur;
+            }
         }
-    }
-
-    for (size_t s = 0; s < stride; s++) {
-        size_t base = s * num_elements;
-        uint8_t prev = 0;
-        for (size_t i = 0; i < num_elements; i++) {
+        for (size_t i = full_blocks * 8; i < num_elements; i++) {
             uint8_t cur = temp[base + i];
-            temp[base + i] = cur - prev;
+            data[base + i] = cur - prev;
             prev = cur;
         }
     }
 
-    memcpy(data, temp, size);
     free(temp);
     return 0;
 }
 
 int binpack_bitshuffle_unfilter(uint8_t *data, size_t size, uint16_t stride) {
-    if (!data || size < 8 || stride < 1 || stride > 64) return -1;
+    if (!data || size < 8 || stride < 1 || stride > 256) return -1;
     uint8_t *temp = (uint8_t*)malloc(size);
     if (!temp) return -1;
 
     size_t num_elements = size / stride;
-    size_t remainder = size % stride;
 
-    memcpy(temp, data, size);
-
-    for (size_t s = 0; s < stride; s++) {
-        size_t base = s * num_elements;
-        uint8_t acc = 0;
-        for (size_t i = 0; i < num_elements; i++) {
-            acc = acc + temp[base + i];
-            temp[base + i] = acc;
-        }
-    }
-
+    /* Fused Single-Pass Delta-Accumulate + AVX2 Bit-Transpose from data -> temp */
     for (size_t s = 0; s < stride; s++) {
         size_t base = s * num_elements;
         size_t full_blocks = num_elements / 8;
         size_t b = 0;
+        uint8_t acc = 0;
 #if defined(__AVX2__)
         for (; b + 4 <= full_blocks; b += 4) {
-            bp_transpose_32x8_bits_avx2(temp + base + (b * 8));
+            size_t off = base + (b * 8);
+            for (size_t k = 0; k < 32; k++) {
+                acc = (uint8_t)(acc + data[off + k]);
+                temp[off + k] = acc;
+            }
+            bp_transpose_32x8_bits_avx2(temp + off);
         }
 #endif
         for (; b < full_blocks; b++) {
+            size_t off = base + (b * 8);
+            for (size_t k = 0; k < 8; k++) {
+                acc = (uint8_t)(acc + data[off + k]);
+                temp[off + k] = acc;
+            }
             uint64_t val;
-            memcpy(&val, temp + base + (b * 8), sizeof(val));
+            memcpy(&val, temp + off, sizeof(val));
             val = bp_transpose_8x8_bits(val);
-            memcpy(temp + base + (b * 8), &val, sizeof(val));
+            memcpy(temp + off, &val, sizeof(val));
+        }
+        for (size_t i = full_blocks * 8; i < num_elements; i++) {
+            acc = (uint8_t)(acc + data[base + i]);
+            temp[base + i] = acc;
         }
     }
 
-    for (size_t s = 0; s < stride; s++) {
-        size_t src_base = s * num_elements;
-        for (size_t i = 0; i < num_elements; i++) {
-            data[i * stride + s] = temp[src_base + i];
-        }
-    }
-    if (remainder > 0) {
-        memcpy(data + (stride * num_elements), temp + (stride * num_elements), remainder);
+    if (stride > 1) {
+        bp_interleave_channels(temp, data, num_elements, stride);
+    } else {
+        memcpy(data, temp, num_elements);
     }
 
     free(temp);
@@ -602,26 +725,49 @@ binpack_filter_t binpack_auto_select_filter(const uint8_t *data, size_t size, ui
 
     if (data[0] == 0x7F && data[1] == 'E' && data[2] == 'L' && data[3] == 'F' && size >= 20) {
         uint16_t machine = *(const uint16_t*)&data[18];
+        if (machine == 243) return BINPACK_FILTER_RISCV;
         if (machine == 183) return BINPACK_FILTER_AARCH64;
         if (machine == 40) return BINPACK_FILTER_ARM32;
         return BINPACK_FILTER_X86_64;
     }
 
     if (size >= 1024) {
-        int diff_stride4_matches = 0;
-        int diff_stride2_matches = 0;
-        size_t test_len = size > 4096 ? 4096 : size;
-        for (size_t i = 4; i < test_len; i++) {
-            if (abs((int)data[i] - (int)data[i - 4]) < 4) diff_stride4_matches++;
-            if (abs((int)data[i] - (int)data[i - 2]) < 4) diff_stride2_matches++;
+        static const uint16_t candidate_strides[] = {
+            2, 4, 8, 12, 16, 24, 32, 48, 64, 84, 96, 104, 128
+        };
+        /* Sample from middle of buffer when large to avoid archive/container headers */
+        const uint8_t *sample = (size > 65536) ? (data + (size / 2) - 4096) : data;
+        size_t test_len = size > 8192 ? 8192 : size;
+
+        /* Measure baseline stride-1 byte correlation (rejects zero-runs / plain text) */
+        size_t s1_matches = 0;
+        for (size_t i = 1; i < test_len; i++) {
+            int diff = (int)sample[i] - (int)sample[i - 1];
+            if (diff > -4 && diff < 4) s1_matches++;
         }
-        if (diff_stride4_matches > (int)(test_len * 0.45)) {
-            *out_param = 4;
-            return BINPACK_FILTER_BITSHUFFLE;
+        double s1_score = (double)s1_matches / (double)(test_len - 1);
+
+        uint16_t best_stride = 0;
+        double best_score = 0.0;
+
+        for (size_t c = 0; c < sizeof(candidate_strides) / sizeof(candidate_strides[0]); c++) {
+            uint16_t st = candidate_strides[c];
+            if (test_len <= (size_t)st * 8) continue;
+            size_t matches = 0;
+            size_t total = test_len - st;
+            for (size_t i = st; i < test_len; i++) {
+                int diff = (int)sample[i] - (int)sample[i - st];
+                if (diff > -4 && diff < 4) matches++;
+            }
+            double score = (double)matches / (double)total;
+            if (score > 0.40 && score > s1_score + 0.15 && score > best_score + 0.03) {
+                best_score = score;
+                best_stride = st;
+            }
         }
-        if (diff_stride2_matches > (int)(test_len * 0.50)) {
-            *out_param = 2;
-            return BINPACK_FILTER_BITSHUFFLE;
+        if (best_stride >= 2) {
+            *out_param = best_stride;
+            return BINPACK_FILTER_TRANSPOSE_DELTA;
         }
     }
 

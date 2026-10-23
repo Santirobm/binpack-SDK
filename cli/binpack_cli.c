@@ -11,6 +11,8 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#define bp_fseek64 _fseeki64
+#define bp_ftell64 _ftelli64
 static double get_time_sec(void) {
     LARGE_INTEGER freq, count;
     QueryPerformanceFrequency(&freq);
@@ -18,6 +20,9 @@ static double get_time_sec(void) {
     return (double)count.QuadPart / (double)freq.QuadPart;
 }
 #else
+#define _FILE_OFFSET_BITS 64
+#define bp_fseek64 fseeko
+#define bp_ftell64 ftello
 static double get_time_sec(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -165,6 +170,7 @@ int main(int argc, char **argv) {
                 else if (strcmp(f, "x86") == 0) opts.filter = BINPACK_FILTER_X86_64;
                 else if (strcmp(f, "arm32") == 0) opts.filter = BINPACK_FILTER_ARM32;
                 else if (strcmp(f, "arm64") == 0) opts.filter = BINPACK_FILTER_AARCH64;
+                else if (strcmp(f, "riscv") == 0) opts.filter = BINPACK_FILTER_RISCV;
                 else if (strcmp(f, "transpose") == 0) opts.filter = BINPACK_FILTER_TRANSPOSE_DELTA;
                 else if (strcmp(f, "bitshuffle") == 0) opts.filter = BINPACK_FILTER_BITSHUFFLE;
                 else if (strcmp(f, "texture") == 0) opts.filter = BINPACK_FILTER_TEXTURE_BCN;
@@ -216,19 +222,19 @@ int main(int argc, char **argv) {
             return 1;
         }
 
-        fseek(f_old, 0, SEEK_END); long old_sz = ftell(f_old); fseek(f_old, 0, SEEK_SET);
-        fseek(f_new, 0, SEEK_END); long new_sz = ftell(f_new); fseek(f_new, 0, SEEK_SET);
+        bp_fseek64(f_old, 0, SEEK_END); int64_t old_sz = bp_ftell64(f_old); bp_fseek64(f_old, 0, SEEK_SET);
+        bp_fseek64(f_new, 0, SEEK_END); int64_t new_sz = bp_ftell64(f_new); bp_fseek64(f_new, 0, SEEK_SET);
 
-        uint8_t *old_buf = (uint8_t*)malloc(old_sz);
-        uint8_t *new_buf = (uint8_t*)malloc(new_sz);
-        fread(old_buf, 1, old_sz, f_old); fclose(f_old);
-        fread(new_buf, 1, new_sz, f_new); fclose(f_new);
+        uint8_t *old_buf = (uint8_t*)malloc((size_t)old_sz);
+        uint8_t *new_buf = (uint8_t*)malloc((size_t)new_sz);
+        fread(old_buf, 1, (size_t)old_sz, f_old); fclose(f_old);
+        fread(new_buf, 1, (size_t)new_sz, f_new); fclose(f_new);
 
         printf("[INFO] Generating binary differential patch: '%s' -> '%s'...\n", old_path, new_path);
         double t0 = get_time_sec();
         void *patch_out = NULL;
         size_t patch_sz = 0;
-        binpack_status_t st = binpack_create_patch(old_buf, old_sz, new_buf, new_sz, &patch_out, &patch_sz, NULL);
+        binpack_status_t st = binpack_create_patch(old_buf, (size_t)old_sz, new_buf, (size_t)new_sz, &patch_out, &patch_sz, NULL);
         double t1 = get_time_sec();
 
         free(old_buf);
@@ -251,8 +257,8 @@ int main(int argc, char **argv) {
 
         double pct = (double)patch_sz * 100.0 / (double)new_sz;
         printf("[OK] Patch generated successfully in %.3f s\n", t1 - t0);
-        printf("[OK] Target Size: %ld bytes | Patch Size: %llu bytes (%.2f%% of target)\n",
-               new_sz, (unsigned long long)patch_sz, pct);
+        printf("[OK] Target Size: %lld bytes | Patch Size: %llu bytes (%.2f%% of target)\n",
+               (long long)new_sz, (unsigned long long)patch_sz, pct);
         return 0;
     }
 
@@ -275,19 +281,19 @@ int main(int argc, char **argv) {
             return 1;
         }
 
-        fseek(f_old, 0, SEEK_END); long old_sz = ftell(f_old); fseek(f_old, 0, SEEK_SET);
-        fseek(f_patch, 0, SEEK_END); long patch_sz = ftell(f_patch); fseek(f_patch, 0, SEEK_SET);
+        bp_fseek64(f_old, 0, SEEK_END); int64_t old_sz = bp_ftell64(f_old); bp_fseek64(f_old, 0, SEEK_SET);
+        bp_fseek64(f_patch, 0, SEEK_END); int64_t patch_sz = bp_ftell64(f_patch); bp_fseek64(f_patch, 0, SEEK_SET);
 
-        uint8_t *old_buf = (uint8_t*)malloc(old_sz);
-        uint8_t *patch_buf = (uint8_t*)malloc(patch_sz);
-        fread(old_buf, 1, old_sz, f_old); fclose(f_old);
-        fread(patch_buf, 1, patch_sz, f_patch); fclose(f_patch);
+        uint8_t *old_buf = (uint8_t*)malloc((size_t)old_sz);
+        uint8_t *patch_buf = (uint8_t*)malloc((size_t)patch_sz);
+        fread(old_buf, 1, (size_t)old_sz, f_old); fclose(f_old);
+        fread(patch_buf, 1, (size_t)patch_sz, f_patch); fclose(f_patch);
 
         printf("[INFO] Applying binary differential patch '%s' onto base '%s'...\n", patch_path, old_path);
         double t0 = get_time_sec();
         void *new_out = NULL;
         size_t new_sz = 0;
-        binpack_status_t st = binpack_apply_patch(old_buf, old_sz, patch_buf, patch_sz, &new_out, &new_sz);
+        binpack_status_t st = binpack_apply_patch(old_buf, (size_t)old_sz, patch_buf, (size_t)patch_sz, &new_out, &new_sz);
         double t1 = get_time_sec();
 
         free(old_buf);

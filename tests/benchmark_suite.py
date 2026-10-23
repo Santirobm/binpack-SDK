@@ -188,7 +188,7 @@ def run_suite(full_iterations=False):
         print(f"{'Meta Zstandard (Level 1)':<38} | {r_z1['size']:>8,} bytes | {r_z1['ratio']:>6.2f}% | {r_z1['c_speed']:>8.1f} MB/s | {r_z1['d_speed']:>9.1f} MB/s | ±{r_z1['d_iqr_pct']:3.1f}%")
 
         # 3. BinPack Runtime Fast-Path (Zero-CRC)
-        fmode = "bitshuffle" if ("telemetry" in item["category"].lower() or "medical" in item["category"].lower()) else "auto"
+        fmode = "auto"
         r_bp_rt_fast = run_stat_bench(
             lambda d: binpack_sdk.compress(d, level=12, filter_mode=fmode, mode="runtime"),
             lambda c: binpack_sdk.decompress(c, verify_checksum=False),
