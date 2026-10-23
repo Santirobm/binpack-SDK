@@ -28,6 +28,7 @@ pub struct BinPackOptions {
     pub enable_micro_trial: c_int,
     pub filter: c_int,
     pub transpose_stride: u16,
+    pub mode: c_int,
 }
 
 extern "C" {

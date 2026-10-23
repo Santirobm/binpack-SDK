@@ -29,8 +29,9 @@ typedef struct binpack_options_s {
     int nb_workers;              /* Worker threads (0 = auto-detect CPU cores) */
     int chunk_size;              /* Chunk size in bytes (default: 16777216 = 16 MB) */
     int enable_micro_trial;      /* 1 = enable 32KB sample trial to prevent regression */
-    binpack_filter_t filter;     /* BINPACK_FILTER_AUTO or specific filter override */
-    uint16_t transpose_stride;   /* Stride for TRANSPOSE_DELTA (e.g. 4 for float32) */
+    binpack_filter_t filter;     /* BINPACK_FILTER_AUTO, X86, ARM32, ARM64, TRANSPOSE, BITSHUFFLE, TEXTURE_BCN */
+    uint16_t transpose_stride;   /* Stride for TRANSPOSE / BITSHUFFLE (e.g. 4 for float32) */
+    binpack_engine_mode_t mode;  /* BINPACK_MODE_DEFAULT, RUNTIME (fast decode), ARCHIVAL (max ratio) */
 } binpack_options_t;
 ```
 
@@ -43,6 +44,9 @@ Populates the options struct with enterprise defaults:
 - `nb_workers = 0` (auto-detect)
 - `chunk_size = 16 MB`
 - `enable_micro_trial = 1`
+- `filter = BINPACK_FILTER_AUTO`
+- `transpose_stride = 4`
+- `mode = BINPACK_MODE_DEFAULT`
 - `filter = BINPACK_FILTER_AUTO`
 - `transpose_stride = 4`
 

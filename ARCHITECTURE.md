@@ -112,8 +112,10 @@ Executable binaries contain mixed content: code (`.text`), read-only data (`.rda
 BinPack dynamically parses PE32/PE32+ and ELF32/ELF64 headers to isolate the exact byte interval $[ \text{offset}, \text{offset} + \text{length} ]$ corresponding to executable machine code.
 
 ### Normalization Transforms
-- **x86/x64**: Transforms relative $CALL$ (`0xE8`) and $JMP$ (`0xE9`) displacements into absolute instruction pointers:
+- **x86/x64**: SWAR 64-bit branchless scanning transforms relative $CALL$ (`0xE8`) and $JMP$ (`0xE9`) displacements into absolute instruction pointers:
   $$\text{addr}_{abs} = \text{disp}_{rel} + \text{offset}_{PC} + 5$$
 - **ARM32 Thumb-2**: Normalizes 32-bit paired branch-link (`BL`/`BLX`) instructions.
 - **AArch64 (ARM64)**: Normalizes 26-bit immediate branch targets (`0x14000000` / `0x94000000` opcodes).
-- **Stride-N Transpose + Delta**: Separates multi-byte numerical elements (e.g., IEEE 754 floats or 16-bit telemetry) into discrete byte channels, followed by first-order difference encoding on high-order exponent lanes.
+- **Bitshuffle ($8 \times 8$ Bit Matrix Transposition)**: Pure bit-level matrix transposition for multi-byte numerical elements (e.g., IEEE 754 float32/float64). Reorganizes bits so identical sign and exponent bits collapse into continuous byte runs of `0x00` / `0xFF`.
+- **GPU Texture Block Decoupling (BC1-BC7 & ASTC)**: Partitions $4 \times 4$ pixel texture blocks into isolated endpoint color streams and interpolation index streams with Delta-4 inter-block filtering.
+- **Stride-N Transpose + Delta**: Separates multi-byte numerical elements into discrete byte channels, followed by first-order difference encoding on high-order exponent lanes.

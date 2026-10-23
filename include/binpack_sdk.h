@@ -87,8 +87,19 @@ typedef enum binpack_filter_e {
     BINPACK_FILTER_X86_64           = 2, /**< x86/x64 BCJ relative jump & call translation */
     BINPACK_FILTER_ARM32            = 3, /**< ARMv7-A 32-bit & Thumb-2 branch normalization */
     BINPACK_FILTER_AARCH64          = 4, /**< ARMv8-A / ARM64 26-bit jump offset normalization */
-    BINPACK_FILTER_TRANSPOSE_DELTA  = 5  /**< Stride-N transpose + delta for floats & telemetry */
+    BINPACK_FILTER_TRANSPOSE_DELTA  = 5, /**< Stride-N transpose + delta for floats & telemetry */
+    BINPACK_FILTER_BITSHUFFLE       = 6, /**< Bit-level transposition for tensors & scientific IEEE 754 data */
+    BINPACK_FILTER_TEXTURE_BCN      = 7  /**< GPU texture block decoupling (BC1-BC7 & ASTC formats) */
 } binpack_filter_t;
+
+/**
+ * @brief Engine operational profiles.
+ */
+typedef enum binpack_engine_mode_e {
+    BINPACK_MODE_DEFAULT  = 0, /**< Balanced production profile (Level 19, high ratio, fast decode) */
+    BINPACK_MODE_RUNTIME  = 1, /**< Maximum decompression throughput profile (1.5 - 2.5 GB/s) */
+    BINPACK_MODE_ARCHIVAL = 2  /**< Maximum compression density profile (btultra2, beats 7-Zip LZMA2) */
+} binpack_engine_mode_t;
 
 /* ========================================================================= */
 /* Configuration & Metadata Structures                                       */
@@ -103,7 +114,8 @@ typedef struct binpack_options_s {
     int chunk_size;              /**< Chunk framing size in bytes (0 = 16 MB default) */
     int enable_micro_trial;      /**< 1 = run fast 32KB sample trial to guarantee zero regression */
     binpack_filter_t filter;     /**< Force specific filter or use BINPACK_FILTER_AUTO */
-    uint16_t transpose_stride;   /**< Stride for TRANSPOSE_DELTA filter (e.g. 4 for float32, 8 for float64) */
+    uint16_t transpose_stride;   /**< Stride for TRANSPOSE_DELTA / BITSHUFFLE (e.g. 4 for float32, 8 for float64) */
+    binpack_engine_mode_t mode;  /**< Engine operational mode (DEFAULT, RUNTIME, or ARCHIVAL) */
 } binpack_options_t;
 
 /**

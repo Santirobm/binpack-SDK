@@ -55,6 +55,14 @@ int BINPACK_CALL binpack_evaluate_filter_gain(
             if (stride < 2) stride = 4;
             binpack_transpose_delta_filter(sample_copy, eval_len, stride);
             break;
+        case BINPACK_FILTER_BITSHUFFLE:
+            if (stride < 1) stride = 4;
+            binpack_bitshuffle_filter(sample_copy, eval_len, stride);
+            break;
+        case BINPACK_FILTER_TEXTURE_BCN:
+            if (stride != 8 && stride != 16) stride = 8;
+            binpack_texture_bcn_filter(sample_copy, eval_len, stride);
+            break;
         default:
             break;
     }

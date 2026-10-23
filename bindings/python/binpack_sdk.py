@@ -27,6 +27,13 @@ class BinPackFilter:
     ARM32 = 3
     AARCH64 = 4
     TRANSPOSE_DELTA = 5
+    BITSHUFFLE = 6
+    TEXTURE_BCN = 7
+
+class BinPackEngineMode:
+    DEFAULT = 0
+    RUNTIME = 1
+    ARCHIVAL = 2
 
 class _BinPackOptions(ctypes.Structure):
     _fields_ = [
@@ -36,6 +43,7 @@ class _BinPackOptions(ctypes.Structure):
         ("enable_micro_trial", ctypes.c_int),
         ("filter", ctypes.c_int),
         ("transpose_stride", ctypes.c_uint16),
+        ("mode", ctypes.c_int),
     ]
 
 class _BinPackFileInfo(ctypes.Structure):

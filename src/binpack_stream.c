@@ -50,7 +50,19 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
     if (opt.nb_workers > 0) {
         ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, opt.nb_workers);
     }
+
     int clevel = opt.clevel > 0 ? opt.clevel : 19;
+    if (opt.mode == BINPACK_MODE_ARCHIVAL) {
+        clevel = 22; /* Maximum archival density */
+        ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 27);
+        ZSTD_CCtx_setParameter(cctx, ZSTD_c_chainLog, 28);
+        ZSTD_CCtx_setParameter(cctx, ZSTD_c_searchLog, 26);
+        ZSTD_CCtx_setParameter(cctx, ZSTD_c_minMatch, 3);
+        ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, ZSTD_btultra2);
+    } else if (opt.mode == BINPACK_MODE_RUNTIME) {
+        if (clevel > 12) clevel = 12; /* Optimized for 1.5 - 2.5 GB/s decompression */
+        ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, ZSTD_dfast);
+    }
     if (clevel > 22) clevel = 22;
     ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, clevel);
 
@@ -123,6 +135,12 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
         } else if (filter == BINPACK_FILTER_TRANSPOSE_DELTA) {
             if (filter_param < 2) filter_param = 4;
             binpack_transpose_delta_filter(raw_chunk, bytes_read, filter_param);
+        } else if (filter == BINPACK_FILTER_BITSHUFFLE) {
+            if (filter_param < 1) filter_param = 4;
+            binpack_bitshuffle_filter(raw_chunk, bytes_read, filter_param);
+        } else if (filter == BINPACK_FILTER_TEXTURE_BCN) {
+            if (filter_param != 8 && filter_param != 16) filter_param = 8;
+            binpack_texture_bcn_filter(raw_chunk, bytes_read, filter_param);
         }
 
         /* Compress chunk */
@@ -365,6 +383,10 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_stream(
                 }
             } else if (filter_id == BINPACK_FILTER_TRANSPOSE_DELTA) {
                 binpack_transpose_delta_unfilter(raw_buf, d_sz, chdr.filter_param);
+            } else if (filter_id == BINPACK_FILTER_BITSHUFFLE) {
+                binpack_bitshuffle_unfilter(raw_buf, d_sz, chdr.filter_param);
+            } else if (filter_id == BINPACK_FILTER_TEXTURE_BCN) {
+                binpack_texture_bcn_unfilter(raw_buf, d_sz, chdr.filter_param);
             }
 
             /* Verify Chunk CRC32 */

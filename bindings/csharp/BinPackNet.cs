@@ -29,7 +29,16 @@ namespace BinPack.Enterprise
         X86_64 = 2,
         Arm32 = 3,
         AArch64 = 4,
-        TransposeDelta = 5
+        TransposeDelta = 5,
+        Bitshuffle = 6,
+        TextureBCn = 7
+    }
+
+    public enum BinPackEngineMode
+    {
+        Default = 0,
+        Runtime = 1,
+        Archival = 2
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -41,6 +50,7 @@ namespace BinPack.Enterprise
         public int EnableMicroTrial;
         public BinPackFilter Filter;
         public ushort TransposeStride;
+        public BinPackEngineMode Mode;
 
         public static BinPackOptions Default
         {

@@ -83,6 +83,14 @@ void binpack_bcj_aarch64_unfilter(uint8_t *data, size_t size);
 int binpack_transpose_delta_filter(uint8_t *data, size_t size, uint16_t stride);
 int binpack_transpose_delta_unfilter(uint8_t *data, size_t size, uint16_t stride);
 
+/* Bitshuffle Bit-Level Transposition */
+int binpack_bitshuffle_filter(uint8_t *data, size_t size, uint16_t stride);
+int binpack_bitshuffle_unfilter(uint8_t *data, size_t size, uint16_t stride);
+
+/* GPU Texture Block Decoupling (BC1-BC7 & ASTC) */
+int binpack_texture_bcn_filter(uint8_t *data, size_t size, uint16_t stride);
+int binpack_texture_bcn_unfilter(uint8_t *data, size_t size, uint16_t stride);
+
 binpack_filter_t binpack_auto_select_filter(const uint8_t *data, size_t size, uint16_t *out_param);
 
 #endif /* BINPACK_INTERNAL_H */

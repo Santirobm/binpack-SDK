@@ -17,6 +17,7 @@ BINPACK_API void BINPACK_CALL binpack_default_options(binpack_options_t *opts) {
     opts->enable_micro_trial = 1; /* Zero-regression guard enabled by default */
     opts->filter = BINPACK_FILTER_AUTO;
     opts->transpose_stride = 4;
+    opts->mode = BINPACK_MODE_DEFAULT;
 }
 
 BINPACK_API void BINPACK_CALL binpack_free(void *ptr) {

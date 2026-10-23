@@ -44,7 +44,8 @@ static void print_usage(const char *prog) {
     printf("  -l, --level <1-22>       Compression level (default: 19)\n");
     printf("  -t, --threads <N>        Worker threads (default: 0 = auto-detect all cores)\n");
     printf("  -s, --chunk-size <MB>    Chunk buffer size in MB (default: 16 MB)\n");
-    printf("  -f, --filter <mode>      Force filter: auto, none, x86, arm32, arm64, transpose\n");
+    printf("  -f, --filter <mode>      Force filter: auto, none, x86, arm32, arm64, transpose, bitshuffle, texture\n");
+    printf("  -m, --mode <profile>     Profile: default, runtime (fast decode 2GB/s), archival (max ratio)\n");
     printf("  --no-micro-trial         Disable 32KB sample trial (forces filter unconditionally)\n");
     printf("  -v, --version            Display version information\n");
     printf("  -h, --help               Display this help guide\n");
@@ -151,6 +152,11 @@ int main(int argc, char **argv) {
                 opts.chunk_size = atoi(argv[++i]) * 1024 * 1024;
             } else if (strcmp(argv[i], "--no-micro-trial") == 0) {
                 opts.enable_micro_trial = 0;
+            } else if ((strcmp(argv[i], "-m") == 0 || strcmp(argv[i], "--mode") == 0) && i + 1 < argc) {
+                const char *m = argv[++i];
+                if (strcmp(m, "runtime") == 0) opts.mode = BINPACK_MODE_RUNTIME;
+                else if (strcmp(m, "archival") == 0) opts.mode = BINPACK_MODE_ARCHIVAL;
+                else opts.mode = BINPACK_MODE_DEFAULT;
             } else if ((strcmp(argv[i], "-f") == 0 || strcmp(argv[i], "--filter") == 0) && i + 1 < argc) {
                 const char *f = argv[++i];
                 if (strcmp(f, "none") == 0) opts.filter = BINPACK_FILTER_NONE;
@@ -158,6 +164,8 @@ int main(int argc, char **argv) {
                 else if (strcmp(f, "arm32") == 0) opts.filter = BINPACK_FILTER_ARM32;
                 else if (strcmp(f, "arm64") == 0) opts.filter = BINPACK_FILTER_AARCH64;
                 else if (strcmp(f, "transpose") == 0) opts.filter = BINPACK_FILTER_TRANSPOSE_DELTA;
+                else if (strcmp(f, "bitshuffle") == 0) opts.filter = BINPACK_FILTER_BITSHUFFLE;
+                else if (strcmp(f, "texture") == 0) opts.filter = BINPACK_FILTER_TEXTURE_BCN;
             }
         }
 

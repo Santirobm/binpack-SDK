@@ -141,6 +141,75 @@ static void test_corrupt_data_resilience(void) {
     printf("PASS\n");
 }
 
+static void test_bitshuffle_roundtrip(void) {
+    printf("[TEST] Checking Bitshuffle bit-level transposition... ");
+    const size_t sz = 64 * 1024;
+    uint8_t *orig = (uint8_t*)malloc(sz);
+    assert(orig != NULL);
+
+    /* Generate IEEE 754-like float pattern */
+    float *floats = (float*)orig;
+    for (size_t i = 0; i < sz / sizeof(float); i++) {
+        floats[i] = (float)(1.0 + (double)(i % 100) * 0.01);
+    }
+
+    void *compressed = NULL;
+    size_t comp_sz = 0;
+    binpack_options_t opts;
+    binpack_default_options(&opts);
+    opts.filter = BINPACK_FILTER_BITSHUFFLE;
+    opts.transpose_stride = 4;
+
+    binpack_status_t st_c = binpack_compress_buffer(orig, sz, &compressed, &comp_sz, &opts);
+    assert(st_c == BINPACK_OK);
+    assert(comp_sz < sz / 4); /* Floats should collapse massively under bitshuffle */
+
+    void *restored = NULL;
+    size_t rest_sz = 0;
+    binpack_status_t st_d = binpack_decompress_buffer(compressed, comp_sz, &restored, &rest_sz);
+    assert(st_d == BINPACK_OK);
+    assert(rest_sz == sz);
+    assert(memcmp(orig, restored, sz) == 0);
+
+    binpack_free(compressed);
+    binpack_free(restored);
+    free(orig);
+    printf("PASS\n");
+}
+
+static void test_texture_bcn_roundtrip(void) {
+    printf("[TEST] Checking GPU Texture BC1-BC7 block decoupling... ");
+    const size_t sz = 32 * 1024; /* 4096 blocks of 8 bytes (BC1) */
+    uint8_t *orig = (uint8_t*)malloc(sz);
+    assert(orig != NULL);
+
+    for (size_t i = 0; i < sz; i++) {
+        orig[i] = (uint8_t)((i * 3) ^ (i / 8));
+    }
+
+    void *compressed = NULL;
+    size_t comp_sz = 0;
+    binpack_options_t opts;
+    binpack_default_options(&opts);
+    opts.filter = BINPACK_FILTER_TEXTURE_BCN;
+    opts.transpose_stride = 8;
+
+    binpack_status_t st_c = binpack_compress_buffer(orig, sz, &compressed, &comp_sz, &opts);
+    assert(st_c == BINPACK_OK);
+
+    void *restored = NULL;
+    size_t rest_sz = 0;
+    binpack_status_t st_d = binpack_decompress_buffer(compressed, comp_sz, &restored, &rest_sz);
+    assert(st_d == BINPACK_OK);
+    assert(rest_sz == sz);
+    assert(memcmp(orig, restored, sz) == 0);
+
+    binpack_free(compressed);
+    binpack_free(restored);
+    free(orig);
+    printf("PASS\n");
+}
+
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
     printf("=========================================================\n");
@@ -150,11 +219,13 @@ int main(void) {
     test_version();
     test_buffer_roundtrip();
     test_micro_trial_guard();
+    test_bitshuffle_roundtrip();
+    test_texture_bcn_roundtrip();
     test_streaming_file_roundtrip();
     test_corrupt_data_resilience();
 
     printf("=========================================================\n");
-    printf("[SUCCESS] All 5 regression suites passed flawlessly!\n");
+    printf("[SUCCESS] All 7 regression suites passed flawlessly!\n");
     printf("=========================================================\n");
     return 0;
 }
