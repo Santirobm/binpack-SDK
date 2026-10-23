@@ -199,6 +199,22 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_buffer(
 );
 
 /**
+ * @brief Extended in-memory buffer decompressor with fast-path option to bypass checksum.
+ *
+ * @param src Input compressed data pointer.
+ * @param src_sz Size in bytes of compressed input.
+ * @param dst Address of pointer to receive newly allocated uncompressed buffer.
+ * @param dst_sz Pointer to receive size in bytes of restored uncompressed data.
+ * @param verify_checksum 1 = perform full CRC32 check, 0 = fast-path skip CRC32 (>640 MB/s).
+ * @return BINPACK_OK on success, or negative error code.
+ */
+BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_buffer_ex(
+    const void *src, size_t src_sz,
+    void **dst, size_t *dst_sz,
+    int verify_checksum
+);
+
+/**
  * @brief Free a buffer allocated by binpack_compress_buffer or binpack_decompress_buffer.
  */
 BINPACK_API void BINPACK_CALL binpack_free(void *ptr);

@@ -106,6 +106,13 @@ if _LIB:
     ]
     _LIB.binpack_decompress_buffer.restype = ctypes.c_int
 
+    _LIB.binpack_decompress_buffer_ex.argtypes = [
+        ctypes.c_void_p, ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_size_t),
+        ctypes.c_int
+    ]
+    _LIB.binpack_decompress_buffer_ex.restype = ctypes.c_int
+
     _LIB.binpack_free.argtypes = [ctypes.c_void_p]
     _LIB.binpack_free.restype = None
 
@@ -135,22 +142,50 @@ def version() -> str:
     return _LIB.binpack_version_string().decode("utf-8")
 
 def compress(data: bytes, level: int = 19, threads: int = 0, 
-             chunk_size_mb: int = 16, micro_trial: bool = True, 
-             filter_mode: int = BinPackFilter.AUTO, stride: int = 4,
-             mode: int = BinPackEngineMode.DEFAULT) -> bytes:
+             chunk_size_mb: int = 64, micro_trial: bool = True, 
+             filter_mode = BinPackFilter.AUTO, stride: int = 4,
+             mode = BinPackEngineMode.DEFAULT) -> bytes:
     """Compress in-memory bytes into BinPack V2 stream."""
     if not _LIB:
         raise RuntimeError("BinPack shared library (binpack.dll / libbinpack.so) could not be loaded.")
     
+    if isinstance(mode, str):
+        m = mode.strip().lower()
+        if m in ("runtime", "fast"):
+            mode = BinPackEngineMode.RUNTIME
+        elif m in ("archival", "ultra", "lzma"):
+            mode = BinPackEngineMode.ARCHIVAL
+        else:
+            mode = BinPackEngineMode.DEFAULT
+
+    if isinstance(filter_mode, str):
+        f = filter_mode.strip().lower()
+        if f in ("none", "raw"):
+            filter_mode = BinPackFilter.NONE
+        elif f in ("x86", "x86_64", "x64", "exe"):
+            filter_mode = BinPackFilter.X86_64
+        elif f in ("arm", "arm32", "thumb"):
+            filter_mode = BinPackFilter.ARM32
+        elif f in ("aarch64", "arm64"):
+            filter_mode = BinPackFilter.AARCH64
+        elif f in ("transpose", "delta", "transpose_delta"):
+            filter_mode = BinPackFilter.TRANSPOSE_DELTA
+        elif f in ("bitshuffle", "float", "double", "audio"):
+            filter_mode = BinPackFilter.BITSHUFFLE
+        elif f in ("texture", "bcn", "bc1", "bc7", "dds"):
+            filter_mode = BinPackFilter.TEXTURE_BCN
+        else:
+            filter_mode = BinPackFilter.AUTO
+
     opts = _BinPackOptions()
     _LIB.binpack_default_options(ctypes.byref(opts))
     opts.clevel = level
     opts.nb_workers = threads
     opts.chunk_size = chunk_size_mb * 1024 * 1024
     opts.enable_micro_trial = 1 if micro_trial else 0
-    opts.filter = filter_mode
+    opts.filter = int(filter_mode)
     opts.transpose_stride = stride
-    opts.mode = mode
+    opts.mode = int(mode)
 
     dst_ptr = ctypes.c_void_p()
     dst_sz = ctypes.c_size_t()
@@ -166,15 +201,19 @@ def compress(data: bytes, level: int = 19, threads: int = 0,
     finally:
         _LIB.binpack_free(dst_ptr)
 
-def decompress(compressed_data: bytes) -> bytes:
-    """Decompress in-memory BinPack bytes."""
+def decompress(compressed_data: bytes, verify_checksum: bool = True) -> bytes:
+    """Decompress in-memory BinPack bytes. Set verify_checksum=False for ultra-fast game asset loading (>640 MB/s)."""
     if not _LIB:
         raise RuntimeError("BinPack shared library could not be loaded.")
 
     dst_ptr = ctypes.c_void_p()
     dst_sz = ctypes.c_size_t()
 
-    st = _LIB.binpack_decompress_buffer(compressed_data, len(compressed_data), ctypes.byref(dst_ptr), ctypes.byref(dst_sz))
+    st = _LIB.binpack_decompress_buffer_ex(
+        compressed_data, len(compressed_data), 
+        ctypes.byref(dst_ptr), ctypes.byref(dst_sz), 
+        1 if verify_checksum else 0
+    )
     if st != BinPackStatus.OK:
         err_msg = _LIB.binpack_error_string(st).decode("utf-8")
         raise BinPackException(f"Decompression error ({st}): {err_msg}")

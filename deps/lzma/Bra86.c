@@ -2,8 +2,12 @@
 2017-04-03 : Igor Pavlov : Public domain */
 
 #include "Precomp.h"
-
 #include "Bra.h"
+#include <stdint.h>
+
+#if defined(__AVX2__)
+#include <immintrin.h>
+#endif
 
 #define Test86MSByte(b) ((((b) + 1) & 0xFE) == 0)
 
@@ -20,6 +24,29 @@ SizeT x86_Convert(Byte *data, SizeT size, UInt32 ip, UInt32 *state, int encoding
   {
     Byte *p = data + pos;
     const Byte *limit = data + size;
+
+#if defined(__AVX2__)
+    const __m256i v_e8 = _mm256_set1_epi8((char)0xE8);
+    const __m256i v_e9 = _mm256_set1_epi8((char)0xE9);
+    while (p + 32 <= limit) {
+        __m256i chunk = _mm256_loadu_si256((const __m256i*)p);
+        __m256i eq = _mm256_or_si256(_mm256_cmpeq_epi8(chunk, v_e8), _mm256_cmpeq_epi8(chunk, v_e9));
+        uint32_t m = (uint32_t)_mm256_movemask_epi8(eq);
+        if (m == 0) {
+            p += 32;
+        } else {
+            #if defined(__GNUC__) || defined(__clang__)
+            p += __builtin_ctz(m);
+            #else
+            unsigned long idx;
+            _BitScanForward(&idx, m);
+            p += idx;
+            #endif
+            break;
+        }
+    }
+#endif
+
     for (; p < limit; p++)
       if ((*p & 0xFE) == 0xE8)
         break;

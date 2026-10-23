@@ -5,6 +5,24 @@
 
 #include "binpack_internal.h"
 
+#if defined(_WIN32)
+#include <windows.h>
+static int binpack_get_cpu_cores(void) {
+    DWORD count = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    return count > 0 ? (int)count : 4;
+}
+#elif defined(__APPLE__) || defined(__linux__)
+#include <unistd.h>
+static int binpack_get_cpu_cores(void) {
+    long count = sysconf(_SC_NPROCESSORS_ONLN);
+    return count > 0 ? (int)count : 4;
+}
+#else
+static int binpack_get_cpu_cores(void) {
+    return 4;
+}
+#endif
+
 /* ========================================================================= */
 /* Generic Stream Compression Engine                                         */
 /* ========================================================================= */
@@ -54,9 +72,10 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
             return BINPACK_ERR_OUT_OF_MEMORY;
         }
 
-        if (opt.nb_workers > 0) {
-            ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, opt.nb_workers);
-        }
+        int num_workers = opt.nb_workers > 0 ? opt.nb_workers : binpack_get_cpu_cores();
+        if (num_workers < 1) num_workers = 1;
+        if (num_workers > 32) num_workers = 32;
+        ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, num_workers);
 
         if (opt.mode == BINPACK_MODE_RUNTIME) {
             if (clevel > 12) clevel = 12;
@@ -161,13 +180,14 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
             unsigned dict_sz = (unsigned)(bytes_read < (32 * 1024 * 1024) ? bytes_read : (32 * 1024 * 1024));
             if (dict_sz < 4096) dict_sz = 4096;
 
+            int num_threads = (binpack_get_cpu_cores() > 1) ? 2 : 1;
             int lzma_res = LzmaCompress(
                 cmp_chunk + 5, &lzma_dst_len,
                 raw_chunk, bytes_read,
                 props, &props_sz,
                 9, /* level 9 ultra */
                 dict_sz,
-                3, 0, 2, 64, 1
+                3, 0, 2, 64, num_threads
             );
 
             if (lzma_res != SZ_OK) {
@@ -508,17 +528,19 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_stream(
                 }
             }
 
-            /* Preserve filtered state in prev_raw for subsequent chunk dictionary references */
-            if (prev_cap < chdr.uncompressed_sz) {
-                prev_cap = chdr.uncompressed_sz;
-                uint8_t *new_prev = (uint8_t*)realloc(prev_raw, prev_cap);
-                if (new_prev) {
-                    prev_raw = new_prev;
+            /* Preserve filtered state in prev_raw only when next chunk can use prefix */
+            if (!(chdr.filter_flags & BP_CHUNK_FLAG_LZMA)) {
+                if (prev_cap < chdr.uncompressed_sz) {
+                    prev_cap = chdr.uncompressed_sz;
+                    uint8_t *new_prev = (uint8_t*)realloc(prev_raw, prev_cap);
+                    if (new_prev) {
+                        prev_raw = new_prev;
+                    }
                 }
-            }
-            if (prev_raw && prev_cap >= chdr.uncompressed_sz) {
-                memcpy(prev_raw, raw_buf, chdr.uncompressed_sz);
-                prev_len = chdr.uncompressed_sz;
+                if (prev_raw && prev_cap >= chdr.uncompressed_sz) {
+                    memcpy(prev_raw, raw_buf, chdr.uncompressed_sz);
+                    prev_len = chdr.uncompressed_sz;
+                }
             }
 
             /* Inverse Prefilter */

@@ -98,8 +98,14 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_buffer(
     binpack_options_t opt;
     if (opts) {
         opt = *opts;
+        if (opt.chunk_size == 0 && src_sz > 0) {
+            opt.chunk_size = (src_sz <= 64 * 1024 * 1024) ? (int)src_sz : (64 * 1024 * 1024);
+        }
     } else {
         binpack_default_options(&opt);
+        if (src_sz > (size_t)opt.chunk_size && src_sz <= 64 * 1024 * 1024) {
+            opt.chunk_size = (int)src_sz;
+        }
     }
     if (src_sz < (size_t)opt.chunk_size && src_sz >= BINPACK_MIN_CHUNK_SIZE) {
         opt.chunk_size = (int)src_sz;
@@ -117,16 +123,124 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_buffer(
     return st;
 }
 
-BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_buffer(
+BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_buffer_ex(
     const void *src, size_t src_sz,
-    void **dst, size_t *dst_sz
+    void **dst, size_t *dst_sz,
+    int verify_checksum
 ) {
     if (!src || !dst || !dst_sz) return BINPACK_ERR_INVALID_PARAM;
 
+    /* --------------------------------------------------------------------- */
+    /* Fast-Path: Single-Chunk Zero-Copy Direct In-Place Decompression       */
+    /* --------------------------------------------------------------------- */
+    if (src_sz >= sizeof(binpack_v2_header_t) + sizeof(binpack_chunk_header_t)) {
+        const uint8_t *s = (const uint8_t*)src;
+        uint32_t magic = *(const uint32_t*)s;
+        if (magic == BINPACK_MAGIC_V2) {
+            binpack_chunk_header_t *chdr = (binpack_chunk_header_t*)(s + sizeof(binpack_v2_header_t));
+            if (chdr->chunk_magic == BINPACK_MAGIC_CHUNK) {
+                size_t off = sizeof(binpack_v2_header_t) + sizeof(binpack_chunk_header_t);
+                size_t code_off = 0;
+                size_t code_len = chdr->uncompressed_sz;
+                if (chdr->filter_flags & BP_CHUNK_FLAG_BOUNDS) {
+                    if (src_sz >= off + sizeof(binpack_chunk_bounds_t)) {
+                        binpack_chunk_bounds_t *b = (binpack_chunk_bounds_t*)(s + off);
+                        code_off = b->code_offset;
+                        code_len = b->code_length;
+                        off += sizeof(binpack_chunk_bounds_t);
+                    }
+                }
+                if (src_sz >= off + chdr->compressed_sz) {
+                    size_t after_payload = off + chdr->compressed_sz;
+                    int is_single_chunk = 0;
+                    if (after_payload == src_sz) {
+                        is_single_chunk = 1;
+                    } else if (after_payload + sizeof(binpack_v2_footer_t) <= src_sz) {
+                        uint32_t next_tag = *(const uint32_t*)(s + after_payload);
+                        if (next_tag == BINPACK_MAGIC_FOOTER) {
+                            is_single_chunk = 1;
+                        }
+                    }
+                    if (is_single_chunk) {
+                        uint8_t *out = (uint8_t*)malloc(chdr->uncompressed_sz);
+                        if (!out) return BINPACK_ERR_OUT_OF_MEMORY;
+
+                        const uint8_t *payload = s + off;
+                        int decomp_ok = 0;
+
+                        if (chdr->filter_flags & BP_CHUNK_FLAG_LZMA) {
+                            if (chdr->compressed_sz >= 5) {
+                                unsigned char props[5];
+                                memcpy(props, payload, 5);
+                                size_t lzma_in = chdr->compressed_sz - 5;
+                                size_t lzma_out = chdr->uncompressed_sz;
+                                int lzma_res = LzmaUncompress(out, &lzma_out, payload + 5, &lzma_in, props, 5);
+                                if (lzma_res == SZ_OK && lzma_out == chdr->uncompressed_sz) {
+                                    decomp_ok = 1;
+                                }
+                            }
+                        } else {
+                            size_t d_sz = ZSTD_decompress(out, chdr->uncompressed_sz, payload, chdr->compressed_sz);
+                            if (!ZSTD_isError(d_sz) && d_sz == chdr->uncompressed_sz) {
+                                decomp_ok = 1;
+                            }
+                        }
+
+                        if (!decomp_ok) {
+                            free(out);
+                            return BINPACK_ERR_DECOMPRESSION_FAILED;
+                        }
+
+                        /* In-place unfilter directly on destination buffer */
+                        uint8_t fid = chdr->filter_id;
+                        if (fid == BINPACK_FILTER_X86_64) {
+                            binpack_bcj_x86_unfilter(out + code_off, code_len);
+                        } else if (fid == BINPACK_FILTER_ARM32) {
+                            binpack_bcj_arm32_unfilter(out + code_off, code_len);
+                        } else if (fid == BINPACK_FILTER_AARCH64) {
+                            binpack_bcj_aarch64_unfilter(out + code_off, code_len);
+                        } else if (fid == BINPACK_FILTER_BITSHUFFLE) {
+                            binpack_bitshuffle_unfilter(out, chdr->uncompressed_sz, chdr->filter_param);
+                        } else if (fid == BINPACK_FILTER_TRANSPOSE_DELTA) {
+                            binpack_transpose_delta_unfilter(out, chdr->uncompressed_sz, chdr->filter_param);
+                        } else if (fid == BINPACK_FILTER_TEXTURE_BCN) {
+                            binpack_texture_bcn_unfilter(out, chdr->uncompressed_sz, chdr->filter_param);
+                        }
+
+                        /* Integrity verification */
+                        if (verify_checksum) {
+                            uint32_t chk = binpack_crc32(0, out, chdr->uncompressed_sz);
+                            if (chk != chdr->chunk_crc32) {
+                                free(out);
+                                return BINPACK_ERR_CHECKSUM_MISMATCH;
+                            }
+                        }
+
+                        *dst = out;
+                        *dst_sz = chdr->uncompressed_sz;
+                        return BINPACK_OK;
+                    }
+                }
+            }
+        }
+    }
+
+    /* Fallback: Multi-chunk general streaming engine */
     mem_stream_ctx_t ctx;
     memset(&ctx, 0, sizeof(ctx));
     ctx.src = (const uint8_t*)src;
     ctx.src_size = src_sz;
+
+    /* Preallocate contiguous destination from footer if available to eliminate realloc overhead */
+    if (src_sz >= sizeof(binpack_v2_footer_t)) {
+        const binpack_v2_footer_t *ftr = (const binpack_v2_footer_t*)((const uint8_t*)src + src_sz - sizeof(binpack_v2_footer_t));
+        if (ftr->footer_magic == BINPACK_MAGIC_FOOTER && ftr->total_uncompressed > 0 && ftr->total_uncompressed <= 0x7FFFFFFF) {
+            ctx.dst = (uint8_t*)malloc((size_t)ftr->total_uncompressed);
+            if (ctx.dst) {
+                ctx.dst_cap = (size_t)ftr->total_uncompressed;
+            }
+        }
+    }
 
     binpack_status_t st = binpack_decompress_stream(mem_read_cb, mem_write_cb, &ctx, NULL);
     if (st == BINPACK_OK) {
@@ -138,6 +252,13 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_buffer(
         *dst_sz = 0;
     }
     return st;
+}
+
+BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_buffer(
+    const void *src, size_t src_sz,
+    void **dst, size_t *dst_sz
+) {
+    return binpack_decompress_buffer_ex(src, src_sz, dst, dst_sz, 1);
 }
 
 /* ========================================================================= */
@@ -191,6 +312,10 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_file(
         return BINPACK_ERR_IO;
     }
 
+    /* Enable 256 KB full buffering for high-throughput disk streaming */
+    setvbuf(fin, NULL, _IOFBF, 256 * 1024);
+    setvbuf(fout, NULL, _IOFBF, 256 * 1024);
+
     file_stream_ctx_t ctx = { fin, fout, progress, user_data };
     binpack_status_t st = binpack_compress_stream(file_read_cb, file_write_cb, &ctx, total_sz, opts, progress ? file_progress_cb : NULL);
 
@@ -215,6 +340,10 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_file(
         fclose(fin);
         return BINPACK_ERR_IO;
     }
+
+    /* Enable 256 KB full buffering for high-throughput disk streaming */
+    setvbuf(fin, NULL, _IOFBF, 256 * 1024);
+    setvbuf(fout, NULL, _IOFBF, 256 * 1024);
 
     file_stream_ctx_t ctx = { fin, fout, progress, user_data };
     binpack_status_t st = binpack_decompress_stream(file_read_cb, file_write_cb, &ctx, progress ? file_progress_cb : NULL);
