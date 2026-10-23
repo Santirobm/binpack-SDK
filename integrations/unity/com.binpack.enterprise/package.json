@@ -1,0 +1,22 @@
+{
+  "name": "com.binpack.enterprise",
+  "version": "2.2.0",
+  "displayName": "BinPack Enterprise SDK",
+  "description": "High-throughput domain-aware compression & streaming engine for Unity. Up to 1+ GB/s asset decompression in RAM, 30-45% smaller binaries and GPU textures, and strictly bounded memory usage (<= 64 MB).",
+  "unity": "2020.3",
+  "keywords": [
+    "compression",
+    "streaming",
+    "assets",
+    "textures",
+    "fast",
+    "zstd",
+    "lzma",
+    "loading"
+  ],
+  "author": {
+    "name": "Santiago Robledo",
+    "email": "santiagorobledo198@gmail.com",
+    "url": "https://github.com/Santirobm/binpack-SDK"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "BinPack.Enterprise",
+  "rootNamespace": "BinPack.Enterprise",
+  "references": [],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

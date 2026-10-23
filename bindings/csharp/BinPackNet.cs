@@ -102,6 +102,13 @@ namespace BinPack.Enterprise
         );
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern BinPackStatus binpack_decompress_buffer_ex(
+            byte[] src, UIntPtr srcSz,
+            out IntPtr dst, out UIntPtr dstSz,
+            int verifyChecksum
+        );
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         private static extern void binpack_free(IntPtr ptr);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
@@ -153,13 +160,17 @@ namespace BinPack.Enterprise
             }
         }
 
-        public static byte[] Decompress(byte[] compressed)
+        public static byte[] Decompress(byte[] compressed, bool verifyChecksum = false)
         {
             if (compressed == null) throw new ArgumentNullException(nameof(compressed));
 
             IntPtr dstPtr;
             UIntPtr dstSz;
-            BinPackStatus st = binpack_decompress_buffer(compressed, (UIntPtr)compressed.Length, out dstPtr, out dstSz);
+            BinPackStatus st = binpack_decompress_buffer_ex(
+                compressed, (UIntPtr)compressed.Length, 
+                out dstPtr, out dstSz, 
+                verifyChecksum ? 1 : 0
+            );
 
             if (st != BinPackStatus.Ok)
             {

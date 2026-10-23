@@ -7,6 +7,9 @@
 
 **BinPack Enterprise SDK** is an industrial-grade context-aware compression and streaming library designed for high-throughput enterprise pipelines, video game engines (Unity, Unreal Engine), automotive/aerospace firmware OTA updates, and continuous integration systems.
 
+> 🚀 **Evaluating BinPack on your own data?** See the [**2-Minute Enterprise Evaluation Guide**](EVALUATION_GUIDE.md) to benchmark proprietary binaries, firmware, or telemetry in one command (`binpack-sdk.exe -b <file>`).  
+> 🎮 **Unity Developer?** Check out the official [**Unity UPM Package**](integrations/unity/com.binpack.enterprise) with non-blocking async decompression and BC1-BC7 GPU texture helpers.
+
 It combines architecture-aware binary preconditioning (x86/x64, ARM32 Thumb-2, AArch64) and numerical channel-striding with a **bounded-memory chunk streaming engine**, a **dual entropy backend** (Zstandard FSE + LZMA2 Range Coder Core), and a **zero-regression guarantee**.
 
 ---
