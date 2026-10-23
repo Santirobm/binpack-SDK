@@ -6,7 +6,7 @@ import sys
 import os
 
 # Add bindings/python to path
-sys.path.insert(0, os.path.abspath("bindings/python"))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "bindings", "python")))
 
 import binpack_sdk
 

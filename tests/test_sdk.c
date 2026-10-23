@@ -13,7 +13,7 @@ static void test_version(void) {
     printf("[TEST] Checking version & error descriptions... ");
     const char *ver = binpack_version_string();
     assert(ver != NULL);
-    assert(strcmp(ver, "2.0.0") == 0);
+    assert(strcmp(ver, "2.2.0") == 0);
     assert(binpack_error_string(BINPACK_OK) != NULL);
     assert(binpack_error_string(BINPACK_ERR_CHECKSUM_MISMATCH) != NULL);
     printf("PASS\n");
@@ -210,6 +210,40 @@ static void test_texture_bcn_roundtrip(void) {
     printf("PASS\n");
 }
 
+static void test_archival_mode_roundtrip(void) {
+    printf("[TEST] Checking Dual-Engine Archival Mode (LZMA2 Core)... ");
+    const size_t sz = 128 * 1024;
+    uint8_t *orig = (uint8_t*)malloc(sz);
+    assert(orig != NULL);
+
+    for (size_t i = 0; i < sz; i++) {
+        orig[i] = (uint8_t)((i % 17) + (i % 61));
+    }
+
+    void *compressed = NULL;
+    size_t comp_sz = 0;
+    binpack_options_t opts;
+    binpack_default_options(&opts);
+    opts.mode = BINPACK_MODE_ARCHIVAL;
+
+    binpack_status_t st_c = binpack_compress_buffer(orig, sz, &compressed, &comp_sz, &opts);
+    assert(st_c == BINPACK_OK);
+    assert(compressed != NULL);
+    assert(comp_sz > 0 && comp_sz < sz / 2);
+
+    void *restored = NULL;
+    size_t rest_sz = 0;
+    binpack_status_t st_d = binpack_decompress_buffer(compressed, comp_sz, &restored, &rest_sz);
+    assert(st_d == BINPACK_OK);
+    assert(rest_sz == sz);
+    assert(memcmp(orig, restored, sz) == 0);
+
+    binpack_free(compressed);
+    binpack_free(restored);
+    free(orig);
+    printf("PASS\n");
+}
+
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
     printf("=========================================================\n");
@@ -218,6 +252,7 @@ int main(void) {
 
     test_version();
     test_buffer_roundtrip();
+    test_archival_mode_roundtrip();
     test_micro_trial_guard();
     test_bitshuffle_roundtrip();
     test_texture_bcn_roundtrip();
@@ -225,7 +260,7 @@ int main(void) {
     test_corrupt_data_resilience();
 
     printf("=========================================================\n");
-    printf("[SUCCESS] All 7 regression suites passed flawlessly!\n");
+    printf("[SUCCESS] All 8 regression suites passed flawlessly!\n");
     printf("=========================================================\n");
     return 0;
 }

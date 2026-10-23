@@ -136,7 +136,8 @@ def version() -> str:
 
 def compress(data: bytes, level: int = 19, threads: int = 0, 
              chunk_size_mb: int = 16, micro_trial: bool = True, 
-             filter_mode: int = BinPackFilter.AUTO, stride: int = 4) -> bytes:
+             filter_mode: int = BinPackFilter.AUTO, stride: int = 4,
+             mode: int = BinPackEngineMode.DEFAULT) -> bytes:
     """Compress in-memory bytes into BinPack V2 stream."""
     if not _LIB:
         raise RuntimeError("BinPack shared library (binpack.dll / libbinpack.so) could not be loaded.")
@@ -149,6 +150,7 @@ def compress(data: bytes, level: int = 19, threads: int = 0,
     opts.enable_micro_trial = 1 if micro_trial else 0
     opts.filter = filter_mode
     opts.transpose_stride = stride
+    opts.mode = mode
 
     dst_ptr = ctypes.c_void_p()
     dst_sz = ctypes.c_size_t()

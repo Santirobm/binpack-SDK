@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-BinPack Enterprise SDK - Automated Multi-Engine Comparative Benchmark
+BinPack Enterprise SDK v2.2 - Automated Multi-Engine Industry Benchmark
 Evaluates BinPack SDK against Meta Zstandard, 7-Zip/XZ (LZMA2 + BCJ), and Gzip/Deflate.
 """
 
@@ -101,7 +101,7 @@ def bench_binpack_sdk(path, level=19, filter_mode=None, mode=None):
 
 def run_benchmark():
     print("=" * 115)
-    print("BINPACK ENTERPRISE SDK - MULTI-ENGINE INDUSTRY BENCHMARK SUITE")
+    print("BINPACK ENTERPRISE SDK v2.2 - MULTI-ENGINE INDUSTRY BENCHMARK SUITE")
     print("=" * 115)
 
     all_results = []
@@ -156,18 +156,24 @@ def run_benchmark():
                 print(f"{'7-Zip / XZ (BCJ + LZMA2 -9)':<32} | {bcj_sz:>8,} bytes | {bcj_sz*100/orig_sz:>6.2f}% | {bcj_ct:>8.3f}s | {bcj_speed:>9.1f} MB/s")
                 file_res["rows"].append(("7-Zip / XZ (BCJ + LZMA2 -9)", bcj_sz, bcj_sz*100/orig_sz, bcj_ct, bcj_speed))
 
-        # 5. BinPack SDK Level 19 (Default / Balanced)
+        # 5. BinPack SDK Runtime Profile
         fmode = "bitshuffle" if ("sensor" in name or "mr" in name) else None
-        bp19_sz, bp19_ct, bp19_dt = bench_binpack_sdk(path, level=19, filter_mode=fmode, mode="default")
-        bp19_speed = (orig_sz / 1048576) / (bp19_dt if bp19_dt > 0 else 0.001)
-        print(f"{'BinPack SDK v2.1 (Default)':<32} | {bp19_sz:>8,} bytes | {bp19_sz*100/orig_sz:>6.2f}% | {bp19_ct:>8.3f}s | {bp19_speed:>9.1f} MB/s")
-        file_res["rows"].append(("BinPack SDK v2.1 (Default L19)", bp19_sz, bp19_sz*100/orig_sz, bp19_ct, bp19_speed))
+        bp_rt_sz, bp_rt_ct, bp_rt_dt = bench_binpack_sdk(path, level=12, filter_mode=fmode, mode="runtime")
+        bp_rt_speed = (orig_sz / 1048576) / (bp_rt_dt if bp_rt_dt > 0 else 0.001)
+        print(f"{'BinPack SDK v2.2 (Runtime)':<32} | {bp_rt_sz:>8,} bytes | {bp_rt_sz*100/orig_sz:>6.2f}% | {bp_rt_ct:>8.3f}s | {bp_rt_speed:>9.1f} MB/s")
+        file_res["rows"].append(("BinPack SDK v2.2 (Runtime)", bp_rt_sz, bp_rt_sz*100/orig_sz, bp_rt_ct, bp_rt_speed))
 
-        # 6. BinPack SDK Archival Mode (Ultra btultra2)
+        # 6. BinPack SDK Default Profile (Rolling Prefix + Level 19)
+        bp_def_sz, bp_def_ct, bp_def_dt = bench_binpack_sdk(path, level=19, filter_mode=fmode, mode="default")
+        bp_def_speed = (orig_sz / 1048576) / (bp_def_dt if bp_def_dt > 0 else 0.001)
+        print(f"{'BinPack SDK v2.2 (Default)':<32} | {bp_def_sz:>8,} bytes | {bp_def_sz*100/orig_sz:>6.2f}% | {bp_def_ct:>8.3f}s | {bp_def_speed:>9.1f} MB/s")
+        file_res["rows"].append(("BinPack SDK v2.2 (Default L19)", bp_def_sz, bp_def_sz*100/orig_sz, bp_def_ct, bp_def_speed))
+
+        # 7. BinPack SDK Archival Mode (Range Coder Core)
         bp_arch_sz, bp_arch_ct, bp_arch_dt = bench_binpack_sdk(path, level=22, filter_mode=fmode, mode="archival")
         bp_arch_speed = (orig_sz / 1048576) / (bp_arch_dt if bp_arch_dt > 0 else 0.001)
-        print(f"{'BinPack SDK v2.1 (Archival)':<32} | {bp_arch_sz:>8,} bytes | {bp_arch_sz*100/orig_sz:>6.2f}% | {bp_arch_ct:>8.3f}s | {bp_arch_speed:>9.1f} MB/s")
-        file_res["rows"].append(("BinPack SDK v2.1 (Archival L22)", bp_arch_sz, bp_arch_sz*100/orig_sz, bp_arch_ct, bp_arch_speed))
+        print(f"{'BinPack SDK v2.2 (Archival)':<32} | {bp_arch_sz:>8,} bytes | {bp_arch_sz*100/orig_sz:>6.2f}% | {bp_arch_ct:>8.3f}s | {bp_arch_speed:>9.1f} MB/s")
+        file_res["rows"].append(("BinPack SDK v2.2 (Archival L22)", bp_arch_sz, bp_arch_sz*100/orig_sz, bp_arch_ct, bp_arch_speed))
 
         all_results.append(file_res)
 

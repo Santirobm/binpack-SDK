@@ -45,9 +45,9 @@ extern "C" {
 /* ========================================================================= */
 
 #define BINPACK_SDK_VERSION_MAJOR 2
-#define BINPACK_SDK_VERSION_MINOR 0
+#define BINPACK_SDK_VERSION_MINOR 2
 #define BINPACK_SDK_VERSION_PATCH 0
-#define BINPACK_SDK_VERSION_STRING "2.0.0"
+#define BINPACK_SDK_VERSION_STRING "2.2.0"
 
 /**
  * @brief Magic numbers for file container headers.
