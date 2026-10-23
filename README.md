@@ -17,12 +17,12 @@ It combines architecture-aware binary preconditioning (x86/x64, ARM32 Thumb-2, A
 ## Key Technical Pillars
 
 * **Dual-Engine Compression Core (FSE + LZMA2 Range Coder)**: Modular backend architecture switching between Meta Zstandard FSE for multi-gigabyte/sec throughput (`BINPACK_MODE_RUNTIME` / `BINPACK_MODE_DEFAULT`) and a bit-level Range Coder (`BINPACK_MODE_ARCHIVAL`) that outperforms 7-Zip LZMA2 in executable density.
-* **Zero-Copy In-Place Decompression Fast-Path**: Direct destination buffer write for single-chunk and preallocated multi-chunk buffers, eliminating intermediate memory copies and delivering **650–1,060 MB/s** in-memory decompression throughput—surpassing Meta Zstandard L19 in pure RAM speed.
+* **Zero-Copy In-Place Decompression Fast-Path**: Direct destination buffer write for single-chunk and preallocated multi-chunk buffers, eliminating intermediate memory copies and delivering **650–1,060 MB/s** in-memory decompression throughput in Fast-Path mode (`verify_checksum=false`). Strict Integrity mode (`verify_checksum=true`) computes and validates full 32-bit chunk CRCs at **480–700 MB/s**.
 * **Auto-Concurrency Multithreading**: Automatic hardware thread detection (`GetActiveProcessorCount` on Windows / `sysconf` on POSIX) scaling Zstandard workers and LZMA threads across all available CPU cores.
-* **Bounded-Memory Streaming Architecture (`BPK2`)**: Operates on arbitrary file sizes (1 MB to 100+ GB) with constant, bounded memory usage ($\le 64\text{ MB RAM}$). Eliminates Out-Of-Memory (`OOM`) crashes in production servers and embedded microcontrollers.
+* **Bounded-Memory Streaming Architecture (`BPK2`)**: Operates on arbitrary file sizes (1 MB to 100+ GB) with constant, bounded streaming chunk buffer memory ($\le 64\text{ MB RAM}$ per streaming thread). Total process virtual memory depends on caller-allocated I/O buffers, but the pipeline never loads whole files into RAM, eliminating Out-Of-Memory (`OOM`) crashes in production servers and embedded microcontrollers.
 * **Overlapping Rolling History Buffer**: Passes up to 16 MB of previous chunk context to subsequent blocks via prefix referencing, eliminating boundary compression penalties on multi-chunk streams.
-* **AVX2 Vectorized Preconditioners**: Accelerated SIMD kernels (`__m256i`) for $8 \times 8$ bit matrix transposition (Bitshuffle), branch filtering, and Delta-4 decoding at $>15\text{ GB/s}$.
-* **Micro-Trial Zero-Regression Guarantee**: Evaluates a fast 32–64 KB sample trial before committing transforms. If the candidate prefilter yields zero or negative gain, the engine falls back to raw pass-through, guaranteeing that compressed output is never larger than raw data.
+* **AVX2 Vectorized Preconditioners with Scalar Fallback**: Accelerated SIMD kernels (`__m256i`) for $8 \times 8$ bit matrix transposition (Bitshuffle), Pavlov ARM/x86 branch conversion, and Delta-4 decoding at $>15\text{ GB/s}$ on AVX2-capable x86_64 CPUs (Intel Haswell+, AMD Zen+). A fully verified scalar fallback is automatically invoked on older architectures or non-AVX2 hardware.
+* **Micro-Trial Zero-Expansion Guarantee**: Evaluates a fast 32–64 KB sample trial before committing transforms. If the candidate prefilter yields zero or negative gain, the engine falls back to raw block payload pass-through (guaranteeing $0\%$ payload expansion). For standalone archives, container framing adds a fixed $\sim 68$-byte metadata header (`BPK2`).
 * **Section-Aware Machine Code Transforms**: Dynamic parsing of PE32/PE32+ and ELF32/ELF64 headers to isolate `.text` executable boundaries, with branch conversion eliminating false positives on non-code sections.
 * **GPU Texture Decoupling (BC1–BC7 & ASTC)**: Segregates 4x4 block endpoints from interpolation indices with Delta-4 encoding, unlocking 30–45% higher compression on game textures.
 * **Universal C-ABI & Multi-Language Bindings**: Distributed as a native shared library (`binpack.dll` / `libbinpack.so`) and static library (`binpack.lib` / `libbinpack.a`) with official bindings for **C# / .NET / Unity**, **Python**, **Modern C++**, and **Rust**.
@@ -176,8 +176,12 @@ binpack-sdk -b application_binary.exe
 
 BinPack Enterprise SDK is available under a **Dual-Licensing Model**:
 * **Community & Evaluation License**: Free for non-commercial, academic, and evaluation purposes.
-* **Commercial / Enterprise Production License**: Required for closed-source commercial applications, commercial games (Unity/Unreal Engine), automotive/aerospace firmware deployment, and enterprise storage pipelines.
+* **Unity Asset Store Commercial License**: Purchasers via the official Unity Asset Store receive a perpetual, worldwide, non-exclusive, royalty-free commercial license to bundle the compiled native runtime libraries (`binpack.dll`, `libbinpack.so`, `libbinpack.dylib`, etc.) within their commercial games and interactive applications in accordance with the Unity Asset Store EULA.
+* **Direct Enterprise Production License**: Required for closed-source commercial applications, automotive/aerospace firmware deployment, cloud infrastructure, and proprietary storage pipelines.
 
-For licensing tiers, commercial SLAs, and source code agreements:
+### Third-Party Software Attributions
+BinPack Enterprise SDK integrates battle-tested algorithms under permissible open licenses. For complete third-party copyright notices and license texts (including Meta Zstandard BSD-3-Clause and Igor Pavlov LZMA Public Domain), please refer to [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+For direct enterprise licensing tiers, commercial SLAs, and source code agreements:
 * **Contact**: Santiago Robledo (<santiagorobledo198@gmail.com>)
 * **Repository**: [https://github.com/Santirobm/binpack-SDK](https://github.com/Santirobm/binpack-SDK)

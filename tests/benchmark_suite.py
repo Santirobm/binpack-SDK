@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
 BinPack Enterprise SDK v2.2 - Standardized Industry Benchmark Suite
-Statistically rigorous benchmark (1 warm-up + 10 iterations, median & IQR).
+Statistically rigorous benchmark (1 warm-up + timed iterations, median & IQR).
 Fully reproducible across any platform: zero hardcoded local paths, auto-downloads corpora.
 
 Pareto-Optimal Evaluation Tiers:
-  - Tier 1: High-Speed Real-Time Streaming (Runtime vs Zstd L1/L3 vs LZ4)
-  - Tier 2: Balanced Production Streaming (Default L19 vs Zstd L19)
-  - Tier 3: Maximum Archival Density (Archival Core vs 7-Zip LZMA2 -9 vs Zstd L22)
+  - Tier 1: High-Speed Real-Time Streaming (LZ4 vs Zstd L1 vs BinPack Runtime Fast vs BinPack Runtime Strict)
+  - Tier 2: Balanced Production Streaming (Zstd L19 vs BinPack Default L19)
+  - Tier 3: Maximum Archival Density (7-Zip LZMA2 -9 vs 7-Zip BCJ Filter vs BinPack Archival Core)
 """
 
 import os
 import sys
 import time
 import math
+import argparse
 import statistics
 import lzma
 import zstandard as zstd
@@ -54,7 +55,7 @@ DATASETS = [
         "name": "mozilla",
         "path": os.path.join(CORPORA_DIR, "silesia", "mozilla"),
         "category": "Shared Libs",
-        "desc": "Silesia Browser Shared Libraries (Multi-module binaries)"
+        "desc": "Silesia Browser Shared Libraries (Multi-module binaries - 51.2 MB)"
     },
     {
         "name": "busybox_armv7l",
@@ -88,14 +89,11 @@ DATASETS = [
     }
 ]
 
-ITERATIONS = 10
-WARMUP = 1
-
-def run_stat_bench(fn_compress, fn_decompress, data):
+def run_stat_bench(fn_compress, fn_decompress, data, iters=10, warmup=1):
     orig_sz = len(data)
 
     # 1. Warm-up pass (prime caches & branch predictors)
-    for _ in range(WARMUP):
+    for _ in range(warmup):
         c = fn_compress(data)
         d = fn_decompress(c)
         assert d == data, "Warm-up integrity failure!"
@@ -105,7 +103,7 @@ def run_stat_bench(fn_compress, fn_decompress, data):
     d_times = []
     c_data = None
 
-    for _ in range(ITERATIONS):
+    for _ in range(iters):
         t0 = time.perf_counter()
         c = fn_compress(data)
         t1 = time.perf_counter()
@@ -122,10 +120,14 @@ def run_stat_bench(fn_compress, fn_decompress, data):
     c_med = statistics.median(c_times)
     d_med = statistics.median(d_times)
 
-    q75_c, q25_c = statistics.quantiles(c_times, n=4)[2], statistics.quantiles(c_times, n=4)[0]
-    q75_d, q25_d = statistics.quantiles(d_times, n=4)[2], statistics.quantiles(d_times, n=4)[0]
-    c_iqr = q75_c - q25_c
-    d_iqr = q75_d - q25_d
+    if len(c_times) >= 4:
+        q75_c, q25_c = statistics.quantiles(c_times, n=4)[2], statistics.quantiles(c_times, n=4)[0]
+        q75_d, q25_d = statistics.quantiles(d_times, n=4)[2], statistics.quantiles(d_times, n=4)[0]
+        c_iqr = q75_c - q25_c
+        d_iqr = q75_d - q25_d
+    else:
+        c_iqr = max(c_times) - min(c_times)
+        d_iqr = max(d_times) - min(d_times)
 
     c_sz = len(c_data)
     ratio = (c_sz * 100.0) / orig_sz
@@ -143,11 +145,14 @@ def run_stat_bench(fn_compress, fn_decompress, data):
         "d_iqr_pct": (d_iqr / d_med) * 100 if d_med > 0 else 0
     }
 
-def run_suite():
-    print("=" * 125)
+def run_suite(full_iterations=False):
+    default_iters = 10 if full_iterations else 5
+    warmup_count = 1
+
+    print("=" * 132)
     print("BINPACK ENTERPRISE SDK v2.2 - REPRODUCIBLE PARETO-TIERED BENCHMARK SUITE")
-    print(f"Protocol: 1 Warmup + {ITERATIONS} Iterations (Reporting Median & IQR) | Platform: {sys.platform}")
-    print("=" * 125)
+    print(f"Protocol: {warmup_count} Warmup + {default_iters} Iterations (Median & IQR) | Platform: {sys.platform}")
+    print("=" * 132)
 
     for item in DATASETS:
         path = item["path"]
@@ -157,75 +162,127 @@ def run_suite():
             data = f.read()
         orig_sz = len(data)
 
+        # For large files (>20 MB), archival mode is compute-intensive; scale iterations accordingly
+        archival_iters = default_iters if orig_sz <= 20 * 1024 * 1024 or full_iterations else 2
+
         print(f"\n[PAYLOAD] {item['name']} ({item['category']}) | {item['desc']}")
         print(f"          Raw Size: {orig_sz:,} bytes ({orig_sz/1048576:.2f} MB)")
-        print("-" * 125)
-        print(f"{'Engine & Configuration':<36} | {'Compressed Size':<15} | {'Ratio':<8} | {'Comp Speed':<14} | {'Decomp Speed':<15} | {'IQR Var'}")
-        print("-" * 125)
+        print("-" * 132)
+        print(f"{'Engine & Configuration':<38} | {'Compressed Size':<15} | {'Ratio':<8} | {'Comp Speed':<14} | {'Decomp Speed':<15} | {'IQR Var'}")
+        print("-" * 132)
 
         # -------------------------------------------------------------
         # TIER 1: HIGH-SPEED STREAMING (Target: >600 MB/s Decomp)
         # -------------------------------------------------------------
         # 1. LZ4
         try:
-            r_lz4 = run_stat_bench(lambda d: lz4.frame.compress(d), lambda c: lz4.frame.decompress(c), data)
-            print(f"{'LZ4 (Frame Fast)':<36} | {r_lz4['size']:>8,} bytes | {r_lz4['ratio']:>6.2f}% | {r_lz4['c_speed']:>8.1f} MB/s | {r_lz4['d_speed']:>9.1f} MB/s | ±{r_lz4['d_iqr_pct']:3.1f}%")
+            r_lz4 = run_stat_bench(lambda d: lz4.frame.compress(d), lambda c: lz4.frame.decompress(c), data, iters=default_iters)
+            print(f"{'LZ4 (Frame Fast)':<38} | {r_lz4['size']:>8,} bytes | {r_lz4['ratio']:>6.2f}% | {r_lz4['c_speed']:>8.1f} MB/s | {r_lz4['d_speed']:>9.1f} MB/s | ±{r_lz4['d_iqr_pct']:3.1f}%")
         except Exception:
             pass
 
         # 2. Zstandard Level 1
         cctx1 = zstd.ZstdCompressor(level=1)
         dctx = zstd.ZstdDecompressor()
-        r_z1 = run_stat_bench(lambda d: cctx1.compress(d), lambda c: dctx.decompress(c, max_output_size=orig_sz+1024), data)
-        print(f"{'Meta Zstandard (Level 1)':<36} | {r_z1['size']:>8,} bytes | {r_z1['ratio']:>6.2f}% | {r_z1['c_speed']:>8.1f} MB/s | {r_z1['d_speed']:>9.1f} MB/s | ±{r_z1['d_iqr_pct']:3.1f}%")
+        r_z1 = run_stat_bench(lambda d: cctx1.compress(d), lambda c: dctx.decompress(c, max_output_size=orig_sz+1024), data, iters=default_iters)
+        print(f"{'Meta Zstandard (Level 1)':<38} | {r_z1['size']:>8,} bytes | {r_z1['ratio']:>6.2f}% | {r_z1['c_speed']:>8.1f} MB/s | {r_z1['d_speed']:>9.1f} MB/s | ±{r_z1['d_iqr_pct']:3.1f}%")
 
-        # 3. BinPack Runtime Fast-Path (Zero-Copy)
+        # 3. BinPack Runtime Fast-Path (Zero-CRC)
         fmode = "bitshuffle" if ("telemetry" in item["category"].lower() or "medical" in item["category"].lower()) else "auto"
-        r_bp_rt = run_stat_bench(
+        r_bp_rt_fast = run_stat_bench(
             lambda d: binpack_sdk.compress(d, level=12, filter_mode=fmode, mode="runtime"),
             lambda c: binpack_sdk.decompress(c, verify_checksum=False),
-            data
+            data,
+            iters=default_iters
         )
-        print(f"{'BinPack SDK v2.2 (Runtime Fast)':<36} | {r_bp_rt['size']:>8,} bytes | {r_bp_rt['ratio']:>6.2f}% | {r_bp_rt['c_speed']:>8.1f} MB/s | {r_bp_rt['d_speed']:>9.1f} MB/s | ±{r_bp_rt['d_iqr_pct']:3.1f}%")
+        print(f"{'BinPack Runtime (Fast Zero-CRC)':<38} | {r_bp_rt_fast['size']:>8,} bytes | {r_bp_rt_fast['ratio']:>6.2f}% | {r_bp_rt_fast['c_speed']:>8.1f} MB/s | {r_bp_rt_fast['d_speed']:>9.1f} MB/s | ±{r_bp_rt_fast['d_iqr_pct']:3.1f}%")
+
+        # 4. BinPack Runtime Strict (Full CRC32 Check)
+        r_bp_rt_strict = run_stat_bench(
+            lambda d: binpack_sdk.compress(d, level=12, filter_mode=fmode, mode="runtime"),
+            lambda c: binpack_sdk.decompress(c, verify_checksum=True),
+            data,
+            iters=default_iters
+        )
+        print(f"{'BinPack Runtime (Strict CRC32)':<38} | {r_bp_rt_strict['size']:>8,} bytes | {r_bp_rt_strict['ratio']:>6.2f}% | {r_bp_rt_strict['c_speed']:>8.1f} MB/s | {r_bp_rt_strict['d_speed']:>9.1f} MB/s | ±{r_bp_rt_strict['d_iqr_pct']:3.1f}%")
 
         # -------------------------------------------------------------
         # TIER 2: BALANCED PRODUCTION STREAMING (Bounded-Memory <= 64 MB)
         # -------------------------------------------------------------
-        # 4. Zstandard Level 19
+        # 5. Zstandard Level 19
         cctx19 = zstd.ZstdCompressor(level=19)
-        r_z19 = run_stat_bench(lambda d: cctx19.compress(d), lambda c: dctx.decompress(c, max_output_size=orig_sz+1024), data)
-        print(f"{'Meta Zstandard (Level 19)':<36} | {r_z19['size']:>8,} bytes | {r_z19['ratio']:>6.2f}% | {r_z19['c_speed']:>8.1f} MB/s | {r_z19['d_speed']:>9.1f} MB/s | ±{r_z19['d_iqr_pct']:3.1f}%")
+        r_z19 = run_stat_bench(lambda d: cctx19.compress(d), lambda c: dctx.decompress(c, max_output_size=orig_sz+1024), data, iters=default_iters)
+        print(f"{'Meta Zstandard (Level 19)':<38} | {r_z19['size']:>8,} bytes | {r_z19['ratio']:>6.2f}% | {r_z19['c_speed']:>8.1f} MB/s | {r_z19['d_speed']:>9.1f} MB/s | ±{r_z19['d_iqr_pct']:3.1f}%")
 
-        # 5. BinPack Default Profile L19 (Rolling Prefix)
+        # 6. BinPack Default Profile L19 (Rolling Prefix)
         r_bp_def = run_stat_bench(
             lambda d: binpack_sdk.compress(d, level=19, filter_mode=fmode, mode="default"),
             lambda c: binpack_sdk.decompress(c, verify_checksum=False),
-            data
+            data,
+            iters=default_iters
         )
-        print(f"{'BinPack SDK v2.2 (Default L19)':<36} | {r_bp_def['size']:>8,} bytes | {r_bp_def['ratio']:>6.2f}% | {r_bp_def['c_speed']:>8.1f} MB/s | {r_bp_def['d_speed']:>9.1f} MB/s | ±{r_bp_def['d_iqr_pct']:3.1f}%")
+        print(f"{'BinPack SDK v2.2 (Default L19)':<38} | {r_bp_def['size']:>8,} bytes | {r_bp_def['ratio']:>6.2f}% | {r_bp_def['c_speed']:>8.1f} MB/s | {r_bp_def['d_speed']:>9.1f} MB/s | ±{r_bp_def['d_iqr_pct']:3.1f}%")
 
         # -------------------------------------------------------------
         # TIER 3: MAXIMUM ARCHIVAL DENSITY (Range Coder Core)
         # -------------------------------------------------------------
-        if orig_sz <= 20 * 1024 * 1024:
-            # 6. 7-Zip / XZ LZMA2 -9
+        # 7. Standard 7-Zip / XZ LZMA2 -9
+        try:
+            r_xz = run_stat_bench(lambda d: lzma.compress(d, preset=9), lambda c: lzma.decompress(c), data, iters=archival_iters)
+            print(f"{'7-Zip / XZ (LZMA2 -9)':<38} | {r_xz['size']:>8,} bytes | {r_xz['ratio']:>6.2f}% | {r_xz['c_speed']:>8.1f} MB/s | {r_xz['d_speed']:>9.1f} MB/s | ±{r_xz['d_iqr_pct']:3.1f}%")
+        except Exception:
+            pass
+
+        # 8. Architecture-Specific 7-Zip BCJ Filter comparison
+        is_arm = ("arm" in item["category"].lower()) or ("arm" in item["name"].lower())
+        is_x86 = ("x86" in item["category"].lower()) or ("ooffice" in item["name"].lower())
+
+        if is_arm:
             try:
-                r_xz = run_stat_bench(lambda d: lzma.compress(d, preset=9), lambda c: lzma.decompress(c), data)
-                print(f"{'7-Zip / XZ (LZMA2 -9)':<36} | {r_xz['size']:>8,} bytes | {r_xz['ratio']:>6.2f}% | {r_xz['c_speed']:>8.1f} MB/s | {r_xz['d_speed']:>9.1f} MB/s | ±{r_xz['d_iqr_pct']:3.1f}%")
-            except Exception:
+                arm_filters = [
+                    {"id": lzma.FILTER_ARM},
+                    {"id": lzma.FILTER_LZMA2, "preset": 9}
+                ]
+                r_xz_bcj = run_stat_bench(
+                    lambda d: lzma.compress(d, filters=arm_filters),
+                    lambda c: lzma.decompress(c),
+                    data,
+                    iters=archival_iters
+                )
+                print(f"{'7-Zip / XZ (BCJ ARM + LZMA2 -9)':<38} | {r_xz_bcj['size']:>8,} bytes | {r_xz_bcj['ratio']:>6.2f}% | {r_xz_bcj['c_speed']:>8.1f} MB/s | {r_xz_bcj['d_speed']:>9.1f} MB/s | ±{r_xz_bcj['d_iqr_pct']:3.1f}%")
+            except Exception as e:
+                pass
+        elif is_x86:
+            try:
+                x86_filters = [
+                    {"id": lzma.FILTER_X86},
+                    {"id": lzma.FILTER_LZMA2, "preset": 9}
+                ]
+                r_xz_bcj = run_stat_bench(
+                    lambda d: lzma.compress(d, filters=x86_filters),
+                    lambda c: lzma.decompress(c),
+                    data,
+                    iters=archival_iters
+                )
+                print(f"{'7-Zip / XZ (BCJ x86 + LZMA2 -9)':<38} | {r_xz_bcj['size']:>8,} bytes | {r_xz_bcj['ratio']:>6.2f}% | {r_xz_bcj['c_speed']:>8.1f} MB/s | {r_xz_bcj['d_speed']:>9.1f} MB/s | ±{r_xz_bcj['d_iqr_pct']:3.1f}%")
+            except Exception as e:
                 pass
 
-            # 7. BinPack Archival Core
-            r_bp_arch = run_stat_bench(
-                lambda d: binpack_sdk.compress(d, level=22, filter_mode=fmode, mode="archival"),
-                lambda c: binpack_sdk.decompress(c, verify_checksum=False),
-                data
-            )
-            print(f"{'BinPack SDK v2.2 (Archival Core)':<36} | {r_bp_arch['size']:>8,} bytes | {r_bp_arch['ratio']:>6.2f}% | {r_bp_arch['c_speed']:>8.1f} MB/s | {r_bp_arch['d_speed']:>9.1f} MB/s | ±{r_bp_arch['d_iqr_pct']:3.1f}%")
+        # 9. BinPack Archival Core
+        r_bp_arch = run_stat_bench(
+            lambda d: binpack_sdk.compress(d, level=22, filter_mode=fmode, mode="archival"),
+            lambda c: binpack_sdk.decompress(c, verify_checksum=False),
+            data,
+            iters=archival_iters
+        )
+        print(f"{'BinPack SDK v2.2 (Archival Core)':<38} | {r_bp_arch['size']:>8,} bytes | {r_bp_arch['ratio']:>6.2f}% | {r_bp_arch['c_speed']:>8.1f} MB/s | {r_bp_arch['d_speed']:>9.1f} MB/s | ±{r_bp_arch['d_iqr_pct']:3.1f}%")
 
-    print("\n" + "=" * 125)
+    print("\n" + "=" * 132)
     print("[SUCCESS] Multi-tier Pareto benchmark complete. 100% reproducible with zero hardcoded paths.")
-    print("=" * 125)
+    print("=" * 132)
 
 if __name__ == "__main__":
-    run_suite()
+    parser = argparse.ArgumentParser(description="BinPack Enterprise Benchmark Suite")
+    parser.add_argument("--full", action="store_true", help="Run full 10 iterations on all payloads including large files")
+    args = parser.parse_args()
+    run_suite(full_iterations=args.full)

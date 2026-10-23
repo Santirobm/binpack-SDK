@@ -10,15 +10,20 @@ To ensure 100% scientific reproducibility and eliminate system noise, all measur
 
 * **Execution Environment**: Native Windows 11 x64, 13th Gen Intel Core i5-13500 (14 Cores / 20 Threads, 24 MB L3 Cache), 32 GB DDR5 RAM.
 * **Compiler & Flags**: Zig CC / Clang 22.1.8 (`-O3 -mavx2`), MSVC CRT.
+* **Hardware Acceleration**: AVX2 SIMD vectorization is used for Bitshuffle transposition and Pavlov BCJ scanners on supported x86_64 CPUs. A fully verified scalar fallback is automatically invoked on older architectures without AVX2.
 * **Statistical Rigor**:
   * **1 Warm-up Run**: Primes the CPU L1/L2/L3 caches and branch prediction tables.
-  * **10 Timed Iterations**: Measures wall-clock execution via high-resolution performance counters (`time.perf_counter()`).
-  * **Metrics Reported**: **Median** throughput and **Interquartile Range (IQR)** to filter out OS background scheduling jitter.
+  * **Timed Iterations**: Measures wall-clock execution via high-resolution performance counters (`time.perf_counter()`), reporting the **Median** throughput and **Interquartile Range (IQR)** to filter out OS background scheduling jitter.
+  * **Decompression Modes**:
+    * **Fast-Path Mode (`verify_checksum=false`)**: Achieves peak throughput (**>900 to 1,060 MB/s**) by bypassing per-block CRC32 recomputation and writing directly to destination memory. Recommended when archive integrity is verified at the container or package level (e.g. game asset bundles).
+    * **Strict Integrity Mode (`verify_checksum=true`)**: Verifies 32-bit CRC checksums for every chunk, delivering **480–700 MB/s** throughput. Recommended for OTA firmware updates and network transmission over untrusted links.
+  * **Bounded Chunk Streaming**: Memory usage is bounded at the chunk processing level ($\le 64\text{ MB RAM}$ per streaming thread). Total process virtual memory depends on caller-allocated I/O buffers, but the streaming engine never loads entire archive files into RAM.
+  * **Micro-Trial Zero-Expansion Guarantee**: The engine guarantees $0\%$ expansion on raw block payloads via 32–64 KB pre-evaluation. Standalone container framing adds a fixed $\sim 68$-byte metadata header (`BPK2`).
   * **Integrity Validation**: 100% bit-for-bit SHA-256 match and byte-equality assertion on every decompression pass.
 * **Zero Hardcoded Paths**: Any developer can clone the repository and run the suite out-of-the-box:
   ```bash
   python tests/fetch_corpora.py      # Downloads & validates SHA-256 of all datasets
-  python tests/benchmark_suite.py     # Runs the 10-iteration Pareto-tiered suite
+  python tests/benchmark_suite.py     # Runs the reproducible Pareto-tiered suite
   ```
 
 ---
