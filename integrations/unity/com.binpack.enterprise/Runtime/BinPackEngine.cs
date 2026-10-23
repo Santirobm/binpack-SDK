@@ -189,13 +189,36 @@ namespace BinPack.Enterprise
 
     public static class BinPackEngine
     {
+#if (UNITY_IOS || UNITY_TVOS || UNITY_WEBGL) && !UNITY_EDITOR
+        private const string LibName = "__Internal";
+#else
         private const string LibName = "binpack";
+#endif
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr binpack_version_string();
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr binpack_error_string(BinPackStatus status);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern UIntPtr binpack_compress_bound(UIntPtr srcSz);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern BinPackStatus binpack_compress_into(
+            byte[] src, UIntPtr srcSz,
+            byte[] dst, UIntPtr dstCap,
+            out UIntPtr compressedSz,
+            ref BinPackOptions opts
+        );
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern BinPackStatus binpack_decompress_into(
+            byte[] src, UIntPtr srcSz,
+            byte[] dst, UIntPtr dstCap,
+            out UIntPtr decompressedSz,
+            int verifyChecksum
+        );
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         private static extern BinPackStatus binpack_compress_buffer(
@@ -367,6 +390,46 @@ namespace BinPack.Enterprise
         public static Task<byte[]> DecompressAsync(byte[] compressed, bool verifyChecksum = false)
         {
             return Task.Run(() => Decompress(compressed, verifyChecksum));
+        }
+
+        public static int CompressBound(int srcLength)
+        {
+            return (int)binpack_compress_bound((UIntPtr)srcLength);
+        }
+
+        public static int CompressInto(byte[] src, byte[] dst, BinPackOptions? options = null)
+        {
+            if (src == null) throw new ArgumentNullException(nameof(src));
+            if (dst == null) throw new ArgumentNullException(nameof(dst));
+            BinPackOptions opts = options ?? BinPackOptions.Default;
+            UIntPtr cmpSz;
+            BinPackStatus st = binpack_compress_into(
+                src, (UIntPtr)src.Length,
+                dst, (UIntPtr)dst.Length,
+                out cmpSz, ref opts
+            );
+            if (st != BinPackStatus.Ok)
+            {
+                throw new InvalidOperationException($"BinPack zero-alloc compression failed: {GetErrorString(st)}");
+            }
+            return (int)cmpSz;
+        }
+
+        public static int DecompressInto(byte[] compressed, byte[] dst, bool verifyChecksum = false)
+        {
+            if (compressed == null) throw new ArgumentNullException(nameof(compressed));
+            if (dst == null) throw new ArgumentNullException(nameof(dst));
+            UIntPtr decSz;
+            BinPackStatus st = binpack_decompress_into(
+                compressed, (UIntPtr)compressed.Length,
+                dst, (UIntPtr)dst.Length,
+                out decSz, verifyChecksum ? 1 : 0
+            );
+            if (st != BinPackStatus.Ok)
+            {
+                throw new InvalidOperationException($"BinPack zero-alloc decompression failed: {GetErrorString(st)}");
+            }
+            return (int)decSz;
         }
 
 #if UNITY_5_3_OR_NEWER

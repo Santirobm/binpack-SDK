@@ -189,6 +189,25 @@ namespace BinPack.Enterprise
         private static extern IntPtr binpack_error_string(BinPackStatus status);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern UIntPtr binpack_compress_bound(UIntPtr srcSz);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern BinPackStatus binpack_compress_into(
+            byte[] src, UIntPtr srcSz,
+            byte[] dst, UIntPtr dstCap,
+            out UIntPtr compressedSz,
+            ref BinPackOptions opts
+        );
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern BinPackStatus binpack_decompress_into(
+            byte[] src, UIntPtr srcSz,
+            byte[] dst, UIntPtr dstCap,
+            out UIntPtr decompressedSz,
+            int verifyChecksum
+        );
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         private static extern BinPackStatus binpack_compress_buffer(
             byte[] src, UIntPtr srcSz,
             out IntPtr dst, out UIntPtr dstSz,
@@ -324,6 +343,29 @@ namespace BinPack.Enterprise
             {
                 binpack_free(dstPtr);
             }
+        }
+
+        public static int CompressBound(int srcLength) => (int)binpack_compress_bound((UIntPtr)srcLength);
+
+        public static int CompressInto(byte[] src, byte[] dst, BinPackOptions? options = null)
+        {
+            if (src == null) throw new ArgumentNullException(nameof(src));
+            if (dst == null) throw new ArgumentNullException(nameof(dst));
+            BinPackOptions opts = options ?? BinPackOptions.Default;
+            UIntPtr cmpSz;
+            BinPackStatus st = binpack_compress_into(src, (UIntPtr)src.Length, dst, (UIntPtr)dst.Length, out cmpSz, ref opts);
+            if (st != BinPackStatus.Ok) throw new InvalidOperationException($"BinPack zero-alloc compression failed: {GetErrorString(st)}");
+            return (int)cmpSz;
+        }
+
+        public static int DecompressInto(byte[] compressed, byte[] dst, bool verifyChecksum = false)
+        {
+            if (compressed == null) throw new ArgumentNullException(nameof(compressed));
+            if (dst == null) throw new ArgumentNullException(nameof(dst));
+            UIntPtr decSz;
+            BinPackStatus st = binpack_decompress_into(compressed, (UIntPtr)compressed.Length, dst, (UIntPtr)dst.Length, out decSz, verifyChecksum ? 1 : 0);
+            if (st != BinPackStatus.Ok) throw new InvalidOperationException($"BinPack zero-alloc decompression failed: {GetErrorString(st)}");
+            return (int)decSz;
         }
 
         public static byte[] Decompress(byte[] compressed, bool verifyChecksum = false)

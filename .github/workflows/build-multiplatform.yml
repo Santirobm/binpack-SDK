@@ -1,0 +1,127 @@
+name: Multi-Platform Native Build & Unity UPM Packager
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-windows-x64:
+    name: Windows x86_64 (AVX2)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig Compiler
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
+
+      - name: Build BinPack SDK & Run 14 C Regression Suites
+        shell: cmd
+        run: .\build.bat
+
+      - name: Run Python Integration Suite
+        run: python tests/test_python.py
+
+      - name: Upload Windows Native Plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-windows-x64
+          path: binpack.dll
+
+  build-linux-x64:
+    name: Linux x86_64 (AVX2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zstandard Dev Library
+        run: sudo apt-get update && sudo apt-get install -y libzstd-dev build-essential
+
+      - name: Compile LZMA Core & libbinpack.so
+        run: |
+          gcc -O3 -fPIC -D_7ZIP_ST -Ideps/lzma -c \
+            deps/lzma/Alloc.c deps/lzma/LzFind.c deps/lzma/LzmaDec.c \
+            deps/lzma/LzmaEnc.c deps/lzma/LzmaLib.c deps/lzma/Bra86.c deps/lzma/Bra.c
+          ar rcs liblzma_local.a Alloc.o LzFind.o LzmaDec.o LzmaEnc.o LzmaLib.o Bra86.o Bra.o
+          gcc -O3 -mavx2 -fPIC -shared -DBINPACK_BUILD_DLL \
+            -Iinclude -Ideps/lzma \
+            src/binpack_core.c src/binpack_eval.c src/binpack_stream.c \
+            src/binpack_sdk.c src/binpack_dict.c src/binpack_patch.c src/binpack_archive.c \
+            liblzma_local.a -lzstd -o libbinpack.so
+          gcc -O3 -mavx2 -Iinclude -Ideps/lzma \
+            tests/test_sdk.c \
+            src/binpack_core.c src/binpack_eval.c src/binpack_stream.c \
+            src/binpack_sdk.c src/binpack_dict.c src/binpack_patch.c src/binpack_archive.c \
+            liblzma_local.a -lzstd -o test_sdk
+          ./test_sdk
+
+      - name: Upload Linux Native Plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-linux-x64
+          path: libbinpack.so
+
+  build-macos:
+    name: macOS Apple Silicon / Universal
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zstandard via Homebrew
+        run: brew install zstd
+
+      - name: Compile LZMA Core & libbinpack.dylib
+        run: |
+          ZSTD_PREFIX=$(brew --prefix zstd)
+          clang -O3 -fPIC -D_7ZIP_ST -Ideps/lzma -c \
+            deps/lzma/Alloc.c deps/lzma/LzFind.c deps/lzma/LzmaDec.c \
+            deps/lzma/LzmaEnc.c deps/lzma/LzmaLib.c deps/lzma/Bra86.c deps/lzma/Bra.c
+          ar rcs liblzma_local.a Alloc.o LzFind.o LzmaDec.o LzmaEnc.o LzmaLib.o Bra86.o Bra.o
+          clang -O3 -fPIC -dynamiclib -DBINPACK_BUILD_DLL \
+            -Iinclude -Ideps/lzma -I"$ZSTD_PREFIX/include" \
+            src/binpack_core.c src/binpack_eval.c src/binpack_stream.c \
+            src/binpack_sdk.c src/binpack_dict.c src/binpack_patch.c src/binpack_archive.c \
+            liblzma_local.a "$ZSTD_PREFIX/lib/libzstd.a" -o libbinpack.dylib
+          clang -O3 -Iinclude -Ideps/lzma -I"$ZSTD_PREFIX/include" \
+            tests/test_sdk.c \
+            src/binpack_core.c src/binpack_eval.c src/binpack_stream.c \
+            src/binpack_sdk.c src/binpack_dict.c src/binpack_patch.c src/binpack_archive.c \
+            liblzma_local.a "$ZSTD_PREFIX/lib/libzstd.a" -o test_sdk
+          ./test_sdk
+
+      - name: Upload macOS Native Plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-macos
+          path: libbinpack.dylib
+
+  package-unity-upm:
+    name: Bundle Unity UPM Package
+    needs: [build-windows-x64, build-linux-x64, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download All Native Plugins
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble Multi-Platform Unity Package
+        run: |
+          mkdir -p integrations/unity/com.binpack.enterprise/Plugins/x86_64
+          mkdir -p integrations/unity/com.binpack.enterprise/Plugins/Linux/x86_64
+          mkdir -p integrations/unity/com.binpack.enterprise/Plugins/macOS
+          cp artifacts/native-windows-x64/binpack.dll integrations/unity/com.binpack.enterprise/Plugins/x86_64/
+          cp artifacts/native-linux-x64/libbinpack.so integrations/unity/com.binpack.enterprise/Plugins/Linux/x86_64/
+          cp artifacts/native-macos/libbinpack.dylib integrations/unity/com.binpack.enterprise/Plugins/macOS/
+
+      - name: Upload Ready-to-Import Unity UPM Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: com.binpack.enterprise-upm-multiplatform
+          path: integrations/unity/com.binpack.enterprise/
