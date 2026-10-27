@@ -675,7 +675,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_into(
                             binpack_texture_bcn_unfilter(out, chdr->uncompressed_sz, chdr->filter_param);
                         }
 
-                        if (verify_checksum) {
+                        if (verify_checksum && chdr->chunk_crc32 != 0) {
                             uint32_t chk = binpack_crc32(0, out, chdr->uncompressed_sz);
                             if (chk != chdr->chunk_crc32) {
                                 *decompressed_sz = 0;

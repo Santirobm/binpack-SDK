@@ -33,9 +33,7 @@ static uint8_t* load_file(const char *path, size_t *out_sz) {
 
 static uint8_t* create_synthetic_f32_ramp(size_t num_elements) {
     float *arr = (float*)malloc(num_elements * sizeof(float));
-    for (size_t i = 0; i < num_elements; i++) {
-        arr[i] = (float)i * 0.1f;
-    }
+    for (size_t i = 0; i < num_elements; i++) arr[i] = (float)i * 0.1f;
     return (uint8_t*)arr;
 }
 
@@ -52,7 +50,9 @@ int main() {
     QueryPerformanceFrequency(&freq);
 
     printf("========================================================================================================================\n");
-    printf("EXPERIMENTO 4: PREFILTRO AISLADO - TRANSFORMACION MATEMATICA vs OPTIMIZACIONES DE EJECUCION\n");
+    printf("EXPERIMENTO 4: PREFILTRO AISLADO - TRANSFORMACION MATEMATICA vs METODOLOGIA NORMALIZADA (1 HILO)\n");
+    printf("Definicion: Ratio = (Bytes Comprimidos / Bytes Originales) * 100%%. Reduccion = 100%% - Ratio.\n");
+    printf("Verificacion de Integridad: Cada compresion es descomprimida y comparada byte-por-byte (memcmp == 0).\n");
     printf("========================================================================================================================\n\n");
 
     exp4_case_t cases[] = {
@@ -66,16 +66,18 @@ int main() {
         {"xml",                 "Silesia XML Texto", "C:/Users/sgi.lm/Desktop/Compiler/corpora/silesia/xml", 0, 0, BINPACK_FILTER_NONE, 0}
     };
 
-    printf("%-18s | %-8s | %-16s | %-20s | %-20s | %-16s\n",
-           "Dataset", "Tamano", "1. Zstd L3 Solo", "2. Prefiltro + Zstd", "3. BinPack RT Comp", "Ganancia Prefiltro");
+    printf("%-18s | %-8s | %-16s | %-20s | %-20s | %-14s | %-10s\n",
+           "Dataset", "Tamano", "1. Zstd L3 Solo", "2. Prefiltro + Zstd", "3. BinPack RT (1T)", "Delta (2 vs 3)", "Integridad");
     printf("------------------------------------------------------------------------------------------------------------------------\n");
 
     ZSTD_CCtx *cctx = ZSTD_createCCtx();
+    ZSTD_DCtx *dctx = ZSTD_createDCtx();
 
     binpack_options_t bp_opt;
     binpack_default_options(&bp_opt);
     bp_opt.clevel = 3;
     bp_opt.mode = BINPACK_MODE_RUNTIME;
+    bp_opt.nb_workers = 1; /* Estricta normalizacion: 1 hilo identico para todas las columnas */
     bp_opt.enable_micro_trial = 0;
 
     for (size_t c = 0; c < sizeof(cases)/sizeof(cases[0]); c++) {
@@ -100,12 +102,13 @@ int main() {
         size_t bpbound = binpack_compress_bound(raw_sz);
         uint8_t *bpdst = (uint8_t*)malloc(bpbound);
         uint8_t *filtered = (uint8_t*)malloc(raw_sz);
+        uint8_t *decomp_buf = (uint8_t*)malloc(raw_sz + 4096);
 
         int iters = (raw_sz <= 2 * 1024 * 1024) ? 30 : 10;
         LARGE_INTEGER t0, t1;
 
         /* ========================================================================= */
-        /* 1. ZSTD L3 DIRECTO (Sin prefiltro)                                        */
+        /* 1. ZSTD L3 DIRECTO (1 hilo)                                               */
         /* ========================================================================= */
         size_t z_sz = 0;
         QueryPerformanceCounter(&t0);
@@ -119,18 +122,12 @@ int main() {
         double z_ratio = ((double)z_sz / (double)raw_sz) * 100.0;
 
         /* ========================================================================= */
-        /* 2. PREFILTRO AISLADO + ZSTD L3                                            */
+        /* 2. PREFILTRO AISLADO + ZSTD L3 (1 hilo)                                   */
         /* ========================================================================= */
         size_t fz_sz = 0;
-        double filt_math_sec = 0.0;
-        double fz_total_sec = 0.0;
-
         QueryPerformanceCounter(&t0);
         for (int i = 0; i < iters; i++) {
             memcpy(filtered, raw_data, raw_sz);
-
-            LARGE_INTEGER mf0, mf1;
-            QueryPerformanceCounter(&mf0);
             if (cases[c].filter == BINPACK_FILTER_TRANSPOSE_DELTA) {
                 binpack_transpose_delta_filter(filtered, raw_sz, cases[c].stride);
             } else if (cases[c].filter == BINPACK_FILTER_X86_64) {
@@ -138,20 +135,16 @@ int main() {
             } else if (cases[c].filter == BINPACK_FILTER_ARM32) {
                 binpack_bcj_arm32_filter(filtered, raw_sz);
             }
-            QueryPerformanceCounter(&mf1);
-            filt_math_sec += (double)(mf1.QuadPart - mf0.QuadPart) / (double)freq.QuadPart;
-
             ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
             fz_sz = ZSTD_compressCCtx(cctx, zdst, bound, filtered, raw_sz, 3);
         }
         QueryPerformanceCounter(&t1);
-        fz_total_sec = (double)(t1.QuadPart - t0.QuadPart) / ((double)freq.QuadPart * (double)iters);
-        filt_math_sec /= (double)iters;
-        double fz_mbs = (raw_sz / 1048576.0) / fz_total_sec;
+        double fz_sec = (double)(t1.QuadPart - t0.QuadPart) / ((double)freq.QuadPart * (double)iters);
+        double fz_mbs = (raw_sz / 1048576.0) / fz_sec;
         double fz_ratio = ((double)fz_sz / (double)raw_sz) * 100.0;
 
         /* ========================================================================= */
-        /* 3. BINPACK RT COMPLETO (Auto-detect + Prefiltro + Headers BPK2 + FastPath)  */
+        /* 3. BINPACK RT COMPLETO (1 hilo: nb_workers = 1)                           */
         /* ========================================================================= */
         size_t bp_sz = 0;
         QueryPerformanceCounter(&t0);
@@ -163,9 +156,10 @@ int main() {
         double bp_mbs = (raw_sz / 1048576.0) / bp_sec;
         double bp_ratio = ((double)bp_sz / (double)raw_sz) * 100.0;
 
-        /* Calculo de impacto exacto */
-        double ratio_gain = z_ratio - fz_ratio; /* Puntos porcentuales ganados por el prefiltro */
-        double framing_overhead_bytes = (double)bp_sz - (double)fz_sz;
+        /* 4. VERIFICACION DE INTEGRIDAD Y REVERSIBILIDAD EXACTA */
+        size_t decomp_sz = 0;
+        binpack_status_t dec_st = binpack_decompress_into(bpdst, bp_sz, decomp_buf, raw_sz + 4096, &decomp_sz, 1);
+        int bit_exact = (dec_st == BINPACK_OK && decomp_sz == raw_sz && memcmp(decomp_buf, raw_data, raw_sz) == 0);
 
         char sz_str[32];
         if (raw_sz < 1024 * 1024) sprintf(sz_str, "%.1f KB", raw_sz / 1024.0);
@@ -176,22 +170,22 @@ int main() {
         sprintf(fz_str, "%5.2f%% @ %5.1fM", fz_ratio, fz_mbs);
         sprintf(bp_str, "%5.2f%% @ %5.1fM", bp_ratio, bp_mbs);
 
-        char gain_str[32];
-        if (ratio_gain > 0.05) {
-            sprintf(gain_str, "-%5.2f%% (+%zu B)", ratio_gain, (size_t)(z_sz - fz_sz));
-        } else {
-            sprintf(gain_str, "0.00%% (Bypass)");
-        }
+        long long diff_bytes = (long long)bp_sz - (long long)fz_sz;
+        char diff_str[32];
+        sprintf(diff_str, "%+lld bytes", diff_bytes);
 
-        printf("%-18s | %-8s | %-16s | %-20s | %-20s | %-16s\n",
-               cases[c].name, sz_str, z_str, fz_str, bp_str, gain_str);
+        printf("%-18s | %-8s | %-16s | %-20s | %-20s | %-14s | %-10s\n",
+               cases[c].name, sz_str, z_str, fz_str, bp_str, diff_str, bit_exact ? "PASO (OK)" : "FALLO");
 
         free(zdst);
         free(bpdst);
         free(filtered);
+        free(decomp_buf);
         free(raw_data);
     }
+
     ZSTD_freeCCtx(cctx);
+    ZSTD_freeDCtx(dctx);
 
     printf("========================================================================================================================\n\n");
     return 0;

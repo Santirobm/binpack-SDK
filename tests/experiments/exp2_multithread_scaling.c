@@ -44,10 +44,12 @@ int main() {
         return 1;
     }
 
-    printf("========================================================================================================\n");
-    printf("EXPERIMENTO 2: ESCALABILIDAD DE HILOS (1, 2, 4, 8 THREADS) - ZSTD L3 vs BINPACK RT\n");
+    printf("========================================================================================================================\n");
+    printf("EXPERIMENTO 2: ESCALABILIDAD MULTIHILO (1, 2, 4, 8 HILOS) - COMPARATIVA DE RECURSOS Y THROUGHPUT\n");
+    printf("Hardware: Intel Core i5-13500 (14C/20T: 6 P-cores @ 4.8GHz, 8 E-cores @ 3.5GHz) | Windows 10 Pro 64-bit | 16 GB RAM\n");
+    printf("Compilador: Zig Clang 0.13 (-O3 -mavx2 -march=native) | Backend Zstd v1.5.7 MT\n");
     printf("Dataset: %s (%.2f MB / %zu bytes)\n", test_path, raw_sz / 1048576.0, raw_sz);
-    printf("========================================================================================================\n\n");
+    printf("========================================================================================================================\n\n");
 
     int thread_counts[] = {1, 2, 4, 8};
     int iters = 5;
@@ -58,9 +60,12 @@ int main() {
     size_t bpbound = binpack_compress_bound(raw_sz);
     uint8_t *bpdst = (uint8_t*)malloc(bpbound);
 
-    printf("%-14s | %-6s | %-12s | %-10s | %-12s | %-14s | %-10s\n",
-           "Motor", "Hilos", "Throughput", "CPU Uso", "Peak RAM", "Tamano Final", "Ratio");
-    printf("--------------------------------------------------------------------------------------------------------\n");
+    double z_base_mbs = 1.0;
+    double bp_base_mbs = 1.0;
+
+    printf("%-13s | %-5s | %-12s | %-8s | %-10s | %-10s | %-12s | %-12s | %-7s\n",
+           "Motor", "Hilos", "Throughput", "Factor", "Eficiencia", "CPU Uso", "MB/s / CPU%", "Peak RAM", "Ratio");
+    printf("------------------------------------------------------------------------------------------------------------------------\n");
 
     /* 1. Meta Zstd L3 across 1, 2, 4, 8 threads */
     for (size_t i = 0; i < sizeof(thread_counts)/sizeof(thread_counts[0]); i++) {
@@ -70,6 +75,7 @@ int main() {
         ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, th);
 
         size_t c_sz = 0;
+        /* Warmup run */
         if (th > 1) {
             ZSTD_inBuffer in = { raw_data, raw_sz, 0 };
             ZSTD_outBuffer out = { zdst, zbound, 0 };
@@ -104,6 +110,10 @@ int main() {
         double wall_sec = (double)(t1.QuadPart - t0.QuadPart) / (double)freq.QuadPart;
         double wall_per_iter = wall_sec / (double)iters;
         double mbs = (raw_sz / 1048576.0) / wall_per_iter;
+        if (th == 1) z_base_mbs = mbs;
+
+        double factor = mbs / z_base_mbs;
+        double efficiency = (factor / (double)th) * 100.0;
 
         uint64_t cpu_k = filetime_to_u64(k1) - filetime_to_u64(k0);
         uint64_t cpu_u = filetime_to_u64(u1) - filetime_to_u64(u0);
@@ -114,15 +124,16 @@ int main() {
         GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc));
         double peak_ram_mb = (double)pmc.PeakWorkingSetSize / 1048576.0;
 
+        double mbs_per_cpu = mbs / (cpu_pct > 0.1 ? cpu_pct : 1.0);
         double ratio = ((double)c_sz / (double)raw_sz) * 100.0;
 
-        printf("%-14s | %-6d | %8.1f MB/s | %8.1f%% | %9.1f MB | %10zu B | %7.2f%%\n",
-               "Meta Zstd L3", th, mbs, cpu_pct, peak_ram_mb, c_sz, ratio);
+        printf("%-13s | %-5d | %8.1f MB/s | %6.2fx  | %8.1f%%  | %8.1f%% | %10.2f   | %8.1f MB | %6.2f%%\n",
+               "Meta Zstd L3", th, mbs, factor, efficiency, cpu_pct, mbs_per_cpu, peak_ram_mb, ratio);
 
         ZSTD_freeCCtx(cctx);
     }
 
-    printf("--------------------------------------------------------------------------------------------------------\n");
+    printf("------------------------------------------------------------------------------------------------------------------------\n");
 
     /* 2. BinPack RT across 1, 2, 4, 8 threads */
     for (size_t i = 0; i < sizeof(thread_counts)/sizeof(thread_counts[0]); i++) {
@@ -156,6 +167,10 @@ int main() {
         double wall_sec = (double)(t1.QuadPart - t0.QuadPart) / (double)freq.QuadPart;
         double wall_per_iter = wall_sec / (double)iters;
         double mbs = (raw_sz / 1048576.0) / wall_per_iter;
+        if (th == 1) bp_base_mbs = mbs;
+
+        double factor = mbs / bp_base_mbs;
+        double efficiency = (factor / (double)th) * 100.0;
 
         uint64_t cpu_k = filetime_to_u64(k1) - filetime_to_u64(k0);
         uint64_t cpu_u = filetime_to_u64(u1) - filetime_to_u64(u0);
@@ -166,13 +181,14 @@ int main() {
         GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc));
         double peak_ram_mb = (double)pmc.PeakWorkingSetSize / 1048576.0;
 
+        double mbs_per_cpu = mbs / (cpu_pct > 0.1 ? cpu_pct : 1.0);
         double ratio = ((double)c_sz / (double)raw_sz) * 100.0;
 
-        printf("%-14s | %-6d | %8.1f MB/s | %8.1f%% | %9.1f MB | %10zu B | %7.2f%%\n",
-               "BinPack RT", th, mbs, cpu_pct, peak_ram_mb, c_sz, ratio);
+        printf("%-13s | %-5d | %8.1f MB/s | %6.2fx  | %8.1f%%  | %8.1f%% | %10.2f   | %8.1f MB | %6.2f%%\n",
+               "BinPack RT", th, mbs, factor, efficiency, cpu_pct, mbs_per_cpu, peak_ram_mb, ratio);
     }
 
-    printf("========================================================================================================\n\n");
+    printf("========================================================================================================================\n\n");
 
     free(zdst);
     free(bpdst);

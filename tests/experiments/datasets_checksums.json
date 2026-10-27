@@ -1,0 +1,177 @@
+[
+  {
+    "id": "silesia/dickens",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/silesia/dickens",
+    "description": "Silesia Corpus - Charles Dickens literature",
+    "size_bytes": 10192446,
+    "sha256": "b24c37886142e11d0ee687db6ab06f936207aa7f2ea1fd1d9a36763c7a507e6a"
+  },
+  {
+    "id": "silesia/mozilla",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/silesia/mozilla",
+    "description": "Silesia Corpus - Mozilla binary tar archive",
+    "size_bytes": 51220480,
+    "sha256": "657fc3764b0c75ac9de9623125705831ebbfbe08fed248df73bc2dc66e2a963b"
+  },
+  {
+    "id": "silesia/mr",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/silesia/mr",
+    "description": "Silesia Corpus - 16-bit Magnetic Resonance scan",
+    "size_bytes": 9970564,
+    "sha256": "68637ed52e3e4860174ed2dc0840ac77d5f1a60abbcb13770d5754e3774d53e6"
+  },
+  {
+    "id": "silesia/nci",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/silesia/nci",
+    "description": "Silesia Corpus - Chemical structure database",
+    "size_bytes": 33553445,
+    "sha256": "fc63a31770947b8c2062d3b19ca94c00485a232bb91b502021948fee983e1635"
+  },
+  {
+    "id": "silesia/ooffice",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/silesia/ooffice",
+    "description": "Silesia Corpus - OpenOffice.org x86_64 binary",
+    "size_bytes": 6152192,
+    "sha256": "e7ee013880d34dd5208283d0d3d91b07f442e067454276095ded14f322a656eb"
+  },
+  {
+    "id": "silesia/osdb",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/silesia/osdb",
+    "description": "Silesia Corpus - PostgreSQL sample database",
+    "size_bytes": 10085684,
+    "sha256": "60f027179302ca3ad87c58ac90b6be72ec23588aaa7a3b7fe8ecc0f11def3fa3"
+  },
+  {
+    "id": "silesia/reymont",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/silesia/reymont",
+    "description": "Silesia Corpus - Polish text by Wladyslaw Reymont",
+    "size_bytes": 6627202,
+    "sha256": "0eac0114a3dfe6e2ee1f345a0f79d653cb26c3bc9f0ed79238af4933422b7578"
+  },
+  {
+    "id": "silesia/samba",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/silesia/samba",
+    "description": "Silesia Corpus - Samba source code tarball",
+    "size_bytes": 21606400,
+    "sha256": "93ba07bc44d8267789c1d911992f40b089ffa2140b4a160fac11ccae9a40e7b2"
+  },
+  {
+    "id": "silesia/sao",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/silesia/sao",
+    "description": "Silesia Corpus - Smithsonian Astrophysical Star Catalog",
+    "size_bytes": 7251944,
+    "sha256": "c2d0ea2cc59d4c21b7fe43a71499342a00cbe530a1d5548770e91ecd6214adcc"
+  },
+  {
+    "id": "silesia/webster",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/silesia/webster",
+    "description": "Silesia Corpus - 1913 Webster Dictionary HTML",
+    "size_bytes": 41458703,
+    "sha256": "6a68f69b26daf09f9dd84f7470368553194a0b294fcfa80f1604efb11143a383"
+  },
+  {
+    "id": "silesia/x-ray",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/silesia/x-ray",
+    "description": "Silesia Corpus - 16-bit medical X-ray scan",
+    "size_bytes": 8474240,
+    "sha256": "7de9fce1405dc44ae5e6813ed21cd5751e761bd4265655a005d39b9685d1c9ad"
+  },
+  {
+    "id": "silesia/xml",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/silesia/xml",
+    "description": "Silesia Corpus - XML documentation tarball",
+    "size_bytes": 5345280,
+    "sha256": "0e82e54e695c1938e4193448022543845b33020c8be6bf3bf3ead2224903e08c"
+  },
+  {
+    "id": "nasa/etth1",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/nasa_telemetry/etth1_transformer.csv",
+    "description": "IEEE IES / Tsinghua - Electricity Transformer Temp ETTh1",
+    "size_bytes": 2589657,
+    "sha256": "f18de3ad269cef59bb07b5438d79bb3042d3be49bdeecf01c1cd6d29695ee066"
+  },
+  {
+    "id": "nasa/etth2",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/nasa_telemetry/etth2_transformer.csv",
+    "description": "IEEE IES / Tsinghua - Electricity Transformer Temp ETTh2",
+    "size_bytes": 2417960,
+    "sha256": "a3dc2c597b9218c7ce1cd55eb77b283fd459a1d09d753063f944967dd6b9218b"
+  },
+  {
+    "id": "nasa/ims_test1",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/nasa_telemetry/nasa_bearing_ims_test1.csv",
+    "description": "NASA Prognostics - IMS Bearing Test 1 (4-bearing vibration)",
+    "size_bytes": 1905892,
+    "sha256": "92df06fc3e54be5925c1bab9570741d6218354d193a1f27d5a26fd9f3415273c"
+  },
+  {
+    "id": "nasa/ims_test2",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/nasa_telemetry/nasa_bearing_ims_test2.csv",
+    "description": "NASA Prognostics - IMS Bearing Test 2 (Inner race failure)",
+    "size_bytes": 462350,
+    "sha256": "d1889c18df68b68a759794dd9a4eb58c92fa55c0f2ef7ff719e5b0a33a49eefc"
+  },
+  {
+    "id": "nasa/ims_test3",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/nasa_telemetry/nasa_bearing_ims_test3.csv",
+    "description": "NASA Prognostics - IMS Bearing Test 3 (Flock fault)",
+    "size_bytes": 2974328,
+    "sha256": "56f58a957ecbed1321cc67f5283f7d356c8259ca2b4b08c02f050a8a2076e0e6"
+  },
+  {
+    "id": "nasa/turbofan_fl32",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/nasa_telemetry/nasa_turbofan_float32.bin",
+    "description": "NASA PCoE C-MAPSS - Turbofan Engine Degradation Float32",
+    "size_bytes": 1980576,
+    "sha256": "ee06f50d129b163884753299939c7e150d785e63928de860777b9f7869ce7c59"
+  },
+  {
+    "id": "nasa/turbofan_asc",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/nasa_telemetry/nasa_turbofan_ascii.txt",
+    "description": "NASA PCoE C-MAPSS - Turbofan Engine ASCII tabular data",
+    "size_bytes": 3515356,
+    "sha256": "963b5e22825b34d8b21c69e1aeb4af3e647050eb672ee8834ba4b5d91d2de0f8"
+  },
+  {
+    "id": "canterbury/grammar.lsp",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/canterbury/grammar.lsp",
+    "description": "Canterbury Corpus - Lisp grammar (Small text)",
+    "size_bytes": 3721,
+    "sha256": "1b0805dfc0ae706b35aac2bb4e15f02485efd24dda5dbd29de7b2f84d1a88c15"
+  },
+  {
+    "id": "canterbury/fields.c",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/canterbury/fields.c",
+    "description": "Canterbury Corpus - C language source file",
+    "size_bytes": 11150,
+    "sha256": "85d73e354cc50cec76cb5a50537cf8dc035f8cbb8480f9e1cbe2f7d6c23393c7"
+  },
+  {
+    "id": "canterbury/alice29.txt",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/canterbury/alice29.txt",
+    "description": "Canterbury Corpus - Alice in Wonderland English text",
+    "size_bytes": 152089,
+    "sha256": "7467306ee0feed4971260f3c87421154a05be571d944e9cb021a5713700c38f0"
+  },
+  {
+    "id": "canterbury/kennedy.xls",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/canterbury/kennedy.xls",
+    "description": "Canterbury Corpus - Excel binary spreadsheet",
+    "size_bytes": 1029744,
+    "sha256": "9af47239ca29dfe20e633f80bbbb9a4cc9783d0803d7b2b5626f42e4c3790420"
+  },
+  {
+    "id": "canterbury/sum",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/canterbury/sum",
+    "description": "Canterbury Corpus - SPARC binary object",
+    "size_bytes": 38240,
+    "sha256": "ee5733cd76ecc2f9d8ff156adc3c02a7a851051dcf43a2d56ff4ee4ff606bdb3"
+  },
+  {
+    "id": "archive/busybox_armv7l",
+    "path": "C:/Users/sgi.lm/Desktop/Compiler/corpora/busybox_armv7l",
+    "description": "Embedded Linux - BusyBox ARMv7-A executable binary",
+    "size_bytes": 1109128,
+    "sha256": "8fceda57d83418bb288de0aef3c6df5e9421344ed0515c90fa5206f15c50f7e4"
+  }
+]
