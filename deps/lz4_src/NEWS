@@ -1,0 +1,461 @@
+v1.10.1
+fix  : decoding into a ring buffer of `LZ4_decoderRingBufferSize()` could corrupt data (since v1.9.0)
+fix  : `LZ4_compress_fast_continue()` produced wrong data when a block overwrote its whole previous block
+fix  : `LZ4_compress_destSize_extState()` corrupted data with `acceleration <= 0`, and could read out of bounds (since v1.10.0)
+fix  : negative sizes crashed `LZ4_decompress_safe_partial()` (since v1.9.3) and `LZ4_decompress_fast()` (since v1.9.4)
+fix  : `LZ4_saveDict()` with a negative `dictSize` copied up to 64 KB into `safeBuffer`, by @arthuz-th
+fix  : `LZ4_saveDictHC()` before any compression (new or reset stream) corrupted the next compressed block
+fix  : `LZ4_compress_HC_continue_destSize()` corrupted the next block after a call which didn't consume its whole input (since v1.8.0), reported by @freedom-winds
+fix  : `LZ4_decompress_safe_partial()` could leave previous `dst` content in decoded data with an invalid offset 0 (since v1.8.3)
+fix  : heap overflow with an invalid `blockSizeID` in `LZ4F_compressBegin()` and `LZ4F_writeOpen()`, by @jaypatrickhoward
+fix  : `LZ4F_compressBegin()` failing on allocation left an inconsistent frame in progress : it is now invalidated
+fix  : `LZ4F_uncompressedUpdate()` mixed with `LZ4F_compressUpdate()` could exceed `LZ4F_compressBound()`
+fix  : `LZ4F_compressBegin()` could crash after a previous call failed to allocate its state (custom allocator)
+fix  : `LZ4F_uncompressedUpdate()` supports linked blocks (it could produce corrupted frames, without error)
+fix  : `LZ4F_compressBegin_usingDict()` ignored the dictionary with independent blocks : each block now uses it, as with a CDict (also multithreaded)
+fix  : single-thread `lz4` could truncate concatenated frames with block checksums (wrong decompression hints)
+fix  : `--favor-decSpeed` lost after the first block with `-BD`, and ignored with a dictionary
+fix  : poor compression by `LZ4_compress_fast_extState_fastReset()` after `LZ4_attach_dictionary()` on a new state
+fix  : fast levels could compress some periodic data 30x worse, notably with a dictionary (other data : ~0.3-0.8% better, ~1-8% slower), reported by @martinus
+fix  : level 12 very slow on short-period data with linked blocks, detected by OSS-Fuzz
+fix  : levels 10+ with `(NULL, 0)` input, reported by @rinsuki
+fix  : lz4frame functions check `NULL` arguments, by @louislafosse
+fix  : `LZ4F_readOpen()` accepts files smaller than 19 bytes, by @axiqia
+fix  : `LZ4F_read()` reports truncated files as an error (`ERROR_io_read`), instead of a clean end of file
+fix  : `LZ4F_writeClose()` reports an earlier `LZ4F_write()` failure, instead of success
+fix  : lz4frame levels `INT_MIN` and `INT_MIN+1` overflowed, and compressed at default speed instead of maximum acceleration, by @akashdeshmukh-git
+fix  : lz4frame `skipChecksums` also skips block checksums of compressed blocks (decompression up to +23% faster)
+fix  : C90 compilation of `lz4.c` with `LZ4_HEAPMODE=1` (since v1.10.0)
+perf : faster decompression on aarch64 and x86-64 (up to +19% on Neoverse-V2 and Zen 4), by @Nicoshev
+perf : `LZ4_FAST_DEC_LOOP` enabled on aarch64 with clang, including Android (up to +9% on Cortex-A5xx), by @Nicoshev and @arpadpanyik-arm
+perf : `LZ4_FAST_DEC_LOOP` enabled on riscv64 when unaligned accesses are fast (`-mno-strict-align`, or a `-mcpu` with fast unaligned accesses)
+perf : faster compression with reused contexts, for blocks >= 1 KB : linked frames (up to +69%), `LZ4_resetStream_fast()` (up to +94%)
+perf : faster compression of 2-4 KB blocks with `LZ4_attach_dictionary()` (+3% to +30% on Zen 4)
+perf : 4 KB blocks with `LZ4_attach_HC_dictionary()` : level 2 compresses ~2.5% better, levels 11-12 faster (+12% to +170%), level 10 slower (-3% to -11%)
+perf : level 2 compresses better (~0.2-1.5%), at similar speed (-3% to +1% on Zen 4)
+perf : faster levels 11 (~+25%) and 12 (~+10%)
+perf : `--favor-decSpeed` : faster decompression (~+2-4% at level 12), with fewer sequences
+perf : `lz4` multithreaded compression relies on liblz4, reading files in place (memory-mapped, `--[no-]mmap`) : faster at fast levels
+api  : lz4frame compression accepts any `dstCapacity` : `LZ4F_compressFrame()` and `LZ4F_compressUpdate()` fail only if the output doesn't fit
+api  : `LZ4F_flush()` and `LZ4F_compressEnd()` fill `dstBuffer` or complete : below `LZ4F_compressBound(0)`, invoke them again while they return `dstCapacity`
+api  : `LZ4F_ERROR_dstMaxSize_tooSmall` renamed `LZ4F_ERROR_dstCapacity_tooSmall` (former name still supported)
+api  : lz4frame : after an error, and outside of a frame, compression operations fail until `LZ4F_compressBegin()`
+api  : lz4frame output no longer depends on the compression context's history
+api  : new static functions `LZ4F_cctx_size()` and `LZ4F_dctx_size()`, by @felixhandte
+api  : new static function `LZ4F_resumeFrame()` : resume decoding from any block start, for random access within frames
+api  : `lz4file` : new static functions `LZ4F_seek()` and `LZ4F_tell()`, for random access within compressed files
+api  : `LZ4_ACCELERATION_DEFAULT` and `LZ4_ACCELERATION_MAX` are defined in `lz4.h` (static section)
+api  : new `LZ4F_preferences_t.nbWorkers` (experimental) : multithreaded lz4frame compression, same output for any `nbWorkers` >= 1 ; `LZ4F_compressBound()` counts jobs instead of blocks, independently of `nbWorkers`
+api  : new static function `LZ4F_getMaxNbWorkers()` : tells if liblz4 supports multithreaded compression
+api  : `LZ4F_compressOptions_t.stableSrc` : new value `LZ4F_srcStableUntilFlush`, letting worker threads read input in place
+api  : reserved fields of `LZ4F_preferences_t` and `LZ4F_compressOptions_t` are now scalars : flatten positional initializers `{ 0, 0, 0 }`
+cli  : decodes Firefox's mozlz4 files (`.jsonlz4`, `.mozlz4`), proposed by @UnitedMarsupials
+cli  : decodes legacy frames ended by four zero bytes (Linux kernel end marker), requested by @benjarobin
+cli  : compressed output no longer depends on multithreading support (`lz4` and `lz4-nomt` produce the same frames, also with `-BD`)
+cli  : benchmark (`-b`) measures frames, compressed as `lz4` does with the same options (`-B#`, `-BD`, `-BX`, `-D`, `-T#`, etc.)
+cli  : new option `--single-thread` : frames compressed by the main thread alone, in liblz4's single-threaded mode (output can differ from `-T1` with `-BD`)
+cli  : custom block sizes (`-B#`, # >= 32) are honored, and compressed single-threaded
+cli  : `-T#` : nb of compression threads (the main thread reads and writes files), limited by file size and by a memory budget (`--memory=#`, `LZ4_MEMORY`), with a warning when it reduces `#`
+cli  : `-T#` capped by liblz4 (1024 threads, 128 on 32-bit systems), replacing build macro `LZ4_NBWORKERS_MAX` ; `-V` tells if compression is multithreaded
+cli  : output buffer no longer grows with the nb of threads : more threads within a memory budget (ex: 22 instead of 13 with `--memory=300M`)
+cli  : a source file modified, renamed or replaced during its compression is detected, and kept with `--rm` ; error 54 when the output can't be verified
+cli  : `lz4 -l` could hang on Windows with an empty input, as could decoding the resulting legacy stream
+cli  : `--rm` keeps the source file after a decompression failure, by @Furan666
+cli  : `lz4 -t --rm` no longer removes the tested file, and `--rm` with `stdin` no longer fails nor removes a file named `stdin`, by @Nexory
+cli  : `lz4 -t -m` no longer writes decoded content to stdout, reported by @tansy
+cli  : `lz4 --list` rejects truncated frames, instead of reporting them as valid, by @jmestwa-coder
+cli  : `lz4 --list` no longer reads uninitialized bytes on truncated frame headers, now reported as not recognized, by @akashdeshmukh-git
+cli  : numeric arguments that overflow are rejected, instead of silently wrapping around, by @akashdeshmukh-git
+cli  : `-b --fast=#` benchmarks a single level, instead of all levels up to -10000 when # > 10000
+cli  : legacy format (`-l`) : `--fast=#` selects the same acceleration as the frame format (`--fast=1` was the same as `-1`)
+cli  : legacy format (`-l`) : honors `--rm`, and keeps the source file's owner, permissions and modification time
+cli  : `-m` : a missing input file no longer distorts the final speed summary of compression
+cli  : warning when `--content-size` is used with `stdin`, by @jlee303
+cli  : fix benchmark cpu time on Windows with very large files
+cli  : `-b` crashed with small block sizes (`-B#`) on large inputs (since v1.7.3)
+cli  : `-b -d` could crash with multiple large files, or a frame decoding to more than 2 GB (since v1.9.4), reported by @arshsmith1
+cli  : multithreaded decompression could write out of bounds after 2^31 frames (since v1.10.0), by @arshsmith1
+build: x86 builds keep branches within 32-byte boundaries (JCC erratum) : faster on Intel cpus of the Skylake family (up to +12% compression, +31% decompression), unchanged on others
+build: refactored `make` build, parallel by default
+build: `make all install` could fail to link, or install incomplete files, by @hotschmoe
+build: cmake : `lz4` supports multithreading on pthread platforms
+build: cmake : exported `lz4::lz4` target by @dg0yt, CMake 4 support by @GeorgH93, `CMAKE_POSITION_INDEPENDENT_CODE` by @ds-sloth
+build: reproducible static library, by @rpurdie
+build: dynamic library multithreaded by default, static library single-threaded : `make lib-mt` / `lib-nomt`, cmake and meson options
+build: `make install` installs the libraries already built (ex: `make lib-mt && make install`)
+build: meson fixes, by @grobian, @bgilbert and @eli-schwartz
+build: AIX support, by @shubhamhii
+build: pkg-config `License` field, by @iwamatsu
+build: public headers compile with clang C++ modules (`-fmodules`), reported by @doraorak
+build: new build macro `LZ4_WILDCOPY64`, to tune decompression on targets like wasm, proposed by @JCash
+build: `xxhash.c` compiles without `-Wbad-function-cast` warnings, by @brainy
+port : RISC-V with `Zicclsm` uses unaligned memory accesses, by @Polaris-911
+doc  : ring buffer conditions of `LZ4_decompress_safe_continue()`
+doc  : frame format : Linux kernel legacy last block, by @Artoria2e5
+
+v1.10.0
+cli  : multithreading compression support: improves speed by X times threads allocated
+cli  : overlap decompression with i/o, improving speed by ~+60%
+cli  : support environment variables LZ4_CLEVEL and LZ4_NBWORKERS
+cli  : license of CLI more clearly labelled GPL-2.0-or-later
+cli  : fix: refuse to compress directories
+cli  : fix dictionary compression benchmark on multiple files
+cli  : change: no more implicit `stdout` (except when input is `stdin`)
+lib  : new level 2, offering mid-way performance (speed and compression)
+lib  : Improved lz4frame compression speed for small data (up to +160% at 1KB)
+lib  : Slightly faster (+5%) HC compression speed (levels 3-9), by @JunHe77
+lib  : dictionary compression support now in stable status
+lib  : lz4frame states can be safely reset and reused after a processing error (described by @QrczakMK)
+lib  : `lz4file` API improvements, by @vsolontsov-volant and @t-mat
+lib  : new experimental symbol `LZ4_compress_destSize_extState()`
+build: cmake minimum version raised to 3.5
+build: cmake improvements, by @foxeng, @Ohjurot, @LocalSpook, @teo-tsirpanis, @ur4t and @t-mat
+build: meson scripts are now hosted into `build/` directory, by @eli-schwartz
+build: meson improvements, by @tristan957
+build: Visual Studio solutions generated by `cmake` via scripts
+port : support for loongArch, risc-v, m68k, mips and sparc architectures
+port : improved Visual Studio compatibility, by @t-mat
+port : freestanding support improvements, by @t-mat
+
+v1.9.4
+perf : faster decoding speed (~+20%) on aarch64 platforms
+perf : faster decoding speed (~+70%) for -BD4 setting in CLI
+api  : new function `LZ4_decompress_safe_partial_usingDict()` by @yawqi
+api  : lz4frame: ability to provide custom allocators at state creation
+api  : can skip checksum validation for improved decoding speed
+api  : new experimental unit `lz4file` for file i/o API, by @anjiahao1
+api  : new experimental function `LZ4F_uncompressedUpdate()`, by @alexmohr
+cli  : `--list` works on `stdin` input, by @Low-power
+cli  : `--no-crc` does not produce (compression) nor check (decompression) checksums
+cli  : fix: `--test` and `--list` produce an error code when parsing invalid input
+cli  : fix: `--test -m` does no longer create decompressed file artifacts
+cli  : fix: support skippable frames when passed via `stdin`, reported by @davidmankin
+build: fix: Makefile respects CFLAGS directives passed via environment variable
+build: `LZ4_FREESTANDING`, new build macro for freestanding environments, by @t-mat
+build: `make` and `make test` are compatible with `-j` parallel run
+build: AS/400 compatibility, by @jonrumsey
+build: Solaris 10 compatibility, by @pekdon
+build: MSVC 2022 support, by @t-mat
+build: improved meson script, by @eli-schwartz
+doc  : Updated LZ4 block format, provide an "implementation notes" section
+
+v1.9.3
+perf: highly improved speed in kernel space, by @terrelln
+perf: faster speed with Visual Studio, thanks to @wolfpld and @remittor
+perf: improved dictionary compression speed, by @felixhandte
+perf: fixed LZ4_compress_HC_destSize() ratio, detected by @hsiangkao
+perf: reduced stack usage in high compression mode, by @Yanpas
+api : LZ4_decompress_safe_partial() supports unknown compressed size, requested by @jfkthame
+api : improved LZ4F_compressBound() with automatic flushing, by Christopher Harvie
+api : can (de)compress to/from NULL without UBs
+api : fix alignment test on 32-bit systems (state initialization)
+api : fix LZ4_saveDictHC() in corner case scenario, detected by @IgorKorkin
+cli : `-l` legacy format is now compatible with `-m` multiple files, by Filipe Calasans
+cli : benchmark mode supports dictionary, by @rkoradi
+cli : fix --fast with large argument, detected by @picoHz
+build: link to user-defined memory functions with LZ4_USER_MEMORY_FUNCTIONS, suggested by Yuriy Levchenko
+build: contrib/cmake_unofficial/ moved to build/cmake/
+build: visual/* moved to build/
+build: updated meson script, by @neheb
+build: tinycc support, by Anton Kochkov
+install: Haiku support, by Jerome Duval
+doc : updated LZ4 frame format, clarify EndMark
+
+v1.9.2
+fix : out-of-bound read in exceptional circumstances when using decompress_partial(), by @terrelln
+fix : slim opportunity for out-of-bound write with compress_fast() with a large enough input and when providing an output smaller than recommended (< LZ4_compressBound(inputSize)), by @terrelln
+fix : rare data corruption bug with LZ4_compress_destSize(), by @terrelln
+fix : data corruption bug when Streaming with an Attached Dict in HC Mode, by @felixhandte
+perf: enable LZ4_FAST_DEC_LOOP on aarch64/GCC by default, by @prekageo
+perf: improved lz4frame streaming API speed, by @dreambottle
+perf: speed up lz4hc on slow patterns when using external dictionary, by @terrelln
+api: better in-place decompression and compression support
+cli : --list supports multi-frames files, by @gstedman
+cli: --version outputs to stdout
+cli : add option --best as an alias of -12 , by @Low-power
+misc: Integration into oss-fuzz by @cmeister2, expanded list of scenarios by @terrelln
+
+v1.9.1
+fix : decompression functions were reading a few bytes beyond input size (introduced in v1.9.0, reported by @ppodolsky and @danlark1)
+api : fix : lz4frame initializers compatibility with c++, reported by @degski
+cli : added command --list, based on a patch by @gabrielstedman
+build: improved Windows build, by @JPeterMugaas
+build: AIX, by Norman Green
+
+v1.9.0
+perf: large decompression speed improvement on x86/x64 (up to +20%) by @djwatson
+api : changed : _destSize() compression variants are promoted to stable API
+api : new : LZ4_initStream(HC), replacing LZ4_resetStream(HC)
+api : changed : LZ4_resetStream(HC) as recommended reset function, for better performance on small data
+cli : support custom block sizes, by @blezsan
+build: source code can be amalgamated, by Bing Xu
+build: added meson build, by @lzutao
+build: new build macros : LZ4_DISTANCE_MAX, LZ4_FAST_DEC_LOOP
+install: MidnightBSD, by @laffer1
+install: msys2 on Windows 10, by @vtorri
+
+v1.8.3
+perf: minor decompression speed improvement (~+2%) with gcc
+fix : corruption in v1.8.2 at level 9 for files > 64KB under rare conditions (#560)
+cli : new command --fast, by @jennifermliu
+cli : fixed elapsed time, and added cpu load indicator (on -vv) (#555)
+api : LZ4_decompress_safe_partial() now decodes exactly the nb of bytes requested (feature request #566)
+build : added Haiku target, by @fbrosson, and MidnightBSD, by @laffer1
+doc : updated documentation regarding dictionary compression
+
+v1.8.2
+perf: *much* faster dictionary compression on small files, by @felixhandte
+perf: improved decompression speed and binary size, by Alexey Tourbin (@svpv)
+perf: slightly faster HC compression and decompression speed
+perf: very small compression ratio improvement
+fix : compression compatible with low memory addresses (< 0xFFFF)
+fix : decompression segfault when provided with NULL input, by @terrelln
+cli : new command --favor-decSpeed
+cli : benchmark mode more accurate for small inputs
+fullbench : can bench _destSize() variants, by @felixhandte
+doc : clarified block format parsing restrictions, by Alexey Tourbin (@svpv)
+
+v1.8.1
+perf : faster and stronger ultra modes (levels 10+)
+perf : slightly faster compression and decompression speed
+perf : fix bad degenerative case, reported by @c-morgenstern
+fix : decompression failed when using a combination of extDict + low memory address (#397), reported and fixed by Julian Scheid (@jscheid)
+cli : support for dictionary compression (`-D`), by Felix Handte @felixhandte
+cli : fix : `lz4 -d --rm` preserves timestamp (#441)
+cli : fix : do not modify /dev/null permission as root, by @aliceatlas
+api : `_destSize()` variant supported for all compression levels
+build  : `make` and `make test` compatible with `-jX`, reported by @mwgamera
+build  : can control LZ4LIB_VISIBILITY macro, by @mikir
+install: fix man page directory (#387), reported by Stuart Cardall (@itoffshore)
+
+v1.8.0
+cli : fix : do not modify /dev/null permissions, reported by @Maokaman1
+cli : added GNU separator -- specifying that all following arguments are files
+API : added LZ4_compress_HC_destSize(), by Oleg (@remittor)
+API : added LZ4F_resetDecompressionContext()
+API : lz4frame : negative compression levels trigger fast acceleration, request by Lawrence Chan
+API : lz4frame : can control block checksum and dictionary ID
+API : fix : expose obsolete decoding functions, reported by Chen Yufei
+API : experimental : lz4frame_static : new dictionary compression API
+build : fix : static lib installation, by Ido Rosen
+build : dragonFlyBSD, OpenBSD, NetBSD supported
+build : LZ4_MEMORY_USAGE can be modified at compile time, through external define
+doc : Updated LZ4 Frame format to v1.6.0, restoring Dictionary-ID field
+doc : lz4 api manual, by Przemyslaw Skibinski
+
+v1.7.5
+lz4hc : new high compression mode : levels 10-12 compress more and slower, by Przemyslaw Skibinski
+lz4cat : fix : works with relative path (#284) and stdin (#285) (reported by @beiDei8z)
+cli : fix minor notification when using -r recursive mode
+API : lz4frame : LZ4F_frameBound(0) gives upper bound of *flush() and *End() operations (#290, #280)
+doc : markdown version of man page, by Takayuki Matsuoka (#279)
+build : Makefile : fix make -jX lib+exe concurrency (#277)
+build : cmake : improvements by Michał Górny (#296)
+
+v1.7.4.2
+fix : Makefile : release build compatible with PIE and customized compilation directives provided through environment variables (#274, reported by Antoine Martin)
+
+v1.7.4
+Improved : much better speed in -mx32 mode
+cli : fix : Large file support in 32-bits mode on Mac OS-X
+fix : compilation on gcc 4.4 (#272), reported by Antoine Martin
+
+v1.7.3
+Changed : moved to versioning; package, cli and library have same version number
+Improved: Small decompression speed boost
+Improved: Small compression speed improvement on 64-bits systems
+Improved: Small compression ratio and speed improvement on small files
+Improved: Significant speed boost on ARMv6 and ARMv7
+Fix : better ratio on 64-bits big-endian targets
+Improved cmake build script, by Evan Nemerson
+New liblz4-dll project, by Przemyslaw Skibinki
+Makefile: Generates object files (*.o) for faster (re)compilation on low power systems
+cli : new : --rm and --help commands
+cli : new : preserved file attributes, by Przemyslaw Skibinki
+cli : fix : crash on some invalid inputs
+cli : fix : -t correctly validates lz4-compressed files, by Nick Terrell
+cli : fix : detects and reports fread() errors, thanks to Hiroshi Fujishima report #243
+cli : bench : new : -r recursive mode
+lz4cat : can cat multiple files in a single command line (#184)
+Added : doc/lz4_manual.html, by Przemyslaw Skibinski
+Added : dictionary compression and frame decompression examples, by Nick Terrell
+Added : Debianization, by Evgeniy Polyakov
+
+r131
+New    : Dos/DJGPP target, thanks to Louis Santillan (#114)
+Added  : Example using lz4frame library, by Zbigniew Jędrzejewski-Szmek (#118)
+Changed: xxhash symbols are modified (namespace emulation) within liblz4
+
+r130:
+Fixed  : incompatibility sparse mode vs console, reported by Yongwoon Cho (#105)
+Fixed  : LZ4IO exits too early when frame crc not present, reported by Yongwoon Cho (#106)
+Fixed  : incompatibility sparse mode vs append mode, reported by Takayuki Matsuoka (#110)
+Performance fix : big compression speed boost for clang (+30%)
+New    : cross-version test, by Takayuki Matsuoka
+
+r129:
+Added  : LZ4_compress_fast(), LZ4_compress_fast_continue()
+Added  : LZ4_compress_destSize()
+Changed: New lz4 and lz4hc compression API. Previous function prototypes still supported.
+Changed: Sparse file support enabled by default
+New    : LZ4 CLI improved performance compressing/decompressing multiple files (#86, kind contribution from Kyle J. Harper & Takayuki Matsuoka)
+Fixed  : GCC 4.9+ optimization bug - Reported by Markus Trippelsdorf, Greg Slazinski & Evan Nemerson
+Changed: Enums converted to LZ4F_ namespace convention - by Takayuki Matsuoka
+Added  : AppVeyor CI environment, for Visual tests - Suggested by Takayuki Matsuoka
+Modified:Obsolete functions generate warnings - Suggested by Evan Nemerson, contributed by Takayuki Matsuoka
+Fixed  : Bug #75 (unfinished stream), reported by Yongwoon Cho
+Updated: Documentation converted to MarkDown format
+
+r128:
+New    : lz4cli sparse file support (Requested by Neil Wilson, and contributed by Takayuki Matsuoka)
+New    : command -m, to compress multiple files in a single command (suggested by Kyle J. Harper)
+Fixed  : Restored lz4hc compression ratio (slightly lower since r124)
+New    : lz4 cli supports long commands (suggested by Takayuki Matsuoka)
+New    : lz4frame & lz4cli frame content size support
+New    : lz4frame supports skippable frames, as requested by Sergey Cherepanov
+Changed: Default "make install" directory is /usr/local, as notified by Ron Johnson
+New    : lz4 cli supports "pass-through" mode, requested by Neil Wilson
+New    : datagen can generate sparse files
+New    : scan-build tests, thanks to kind help by Takayuki Matsuoka
+New    : g++ compatibility tests
+New    : arm cross-compilation test, thanks to kind help by Takayuki Matsuoka
+Fixed  : Fuzzer + frametest compatibility with NetBSD (issue #48, reported by Thomas Klausner)
+Added  : Visual project directory
+Updated: Man page & Specification
+
+r127:
+N/A   : added a file on SVN
+
+r126:
+New   : lz4frame API is now integrated into liblz4
+Fixed : GCC 4.9 bug on highest performance settings, reported by Greg Slazinski
+Fixed : bug within LZ4 HC streaming mode, reported by James Boyle
+Fixed : older compiler don't like nameless unions, reported by Cheyi Lin
+Changed : lz4 is C90 compatible
+Changed : added -pedantic option, fixed a few mminor warnings
+
+r125:
+Changed : endian and alignment code
+Changed : directory structure : new "lib" directory
+Updated : lz4io, now uses lz4frame
+Improved: slightly improved decoding speed
+Fixed : LZ4_compress_limitedOutput(); Special thanks to Christopher Speller !
+Fixed : some alignment warnings under clang
+Fixed : deprecated function LZ4_slideInputBufferHC()
+
+r124:
+New : LZ4 HC streaming mode
+Fixed : LZ4F_compressBound() using null preferencesPtr
+Updated : xxHash to r38
+Updated library number, to 1.4.0
+
+r123:
+Added : experimental lz4frame API, thanks to Takayuki Matsuoka and Christopher Jackson for testings
+Fix : s390x support, thanks to Nobuhiro Iwamatsu
+Fix : test mode (-t) no longer requires confirmation, thanks to Thary Nguyen
+
+r122:
+Fix : AIX & AIX64 support (SamG)
+Fix : mips 64-bits support (lew van)
+Added : Examples directory, using code examples from Takayuki Matsuoka
+Updated : Framing specification, to v1.4.1
+Updated : xxHash, to r36
+
+r121:
+Added : Makefile : install for kFreeBSD and Hurd (Nobuhiro Iwamatsu)
+Fix : Makefile : install for OS-X and BSD, thanks to Takayuki Matsuoka
+
+r120:
+Modified : Streaming API, using strong types
+Added : LZ4_versionNumber(), thanks to Takayuki Matsuoka
+Fix : OS-X : library install name, thanks to Clemens Lang
+Updated : Makefile : synchronize library version number with lz4.h, thanks to Takayuki Matsuoka
+Updated : Makefile : stricter compilation flags
+Added : pkg-config, thanks to Zbigniew Jędrzejewski-Szmek (issue 135)
+Makefile : lz4-test only test native binaries, as suggested by Michał Górny (issue 136)
+Updated : xxHash to r35
+
+r119:
+Fix : Issue 134 : extended malicious address space overflow in 32-bits mode for some specific configurations
+
+r118:
+New : LZ4 Streaming API (Fast version), special thanks to Takayuki Matsuoka
+New : datagen : parametrable synthetic data generator for tests
+Improved : fuzzer, support more test cases, more parameters, ability to jump to specific test
+fix : support ppc64le platform (issue 131)
+fix : Issue 52 (malicious address space overflow in 32-bits mode when using large custom format)
+fix : Makefile : minor issue 130 : header files permissions
+
+r117:
+Added : man pages for lz4c and lz4cat
+Added : automated tests on Travis, thanks to Takayuki Matsuoka !
+fix : block-dependency command line (issue 127)
+fix : lz4fullbench (issue 128)
+
+r116:
+hotfix (issue 124 & 125)
+
+r115:
+Added : lz4cat utility, installed on POSX systems (issue 118)
+OS-X compatible compilation of dynamic library (issue 115)
+
+r114:
+Makefile : library correctly compiled with -O3 switch (issue 114)
+Makefile : library compilation compatible with clang
+Makefile : library is versioned and linked (issue 119)
+lz4.h : no more static inline prototypes (issue 116)
+man : improved header/footer (issue 111)
+Makefile : Use system default $(CC) & $(MAKE) variables (issue 112)
+xxhash : updated to r34
+
+r113:
+Large decompression speed improvement for GCC 32-bits. Thanks to Valery Croizier !
+LZ4HC : Compression Level is now a programmable parameter (CLI from 4 to 9)
+Separated IO routines from command line (lz4io.c)
+Version number into lz4.h (suggested by Francesc Alted)
+
+r112:
+quickfix
+
+r111 :
+Makefile : added capability to install libraries
+Modified Directory tree, to better separate libraries from programs.
+
+r110 :
+lz4 & lz4hc : added capability to allocate state & stream state with custom allocator (issue 99)
+fuzzer & fullbench : updated to test new functions
+man : documented -l command (Legacy format, for Linux kernel compression) (issue 102)
+cmake : improved version by Mika Attila, building programs and libraries (issue 100)
+xxHash : updated to r33
+Makefile : clean also delete local package .tar.gz
+
+r109 :
+lz4.c : corrected issue 98 (LZ4_compress_limitedOutput())
+Makefile : can specify version number from makefile
+
+r108 :
+lz4.c : corrected compression efficiency issue 97 in 64-bits chained mode (-BD) for streams > 4 GB (thanks Roman Strashkin for reporting)
+
+r107 :
+Makefile : support DESTDIR for staged installs. Thanks Jorge Aparicio.
+Makefile : make install installs both lz4 and lz4c (Jorge Aparicio)
+Makefile : removed -Wno-implicit-declaration compilation switch
+lz4cli.c : include <stduni.h> for isatty() (Luca Barbato)
+lz4.h : introduced LZ4_MAX_INPUT_SIZE constant (Shay Green)
+lz4.h : LZ4_compressBound() : unified macro and inline definitions (Shay Green)
+lz4.h : LZ4_decompressSafe_partial() : clarify comments (Shay Green)
+lz4.c : LZ4_compress() verify input size condition (Shay Green)
+bench.c : corrected a bug in free memory size evaluation
+cmake : install into bin/ directory (Richard Yao)
+cmake : check for just C compiler (Elan Ruusamae)
+
+r106 :
+Makefile : make dist modify text files in the package to respect Unix EoL convention
+lz4cli.c : corrected small display bug in HC mode
+
+r105 :
+Makefile : New install script and man page, contributed by Prasad Pandit
+lz4cli.c : Minor modifications, for easier extensibility
+COPYING  : added license file
+LZ4_Streaming_Format.odt : modified file name to remove white space characters
+Makefile : .exe suffix now properly added only for Windows target
