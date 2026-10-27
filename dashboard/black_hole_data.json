@@ -1,0 +1,2114 @@
+[
+  {
+    "id": "real_ooffice",
+    "name": "ooffice (OpenOffice 1.0.1 Executable (6.15 MB))",
+    "category": "Silesia (x86 ELF)",
+    "type": "Silesia (x86 ELF)",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "5.87 MB",
+    "raw_bytes": 6152192,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 50.81,
+        "comp_speed_mbs": 200.3,
+        "decomp_speed_mbs": 752.5,
+        "comp_time_ms": 29.3,
+        "compressed_bytes": 3126146,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 42.19,
+        "comp_speed_mbs": 4.9,
+        "decomp_speed_mbs": 631.4,
+        "comp_time_ms": 1202.4,
+        "compressed_bytes": 2595373,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 44.63,
+        "comp_speed_mbs": 224.7,
+        "decomp_speed_mbs": 653.0,
+        "comp_time_ms": 26.1,
+        "compressed_bytes": 2745423,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 36.32,
+        "comp_speed_mbs": 5.0,
+        "decomp_speed_mbs": 598.2,
+        "comp_time_ms": 1162.7,
+        "compressed_bytes": 2234692,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_x-ray",
+    "name": "x-ray (16-bit Medical X-Ray Scans (8.47 MB))",
+    "category": "Silesia (Medical 16b)",
+    "type": "Silesia (Medical 16b)",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "8.08 MB",
+    "raw_bytes": 8474240,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 71.81,
+        "comp_speed_mbs": 168.2,
+        "decomp_speed_mbs": 708.4,
+        "comp_time_ms": 48.0,
+        "compressed_bytes": 6085208,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 60.53,
+        "comp_speed_mbs": 4.3,
+        "decomp_speed_mbs": 611.6,
+        "comp_time_ms": 1862.4,
+        "compressed_bytes": 5129823,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 49.6,
+        "comp_speed_mbs": 503.2,
+        "decomp_speed_mbs": 658.6,
+        "comp_time_ms": 16.1,
+        "compressed_bytes": 4203234,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 47.63,
+        "comp_speed_mbs": 5.6,
+        "decomp_speed_mbs": 745.3,
+        "comp_time_ms": 1433.3,
+        "compressed_bytes": 4036182,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_mr",
+    "name": "mr (16-bit Magnetic Resonance Imaging (9.97 MB))",
+    "category": "Silesia (Medical 16b)",
+    "type": "Silesia (Medical 16b)",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "9.51 MB",
+    "raw_bytes": 9970564,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 35.58,
+        "comp_speed_mbs": 208.5,
+        "decomp_speed_mbs": 929.8,
+        "comp_time_ms": 45.6,
+        "compressed_bytes": 3547526,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 31.16,
+        "comp_speed_mbs": 4.4,
+        "decomp_speed_mbs": 524.3,
+        "comp_time_ms": 2181.7,
+        "compressed_bytes": 3106733,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 27.94,
+        "comp_speed_mbs": 233.7,
+        "decomp_speed_mbs": 511.4,
+        "comp_time_ms": 40.7,
+        "compressed_bytes": 2785702,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 26.18,
+        "comp_speed_mbs": 3.7,
+        "decomp_speed_mbs": 478.0,
+        "comp_time_ms": 2562.0,
+        "compressed_bytes": 2610649,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_sao",
+    "name": "sao (Smithsonian Astrophysical Star Catalog (7.25 MB))",
+    "category": "Silesia (Astrometry)",
+    "type": "Silesia (Astrometry)",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "6.92 MB",
+    "raw_bytes": 7251944,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 76.22,
+        "comp_speed_mbs": 93.9,
+        "decomp_speed_mbs": 453.5,
+        "comp_time_ms": 73.6,
+        "compressed_bytes": 5527504,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 68.95,
+        "comp_speed_mbs": 3.4,
+        "decomp_speed_mbs": 453.9,
+        "comp_time_ms": 2048.1,
+        "compressed_bytes": 5000572,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 76.22,
+        "comp_speed_mbs": 127.7,
+        "decomp_speed_mbs": 460.7,
+        "comp_time_ms": 54.2,
+        "compressed_bytes": 5527572,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 68.96,
+        "comp_speed_mbs": 3.5,
+        "decomp_speed_mbs": 477.7,
+        "comp_time_ms": 1952.8,
+        "compressed_bytes": 5000640,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_mozilla",
+    "name": "mozilla (Mozilla Browser Binary Tar (51.22 MB))",
+    "category": "Silesia (Shared Libs)",
+    "type": "Silesia (Shared Libs)",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "48.85 MB",
+    "raw_bytes": 51220480,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 35.59,
+        "comp_speed_mbs": 158.1,
+        "decomp_speed_mbs": 576.8,
+        "comp_time_ms": 308.9,
+        "compressed_bytes": 18227296,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 29.43,
+        "comp_speed_mbs": 4.4,
+        "decomp_speed_mbs": 474.2,
+        "comp_time_ms": 11044.1,
+        "compressed_bytes": 15071668,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 35.59,
+        "comp_speed_mbs": 203.0,
+        "decomp_speed_mbs": 564.1,
+        "comp_time_ms": 240.6,
+        "compressed_bytes": 18227364,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 29.41,
+        "comp_speed_mbs": 3.0,
+        "decomp_speed_mbs": 448.0,
+        "comp_time_ms": 16291.0,
+        "compressed_bytes": 15065828,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_dickens",
+    "name": "dickens (Charles Dickens Collected Works (10.19 MB))",
+    "category": "Silesia (Literature)",
+    "type": "Silesia (Literature)",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "9.72 MB",
+    "raw_bytes": 10192446,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 35.94,
+        "comp_speed_mbs": 125.3,
+        "decomp_speed_mbs": 503.4,
+        "comp_time_ms": 77.5,
+        "compressed_bytes": 3663504,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 27.96,
+        "comp_speed_mbs": 1.9,
+        "decomp_speed_mbs": 548.6,
+        "comp_time_ms": 5090.8,
+        "compressed_bytes": 2849941,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 35.94,
+        "comp_speed_mbs": 141.4,
+        "decomp_speed_mbs": 561.3,
+        "comp_time_ms": 68.7,
+        "compressed_bytes": 3663572,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 27.96,
+        "comp_speed_mbs": 1.9,
+        "decomp_speed_mbs": 575.4,
+        "comp_time_ms": 5058.2,
+        "compressed_bytes": 2850009,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_nci",
+    "name": "nci (National Cancer Institute Molecule DB (33.55 MB))",
+    "category": "Silesia (Chemical DB)",
+    "type": "Silesia (Chemical DB)",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "32.00 MB",
+    "raw_bytes": 33553445,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 8.45,
+        "comp_speed_mbs": 494.3,
+        "decomp_speed_mbs": 968.7,
+        "comp_time_ms": 64.7,
+        "compressed_bytes": 2833843,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 4.96,
+        "comp_speed_mbs": 1.9,
+        "decomp_speed_mbs": 1298.4,
+        "comp_time_ms": 16754.6,
+        "compressed_bytes": 1664984,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 8.45,
+        "comp_speed_mbs": 518.2,
+        "decomp_speed_mbs": 779.5,
+        "comp_time_ms": 61.7,
+        "compressed_bytes": 2833911,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 4.96,
+        "comp_speed_mbs": 1.9,
+        "decomp_speed_mbs": 972.2,
+        "comp_time_ms": 16497.1,
+        "compressed_bytes": 1665052,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_osdb",
+    "name": "osdb (Open Source Database Benchmark (10.09 MB))",
+    "category": "Silesia (Postgres DB)",
+    "type": "Silesia (Postgres DB)",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "9.62 MB",
+    "raw_bytes": 10085684,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 34.72,
+        "comp_speed_mbs": 180.1,
+        "decomp_speed_mbs": 733.3,
+        "comp_time_ms": 53.4,
+        "compressed_bytes": 3501457,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 30.74,
+        "comp_speed_mbs": 2.6,
+        "decomp_speed_mbs": 643.1,
+        "comp_time_ms": 3700.2,
+        "compressed_bytes": 3100173,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 34.72,
+        "comp_speed_mbs": 213.8,
+        "decomp_speed_mbs": 684.7,
+        "comp_time_ms": 45.0,
+        "compressed_bytes": 3501525,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 30.74,
+        "comp_speed_mbs": 2.6,
+        "decomp_speed_mbs": 570.9,
+        "comp_time_ms": 3728.3,
+        "compressed_bytes": 3100241,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_reymont",
+    "name": "reymont (Wladyslaw Reymont Novel Chlopi (6.63 MB))",
+    "category": "Silesia (Polish Text)",
+    "type": "Silesia (Polish Text)",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "6.32 MB",
+    "raw_bytes": 6627202,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 29.24,
+        "comp_speed_mbs": 162.8,
+        "decomp_speed_mbs": 547.2,
+        "comp_time_ms": 38.8,
+        "compressed_bytes": 1937973,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 20.35,
+        "comp_speed_mbs": 2.0,
+        "decomp_speed_mbs": 595.9,
+        "comp_time_ms": 3158.5,
+        "compressed_bytes": 1348458,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 29.24,
+        "comp_speed_mbs": 179.7,
+        "decomp_speed_mbs": 588.2,
+        "comp_time_ms": 35.2,
+        "compressed_bytes": 1938041,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 20.35,
+        "comp_speed_mbs": 2.0,
+        "decomp_speed_mbs": 566.1,
+        "comp_time_ms": 3162.2,
+        "compressed_bytes": 1348526,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_samba",
+    "name": "samba (Samba 2-2-3 Source Code Tarball (21.61 MB))",
+    "category": "Silesia (Source Code)",
+    "type": "Silesia (Source Code)",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "20.61 MB",
+    "raw_bytes": 21606400,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 22.93,
+        "comp_speed_mbs": 240.7,
+        "decomp_speed_mbs": 778.8,
+        "comp_time_ms": 85.6,
+        "compressed_bytes": 4955117,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 18.03,
+        "comp_speed_mbs": 2.9,
+        "decomp_speed_mbs": 780.9,
+        "comp_time_ms": 7029.2,
+        "compressed_bytes": 3894671,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 22.93,
+        "comp_speed_mbs": 268.0,
+        "decomp_speed_mbs": 728.3,
+        "comp_time_ms": 76.9,
+        "compressed_bytes": 4955185,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 18.04,
+        "comp_speed_mbs": 2.9,
+        "decomp_speed_mbs": 712.8,
+        "comp_time_ms": 7056.4,
+        "compressed_bytes": 3897856,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_webster",
+    "name": "webster (1913 Webster English Dictionary HTML (41.46 MB))",
+    "category": "Silesia (HTML Dict)",
+    "type": "Silesia (HTML Dict)",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "39.54 MB",
+    "raw_bytes": 41458703,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 29.18,
+        "comp_speed_mbs": 150.9,
+        "decomp_speed_mbs": 570.6,
+        "comp_time_ms": 262.1,
+        "compressed_bytes": 12096850,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 20.94,
+        "comp_speed_mbs": 2.2,
+        "decomp_speed_mbs": 587.5,
+        "comp_time_ms": 17716.5,
+        "compressed_bytes": 8679701,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 29.18,
+        "comp_speed_mbs": 163.8,
+        "decomp_speed_mbs": 579.6,
+        "comp_time_ms": 241.4,
+        "compressed_bytes": 12096918,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 20.94,
+        "comp_speed_mbs": 1.8,
+        "decomp_speed_mbs": 574.7,
+        "comp_time_ms": 21428.8,
+        "compressed_bytes": 8679427,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_xml",
+    "name": "xml (Structured XML Data and DTD Schemas (5.35 MB))",
+    "category": "Silesia (XML Code)",
+    "type": "Silesia (XML Code)",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "5.10 MB",
+    "raw_bytes": 5345280,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 11.89,
+        "comp_speed_mbs": 371.4,
+        "decomp_speed_mbs": 919.3,
+        "comp_time_ms": 13.7,
+        "compressed_bytes": 635299,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 8.48,
+        "comp_speed_mbs": 2.8,
+        "decomp_speed_mbs": 1150.1,
+        "comp_time_ms": 1809.7,
+        "compressed_bytes": 453205,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 11.89,
+        "comp_speed_mbs": 395.0,
+        "decomp_speed_mbs": 796.2,
+        "comp_time_ms": 12.9,
+        "compressed_bytes": 635367,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 8.47,
+        "comp_speed_mbs": 2.8,
+        "decomp_speed_mbs": 938.3,
+        "comp_time_ms": 1795.4,
+        "compressed_bytes": 453009,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_nasa_bearing_ims_test1",
+    "name": "nasa_bearing_ims_test1 (Run-to-failure 4-Ch Accelerometer Test 1 (1.91 MB))",
+    "category": "NASA IMS Bearing",
+    "type": "NASA IMS Bearing",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "1.82 MB",
+    "raw_bytes": 1905892,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 42.92,
+        "comp_speed_mbs": 101.7,
+        "decomp_speed_mbs": 437.1,
+        "comp_time_ms": 17.9,
+        "compressed_bytes": 818065,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 37.06,
+        "comp_speed_mbs": 2.6,
+        "decomp_speed_mbs": 611.5,
+        "comp_time_ms": 701.8,
+        "compressed_bytes": 706278,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 42.93,
+        "comp_speed_mbs": 114.2,
+        "decomp_speed_mbs": 492.2,
+        "comp_time_ms": 15.9,
+        "compressed_bytes": 818133,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 37.06,
+        "comp_speed_mbs": 2.7,
+        "decomp_speed_mbs": 613.5,
+        "comp_time_ms": 668.9,
+        "compressed_bytes": 706346,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_nasa_bearing_ims_test2",
+    "name": "nasa_bearing_ims_test2 (Run-to-failure 4-Ch Accelerometer Test 2 (0.46 MB))",
+    "category": "NASA IMS Bearing",
+    "type": "NASA IMS Bearing",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "0.44 MB",
+    "raw_bytes": 462350,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 40.75,
+        "comp_speed_mbs": 102.3,
+        "decomp_speed_mbs": 448.5,
+        "comp_time_ms": 4.3,
+        "compressed_bytes": 188409,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 35.38,
+        "comp_speed_mbs": 3.1,
+        "decomp_speed_mbs": 546.5,
+        "comp_time_ms": 142.8,
+        "compressed_bytes": 163558,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 40.77,
+        "comp_speed_mbs": 117.7,
+        "decomp_speed_mbs": 450.8,
+        "comp_time_ms": 3.7,
+        "compressed_bytes": 188477,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 35.39,
+        "comp_speed_mbs": 3.4,
+        "decomp_speed_mbs": 549.6,
+        "comp_time_ms": 128.4,
+        "compressed_bytes": 163626,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_nasa_bearing_ims_test3",
+    "name": "nasa_bearing_ims_test3 (Run-to-failure 4-Ch Accelerometer Test 3 (2.97 MB))",
+    "category": "NASA IMS Bearing",
+    "type": "NASA IMS Bearing",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "2.84 MB",
+    "raw_bytes": 2974328,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 41.16,
+        "comp_speed_mbs": 110.0,
+        "decomp_speed_mbs": 434.9,
+        "comp_time_ms": 25.8,
+        "compressed_bytes": 1224314,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 35.29,
+        "comp_speed_mbs": 2.2,
+        "decomp_speed_mbs": 590.8,
+        "comp_time_ms": 1314.6,
+        "compressed_bytes": 1049538,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 41.16,
+        "comp_speed_mbs": 121.5,
+        "decomp_speed_mbs": 476.8,
+        "comp_time_ms": 23.3,
+        "compressed_bytes": 1224382,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 35.29,
+        "comp_speed_mbs": 2.4,
+        "decomp_speed_mbs": 586.3,
+        "comp_time_ms": 1170.8,
+        "compressed_bytes": 1049606,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_nasa_turbofan_float32",
+    "name": "nasa_turbofan_float32 (C-MAPSS 21-Sensor Binary Float32 Array (1.98 MB))",
+    "category": "NASA Turbofan",
+    "type": "NASA Turbofan",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "1.89 MB",
+    "raw_bytes": 1980576,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 38.26,
+        "comp_speed_mbs": 140.0,
+        "decomp_speed_mbs": 487.4,
+        "comp_time_ms": 13.5,
+        "compressed_bytes": 757770,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 31.02,
+        "comp_speed_mbs": 2.9,
+        "decomp_speed_mbs": 544.4,
+        "comp_time_ms": 640.4,
+        "compressed_bytes": 614301,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 28.49,
+        "comp_speed_mbs": 319.8,
+        "decomp_speed_mbs": 494.4,
+        "comp_time_ms": 5.9,
+        "compressed_bytes": 564360,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 27.25,
+        "comp_speed_mbs": 8.6,
+        "decomp_speed_mbs": 435.6,
+        "comp_time_ms": 219.2,
+        "compressed_bytes": 539694,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_nasa_turbofan_ascii",
+    "name": "nasa_turbofan_ascii (C-MAPSS Degradation Trajectory Text (3.52 MB))",
+    "category": "NASA Turbofan",
+    "type": "NASA Turbofan",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "3.35 MB",
+    "raw_bytes": 3515356,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 24.46,
+        "comp_speed_mbs": 187.4,
+        "decomp_speed_mbs": 482.5,
+        "comp_time_ms": 17.9,
+        "compressed_bytes": 859903,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 18.69,
+        "comp_speed_mbs": 2.1,
+        "decomp_speed_mbs": 627.8,
+        "comp_time_ms": 1563.5,
+        "compressed_bytes": 656851,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 24.46,
+        "comp_speed_mbs": 200.3,
+        "decomp_speed_mbs": 514.4,
+        "comp_time_ms": 16.7,
+        "compressed_bytes": 859971,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 18.69,
+        "comp_speed_mbs": 2.1,
+        "decomp_speed_mbs": 604.2,
+        "comp_time_ms": 1606.1,
+        "compressed_bytes": 656919,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_etth1_transformer",
+    "name": "etth1_transformer (Electricity Transformer Oil Temp 1-Hour (2.59 MB))",
+    "category": "IEEE Industrial",
+    "type": "IEEE Industrial",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "2.47 MB",
+    "raw_bytes": 2589657,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 13.94,
+        "comp_speed_mbs": 385.6,
+        "decomp_speed_mbs": 789.4,
+        "comp_time_ms": 6.4,
+        "compressed_bytes": 361039,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 10.93,
+        "comp_speed_mbs": 2.5,
+        "decomp_speed_mbs": 912.7,
+        "comp_time_ms": 977.4,
+        "compressed_bytes": 283097,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 13.94,
+        "comp_speed_mbs": 382.4,
+        "decomp_speed_mbs": 747.1,
+        "comp_time_ms": 6.5,
+        "compressed_bytes": 361107,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 10.93,
+        "comp_speed_mbs": 2.6,
+        "decomp_speed_mbs": 810.3,
+        "comp_time_ms": 944.4,
+        "compressed_bytes": 283165,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_etth2_transformer",
+    "name": "etth2_transformer (Electricity Transformer Oil Temp 1-Hour (2.42 MB))",
+    "category": "IEEE Industrial",
+    "type": "IEEE Industrial",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "2.31 MB",
+    "raw_bytes": 2417960,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 15.01,
+        "comp_speed_mbs": 332.9,
+        "decomp_speed_mbs": 695.0,
+        "comp_time_ms": 6.9,
+        "compressed_bytes": 362965,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 12.21,
+        "comp_speed_mbs": 2.8,
+        "decomp_speed_mbs": 853.5,
+        "comp_time_ms": 833.1,
+        "compressed_bytes": 295240,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 15.01,
+        "comp_speed_mbs": 343.6,
+        "decomp_speed_mbs": 731.1,
+        "comp_time_ms": 6.7,
+        "compressed_bytes": 363033,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 12.21,
+        "comp_speed_mbs": 2.8,
+        "decomp_speed_mbs": 788.7,
+        "comp_time_ms": 823.8,
+        "compressed_bytes": 295308,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_sensor_data.raw",
+    "name": "sensor_data.raw (IEEE 754 Float64 Multichannel Matrix (256 KB))",
+    "category": "Sensor Matrix",
+    "type": "Sensor Matrix",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "0.25 MB",
+    "raw_bytes": 262144,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 90.54,
+        "comp_speed_mbs": 103.3,
+        "decomp_speed_mbs": 583.6,
+        "comp_time_ms": 2.4,
+        "compressed_bytes": 237343,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 86.3,
+        "comp_speed_mbs": 7.5,
+        "decomp_speed_mbs": 411.6,
+        "comp_time_ms": 33.4,
+        "compressed_bytes": 226242,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 34.99,
+        "comp_speed_mbs": 124.3,
+        "decomp_speed_mbs": 458.6,
+        "comp_time_ms": 2.0,
+        "compressed_bytes": 91715,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 29.46,
+        "comp_speed_mbs": 4.8,
+        "decomp_speed_mbs": 416.2,
+        "comp_time_ms": 51.9,
+        "compressed_bytes": 77215,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "real_arm_binary.elf",
+    "name": "arm_binary.elf (ARM Cortex Thumb-2 Microcontroller Firmware (100 KB))",
+    "category": "Embedded ARM",
+    "type": "Embedded ARM",
+    "pattern": "real_world",
+    "noise": "real",
+    "size_label": "0.10 MB",
+    "raw_bytes": 100064,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 69.39,
+        "comp_speed_mbs": 304.5,
+        "decomp_speed_mbs": 641.8,
+        "comp_time_ms": 0.3,
+        "compressed_bytes": 69439,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 22.67,
+        "comp_speed_mbs": 5.2,
+        "decomp_speed_mbs": 190.8,
+        "comp_time_ms": 18.3,
+        "compressed_bytes": 22680,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 0.11,
+        "comp_speed_mbs": 806.7,
+        "decomp_speed_mbs": 753.8,
+        "comp_time_ms": 0.1,
+        "compressed_bytes": 110,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 0.11,
+        "comp_speed_mbs": 340.8,
+        "decomp_speed_mbs": 1166.6,
+        "comp_time_ms": 0.3,
+        "compressed_bytes": 110,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Float32_ramp_clean_256KB",
+    "name": "Synthetic Float32 ramp (clean, 256KB)",
+    "category": "Synthetic 256KB",
+    "type": "Float32",
+    "pattern": "ramp",
+    "noise": "clean",
+    "size_label": "256KB",
+    "raw_bytes": 262144,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 86.2,
+        "comp_speed_mbs": 528.7,
+        "decomp_speed_mbs": 1030.9,
+        "comp_time_ms": 0.5,
+        "compressed_bytes": 225979,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 51.55,
+        "comp_speed_mbs": 6.3,
+        "decomp_speed_mbs": 390.3,
+        "comp_time_ms": 39.6,
+        "compressed_bytes": 135136,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 1.01,
+        "comp_speed_mbs": 578.0,
+        "decomp_speed_mbs": 996.0,
+        "comp_time_ms": 0.4,
+        "compressed_bytes": 2638,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 0.33,
+        "comp_speed_mbs": 76.8,
+        "decomp_speed_mbs": 1195.0,
+        "comp_time_ms": 3.3,
+        "compressed_bytes": 865,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Float32_sine_clean_256KB",
+    "name": "Synthetic Float32 sine (clean, 256KB)",
+    "category": "Synthetic 256KB",
+    "type": "Float32",
+    "pattern": "sine",
+    "noise": "clean",
+    "size_label": "256KB",
+    "raw_bytes": 262144,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 17.93,
+        "comp_speed_mbs": 1129.7,
+        "decomp_speed_mbs": 2151.5,
+        "comp_time_ms": 0.2,
+        "compressed_bytes": 47014,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 15.06,
+        "comp_speed_mbs": 34.7,
+        "decomp_speed_mbs": 1201.9,
+        "comp_time_ms": 7.2,
+        "compressed_bytes": 39486,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 7.88,
+        "comp_speed_mbs": 590.5,
+        "decomp_speed_mbs": 1406.1,
+        "comp_time_ms": 0.4,
+        "compressed_bytes": 20661,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 6.71,
+        "comp_speed_mbs": 32.9,
+        "decomp_speed_mbs": 1950.1,
+        "comp_time_ms": 7.6,
+        "compressed_bytes": 17585,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Int16_sine_clean_256KB",
+    "name": "Synthetic Int16 sine (clean, 256KB)",
+    "category": "Synthetic 256KB",
+    "type": "Int16",
+    "pattern": "sine",
+    "noise": "clean",
+    "size_label": "256KB",
+    "raw_bytes": 262144,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 61.99,
+        "comp_speed_mbs": 286.2,
+        "decomp_speed_mbs": 887.8,
+        "comp_time_ms": 0.9,
+        "compressed_bytes": 162499,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 50.98,
+        "comp_speed_mbs": 8.0,
+        "decomp_speed_mbs": 630.5,
+        "comp_time_ms": 31.3,
+        "compressed_bytes": 133641,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 11.99,
+        "comp_speed_mbs": 416.0,
+        "decomp_speed_mbs": 874.4,
+        "comp_time_ms": 0.6,
+        "compressed_bytes": 31435,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 4.67,
+        "comp_speed_mbs": 3.8,
+        "decomp_speed_mbs": 1093.1,
+        "comp_time_ms": 66.4,
+        "compressed_bytes": 12253,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Int32_ramp_clean_256KB",
+    "name": "Synthetic Int32 ramp (clean, 256KB)",
+    "category": "Synthetic 256KB",
+    "type": "Int32",
+    "pattern": "ramp",
+    "noise": "clean",
+    "size_label": "256KB",
+    "raw_bytes": 262144,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 30.75,
+        "comp_speed_mbs": 597.7,
+        "decomp_speed_mbs": 3315.7,
+        "comp_time_ms": 0.4,
+        "compressed_bytes": 80613,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 12.76,
+        "comp_speed_mbs": 20.2,
+        "decomp_speed_mbs": 564.8,
+        "comp_time_ms": 12.4,
+        "compressed_bytes": 33449,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 0.05,
+        "comp_speed_mbs": 907.4,
+        "decomp_speed_mbs": 1776.8,
+        "comp_time_ms": 0.3,
+        "compressed_bytes": 125,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 0.05,
+        "comp_speed_mbs": 228.7,
+        "decomp_speed_mbs": 1052.2,
+        "comp_time_ms": 1.1,
+        "compressed_bytes": 124,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Float32_ramp_clean_1MB",
+    "name": "Synthetic Float32 ramp (clean, 1MB)",
+    "category": "Synthetic 1MB",
+    "type": "Float32",
+    "pattern": "ramp",
+    "noise": "clean",
+    "size_label": "1MB",
+    "raw_bytes": 1048576,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 80.23,
+        "comp_speed_mbs": 607.3,
+        "decomp_speed_mbs": 909.9,
+        "comp_time_ms": 1.6,
+        "compressed_bytes": 841309,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 41.85,
+        "comp_speed_mbs": 8.4,
+        "decomp_speed_mbs": 335.6,
+        "comp_time_ms": 118.4,
+        "compressed_bytes": 438824,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 0.6,
+        "comp_speed_mbs": 960.2,
+        "decomp_speed_mbs": 910.1,
+        "comp_time_ms": 1.0,
+        "compressed_bytes": 6339,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 0.15,
+        "comp_speed_mbs": 112.9,
+        "decomp_speed_mbs": 1017.5,
+        "comp_time_ms": 8.9,
+        "compressed_bytes": 1586,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Float32_sine_clean_1MB",
+    "name": "Synthetic Float32 sine (clean, 1MB)",
+    "category": "Synthetic 1MB",
+    "type": "Float32",
+    "pattern": "sine",
+    "noise": "clean",
+    "size_label": "1MB",
+    "raw_bytes": 1048576,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 87.48,
+        "comp_speed_mbs": 448.8,
+        "decomp_speed_mbs": 860.1,
+        "comp_time_ms": 2.2,
+        "compressed_bytes": 917320,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 85.79,
+        "comp_speed_mbs": 12.0,
+        "decomp_speed_mbs": 567.5,
+        "comp_time_ms": 83.3,
+        "compressed_bytes": 899570,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 17.58,
+        "comp_speed_mbs": 327.7,
+        "decomp_speed_mbs": 712.9,
+        "comp_time_ms": 3.1,
+        "compressed_bytes": 184329,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 11.76,
+        "comp_speed_mbs": 7.0,
+        "decomp_speed_mbs": 725.5,
+        "comp_time_ms": 142.1,
+        "compressed_bytes": 123270,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Float32_sine_low_noise_1MB",
+    "name": "Synthetic Float32 sine (low_noise, 1MB)",
+    "category": "Synthetic 1MB",
+    "type": "Float32",
+    "pattern": "sine",
+    "noise": "low_noise",
+    "size_label": "1MB",
+    "raw_bytes": 1048576,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 87.5,
+        "comp_speed_mbs": 436.9,
+        "decomp_speed_mbs": 873.9,
+        "comp_time_ms": 2.3,
+        "compressed_bytes": 917475,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 86.29,
+        "comp_speed_mbs": 11.7,
+        "decomp_speed_mbs": 632.2,
+        "comp_time_ms": 85.3,
+        "compressed_bytes": 904851,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 33.1,
+        "comp_speed_mbs": 456.2,
+        "decomp_speed_mbs": 776.8,
+        "comp_time_ms": 2.2,
+        "compressed_bytes": 347050,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 29.72,
+        "comp_speed_mbs": 9.6,
+        "decomp_speed_mbs": 692.7,
+        "comp_time_ms": 104.5,
+        "compressed_bytes": 311676,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Int16_sine_clean_1MB",
+    "name": "Synthetic Int16 sine (clean, 1MB)",
+    "category": "Synthetic 1MB",
+    "type": "Int16",
+    "pattern": "sine",
+    "noise": "clean",
+    "size_label": "1MB",
+    "raw_bytes": 1048576,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 17.14,
+        "comp_speed_mbs": 489.8,
+        "decomp_speed_mbs": 1124.1,
+        "comp_time_ms": 2.0,
+        "compressed_bytes": 179733,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 13.81,
+        "comp_speed_mbs": 7.0,
+        "decomp_speed_mbs": 979.2,
+        "comp_time_ms": 143.1,
+        "compressed_bytes": 144773,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 6.99,
+        "comp_speed_mbs": 548.7,
+        "decomp_speed_mbs": 726.3,
+        "comp_time_ms": 1.8,
+        "compressed_bytes": 73317,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 2.24,
+        "comp_speed_mbs": 6.6,
+        "decomp_speed_mbs": 854.5,
+        "comp_time_ms": 151.0,
+        "compressed_bytes": 23476,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Int32_ramp_clean_1MB",
+    "name": "Synthetic Int32 ramp (clean, 1MB)",
+    "category": "Synthetic 1MB",
+    "type": "Int32",
+    "pattern": "ramp",
+    "noise": "clean",
+    "size_label": "1MB",
+    "raw_bytes": 1048576,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 7.69,
+        "comp_speed_mbs": 2089.9,
+        "decomp_speed_mbs": 3570.2,
+        "comp_time_ms": 0.5,
+        "compressed_bytes": 80682,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 3.2,
+        "comp_speed_mbs": 41.0,
+        "decomp_speed_mbs": 1721.5,
+        "comp_time_ms": 24.4,
+        "compressed_bytes": 33517,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 0.02,
+        "comp_speed_mbs": 1191.3,
+        "decomp_speed_mbs": 960.9,
+        "comp_time_ms": 0.8,
+        "compressed_bytes": 176,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 0.02,
+        "comp_speed_mbs": 312.0,
+        "decomp_speed_mbs": 1151.3,
+        "comp_time_ms": 3.2,
+        "compressed_bytes": 169,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Float64_sine_clean_1MB",
+    "name": "Synthetic Float64 sine (clean, 1MB)",
+    "category": "Synthetic 1MB",
+    "type": "Float64",
+    "pattern": "sine",
+    "noise": "clean",
+    "size_label": "1MB",
+    "raw_bytes": 1048576,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 93.49,
+        "comp_speed_mbs": 425.1,
+        "decomp_speed_mbs": 907.1,
+        "comp_time_ms": 2.4,
+        "compressed_bytes": 980366,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 72.44,
+        "comp_speed_mbs": 14.3,
+        "decomp_speed_mbs": 755.5,
+        "comp_time_ms": 70.1,
+        "compressed_bytes": 759640,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 93.5,
+        "comp_speed_mbs": 413.2,
+        "decomp_speed_mbs": 718.1,
+        "comp_time_ms": 2.4,
+        "compressed_bytes": 980434,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 72.45,
+        "comp_speed_mbs": 16.3,
+        "decomp_speed_mbs": 725.7,
+        "comp_time_ms": 61.5,
+        "compressed_bytes": 759708,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Float32_ramp_clean_8MB",
+    "name": "Synthetic Float32 ramp (clean, 8MB)",
+    "category": "Synthetic 8MB",
+    "type": "Float32",
+    "pattern": "ramp",
+    "noise": "clean",
+    "size_label": "8MB",
+    "raw_bytes": 8388608,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 72.76,
+        "comp_speed_mbs": 656.8,
+        "decomp_speed_mbs": 1091.6,
+        "comp_time_ms": 12.2,
+        "compressed_bytes": 6103538,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 31.69,
+        "comp_speed_mbs": 6.8,
+        "decomp_speed_mbs": 310.0,
+        "comp_time_ms": 1183.9,
+        "compressed_bytes": 2658740,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 0.22,
+        "comp_speed_mbs": 1291.2,
+        "decomp_speed_mbs": 1157.5,
+        "comp_time_ms": 6.2,
+        "compressed_bytes": 18177,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 0.05,
+        "comp_speed_mbs": 179.9,
+        "decomp_speed_mbs": 1190.4,
+        "comp_time_ms": 44.5,
+        "compressed_bytes": 4005,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Float32_sine_clean_8MB",
+    "name": "Synthetic Float32 sine (clean, 8MB)",
+    "category": "Synthetic 8MB",
+    "type": "Float32",
+    "pattern": "sine",
+    "noise": "clean",
+    "size_label": "8MB",
+    "raw_bytes": 8388608,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 81.44,
+        "comp_speed_mbs": 439.8,
+        "decomp_speed_mbs": 935.7,
+        "comp_time_ms": 18.2,
+        "compressed_bytes": 6831946,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 70.96,
+        "comp_speed_mbs": 6.8,
+        "decomp_speed_mbs": 548.7,
+        "comp_time_ms": 1182.6,
+        "compressed_bytes": 5952315,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 8.74,
+        "comp_speed_mbs": 539.9,
+        "decomp_speed_mbs": 771.5,
+        "comp_time_ms": 14.8,
+        "compressed_bytes": 733527,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 3.69,
+        "comp_speed_mbs": 7.0,
+        "decomp_speed_mbs": 960.9,
+        "comp_time_ms": 1139.8,
+        "compressed_bytes": 309250,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Float32_random_walk_clean_8MB",
+    "name": "Synthetic Float32 random_walk (clean, 8MB)",
+    "category": "Synthetic 8MB",
+    "type": "Float32",
+    "pattern": "random_walk",
+    "noise": "clean",
+    "size_label": "8MB",
+    "raw_bytes": 8388608,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 79.69,
+        "comp_speed_mbs": 378.6,
+        "decomp_speed_mbs": 461.5,
+        "comp_time_ms": 21.1,
+        "compressed_bytes": 6684839,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 75.33,
+        "comp_speed_mbs": 6.2,
+        "decomp_speed_mbs": 452.1,
+        "comp_time_ms": 1297.7,
+        "compressed_bytes": 6319201,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 53.31,
+        "comp_speed_mbs": 554.9,
+        "decomp_speed_mbs": 847.7,
+        "comp_time_ms": 14.4,
+        "compressed_bytes": 4471613,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 52.26,
+        "comp_speed_mbs": 10.0,
+        "decomp_speed_mbs": 938.9,
+        "comp_time_ms": 798.2,
+        "compressed_bytes": 4383490,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Int16_sine_clean_8MB",
+    "name": "Synthetic Int16 sine (clean, 8MB)",
+    "category": "Synthetic 8MB",
+    "type": "Int16",
+    "pattern": "sine",
+    "noise": "clean",
+    "size_label": "8MB",
+    "raw_bytes": 8388608,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 4.92,
+        "comp_speed_mbs": 810.6,
+        "decomp_speed_mbs": 1527.0,
+        "comp_time_ms": 9.9,
+        "compressed_bytes": 412389,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 1.99,
+        "comp_speed_mbs": 2.9,
+        "decomp_speed_mbs": 1196.3,
+        "comp_time_ms": 2784.1,
+        "compressed_bytes": 167138,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 2.03,
+        "comp_speed_mbs": 632.9,
+        "decomp_speed_mbs": 685.8,
+        "comp_time_ms": 12.6,
+        "compressed_bytes": 169943,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 0.85,
+        "comp_speed_mbs": 11.6,
+        "decomp_speed_mbs": 799.4,
+        "comp_time_ms": 689.2,
+        "compressed_bytes": 71672,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Int32_ramp_clean_8MB",
+    "name": "Synthetic Int32 ramp (clean, 8MB)",
+    "category": "Synthetic 8MB",
+    "type": "Int32",
+    "pattern": "ramp",
+    "noise": "clean",
+    "size_label": "8MB",
+    "raw_bytes": 8388608,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 0.97,
+        "comp_speed_mbs": 3653.3,
+        "decomp_speed_mbs": 3142.6,
+        "comp_time_ms": 2.2,
+        "compressed_bytes": 81355,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 0.41,
+        "comp_speed_mbs": 131.6,
+        "decomp_speed_mbs": 2797.9,
+        "comp_time_ms": 60.8,
+        "compressed_bytes": 34133,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 0.01,
+        "comp_speed_mbs": 1001.4,
+        "decomp_speed_mbs": 897.4,
+        "comp_time_ms": 8.0,
+        "compressed_bytes": 625,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 0.01,
+        "comp_speed_mbs": 252.5,
+        "decomp_speed_mbs": 909.5,
+        "comp_time_ms": 31.7,
+        "compressed_bytes": 675,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Float32_ramp_clean_32MB",
+    "name": "Synthetic Float32 ramp (clean, 32MB)",
+    "category": "Synthetic 32MB",
+    "type": "Float32",
+    "pattern": "ramp",
+    "noise": "clean",
+    "size_label": "32MB",
+    "raw_bytes": 33554432,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 69.82,
+        "comp_speed_mbs": 399.1,
+        "decomp_speed_mbs": 951.8,
+        "comp_time_ms": 80.2,
+        "compressed_bytes": 23427216,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 26.74,
+        "comp_speed_mbs": 3.6,
+        "decomp_speed_mbs": 210.5,
+        "comp_time_ms": 8799.9,
+        "compressed_bytes": 8972036,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 0.41,
+        "comp_speed_mbs": 692.4,
+        "decomp_speed_mbs": 713.0,
+        "comp_time_ms": 46.2,
+        "compressed_bytes": 138233,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 0.04,
+        "comp_speed_mbs": 186.0,
+        "decomp_speed_mbs": 814.0,
+        "comp_time_ms": 172.1,
+        "compressed_bytes": 14079,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Float32_sine_clean_32MB",
+    "name": "Synthetic Float32 sine (clean, 32MB)",
+    "category": "Synthetic 32MB",
+    "type": "Float32",
+    "pattern": "sine",
+    "noise": "clean",
+    "size_label": "32MB",
+    "raw_bytes": 33554432,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 77.37,
+        "comp_speed_mbs": 256.2,
+        "decomp_speed_mbs": 719.1,
+        "comp_time_ms": 124.9,
+        "compressed_bytes": 25960812,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 49.1,
+        "comp_speed_mbs": 3.4,
+        "decomp_speed_mbs": 283.4,
+        "comp_time_ms": 9396.6,
+        "compressed_bytes": 16474509,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 5.73,
+        "comp_speed_mbs": 412.6,
+        "decomp_speed_mbs": 497.1,
+        "comp_time_ms": 77.6,
+        "compressed_bytes": 1921178,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 1.98,
+        "comp_speed_mbs": 5.4,
+        "decomp_speed_mbs": 635.4,
+        "comp_time_ms": 5931.2,
+        "compressed_bytes": 663886,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Int16_sine_clean_32MB",
+    "name": "Synthetic Int16 sine (clean, 32MB)",
+    "category": "Synthetic 32MB",
+    "type": "Int16",
+    "pattern": "sine",
+    "noise": "clean",
+    "size_label": "32MB",
+    "raw_bytes": 33554432,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 2.16,
+        "comp_speed_mbs": 861.4,
+        "decomp_speed_mbs": 1546.9,
+        "comp_time_ms": 37.1,
+        "compressed_bytes": 723206,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 0.43,
+        "comp_speed_mbs": 15.2,
+        "decomp_speed_mbs": 2251.5,
+        "comp_time_ms": 2109.6,
+        "compressed_bytes": 143581,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 0.94,
+        "comp_speed_mbs": 760.7,
+        "decomp_speed_mbs": 751.2,
+        "comp_time_ms": 42.1,
+        "compressed_bytes": 314063,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 0.22,
+        "comp_speed_mbs": 46.0,
+        "decomp_speed_mbs": 692.0,
+        "comp_time_ms": 696.2,
+        "compressed_bytes": 74309,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Int32_ramp_clean_32MB",
+    "name": "Synthetic Int32 ramp (clean, 32MB)",
+    "category": "Synthetic 32MB",
+    "type": "Int32",
+    "pattern": "ramp",
+    "noise": "clean",
+    "size_label": "32MB",
+    "raw_bytes": 33554432,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 0.25,
+        "comp_speed_mbs": 4230.3,
+        "decomp_speed_mbs": 2999.5,
+        "comp_time_ms": 7.6,
+        "compressed_bytes": 83659,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 0.11,
+        "comp_speed_mbs": 324.1,
+        "decomp_speed_mbs": 3131.8,
+        "comp_time_ms": 98.7,
+        "compressed_bytes": 36246,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 0.01,
+        "comp_speed_mbs": 735.5,
+        "decomp_speed_mbs": 812.0,
+        "comp_time_ms": 43.5,
+        "compressed_bytes": 2161,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 0.01,
+        "comp_speed_mbs": 245.4,
+        "decomp_speed_mbs": 815.3,
+        "comp_time_ms": 130.4,
+        "compressed_bytes": 2408,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Float32_ramp_clean_128MB",
+    "name": "Synthetic Float32 ramp (clean, 128MB)",
+    "category": "Synthetic 128MB",
+    "type": "Float32",
+    "pattern": "ramp",
+    "noise": "clean",
+    "size_label": "128MB",
+    "raw_bytes": 134217728,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 40.97,
+        "comp_speed_mbs": 211.2,
+        "decomp_speed_mbs": 574.1,
+        "comp_time_ms": 606.0,
+        "compressed_bytes": 54992851,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 17.56,
+        "comp_speed_mbs": 9.5,
+        "decomp_speed_mbs": 271.1,
+        "comp_time_ms": 13535.6,
+        "compressed_bytes": 23568539,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 0.24,
+        "comp_speed_mbs": 434.7,
+        "decomp_speed_mbs": 349.9,
+        "comp_time_ms": 294.5,
+        "compressed_bytes": 320404,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 0.03,
+        "comp_speed_mbs": 152.6,
+        "decomp_speed_mbs": 345.1,
+        "comp_time_ms": 838.6,
+        "compressed_bytes": 42427,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Float32_sine_clean_128MB",
+    "name": "Synthetic Float32 sine (clean, 128MB)",
+    "category": "Synthetic 128MB",
+    "type": "Float32",
+    "pattern": "sine",
+    "noise": "clean",
+    "size_label": "128MB",
+    "raw_bytes": 134217728,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 73.63,
+        "comp_speed_mbs": 285.6,
+        "decomp_speed_mbs": 669.0,
+        "comp_time_ms": 448.2,
+        "compressed_bytes": 98827882,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 37.43,
+        "comp_speed_mbs": 9.3,
+        "decomp_speed_mbs": 263.1,
+        "comp_time_ms": 13754.6,
+        "compressed_bytes": 50236217,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 2.96,
+        "comp_speed_mbs": 335.0,
+        "decomp_speed_mbs": 327.3,
+        "comp_time_ms": 382.1,
+        "compressed_bytes": 3970060,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 1.48,
+        "comp_speed_mbs": 6.2,
+        "decomp_speed_mbs": 311.0,
+        "comp_time_ms": 20573.2,
+        "compressed_bytes": 1981029,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Int16_sine_clean_128MB",
+    "name": "Synthetic Int16 sine (clean, 128MB)",
+    "category": "Synthetic 128MB",
+    "type": "Int16",
+    "pattern": "sine",
+    "noise": "clean",
+    "size_label": "128MB",
+    "raw_bytes": 134217728,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 2.36,
+        "comp_speed_mbs": 1161.1,
+        "decomp_speed_mbs": 1418.6,
+        "comp_time_ms": 110.2,
+        "compressed_bytes": 3165826,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 0.69,
+        "comp_speed_mbs": 14.1,
+        "decomp_speed_mbs": 2476.5,
+        "comp_time_ms": 9083.3,
+        "compressed_bytes": 930970,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 1.63,
+        "comp_speed_mbs": 440.7,
+        "decomp_speed_mbs": 402.6,
+        "comp_time_ms": 290.5,
+        "compressed_bytes": 2185848,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 0.61,
+        "comp_speed_mbs": 7.3,
+        "decomp_speed_mbs": 433.5,
+        "comp_time_ms": 17580.8,
+        "compressed_bytes": 813087,
+        "color": "#10b981"
+      }
+    }
+  },
+  {
+    "id": "syn_Int32_ramp_clean_128MB",
+    "name": "Synthetic Int32 ramp (clean, 128MB)",
+    "category": "Synthetic 128MB",
+    "type": "Int32",
+    "pattern": "ramp",
+    "noise": "clean",
+    "size_label": "128MB",
+    "raw_bytes": 134217728,
+    "models": {
+      "zstd3": {
+        "name": "Meta Zstd L3",
+        "ratio": 0.07,
+        "comp_speed_mbs": 4452.1,
+        "decomp_speed_mbs": 2898.9,
+        "comp_time_ms": 28.8,
+        "compressed_bytes": 92875,
+        "color": "#3b82f6"
+      },
+      "zstd19": {
+        "name": "Meta Zstd L19",
+        "ratio": 0.03,
+        "comp_speed_mbs": 718.7,
+        "decomp_speed_mbs": 2205.8,
+        "comp_time_ms": 178.1,
+        "compressed_bytes": 44841,
+        "color": "#a855f7"
+      },
+      "binpack_rt": {
+        "name": "BinPack v2.2 Runtime",
+        "ratio": 0.01,
+        "comp_speed_mbs": 431.6,
+        "decomp_speed_mbs": 366.4,
+        "comp_time_ms": 296.6,
+        "compressed_bytes": 9121,
+        "color": "#00f5ff"
+      },
+      "binpack_def": {
+        "name": "BinPack v2.2 Default",
+        "ratio": 0.01,
+        "comp_speed_mbs": 176.6,
+        "decomp_speed_mbs": 302.0,
+        "comp_time_ms": 724.8,
+        "compressed_bytes": 9765,
+        "color": "#10b981"
+      }
+    }
+  }
+]

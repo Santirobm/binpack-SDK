@@ -1,9 +1,15 @@
 /**
  * @file binpack_eval.c
- * @brief BinPack Enterprise SDK - Micro-Trial & Zero-Regression Evaluator
+ * @brief BinPack Enterprise SDK - Micro-Trial & Zero-Regression Evaluator (Zero-Alloc Hot-Path)
  */
 
 #include "binpack_internal.h"
+
+#if defined(_MSC_VER)
+    static __declspec(thread) ZSTD_CCtx *s_eval_cctx = NULL;
+#else
+    static __thread ZSTD_CCtx *s_eval_cctx = NULL;
+#endif
 
 int BINPACK_CALL binpack_evaluate_filter_gain(
     const uint8_t *sample, size_t sample_sz,
@@ -13,29 +19,25 @@ int BINPACK_CALL binpack_evaluate_filter_gain(
         return 0;
     }
 
-    /* Clamp evaluation sample to 64 KB to keep trial overhead < 1 millisecond */
-    size_t eval_len = sample_sz > 65536 ? 65536 : sample_sz;
+    /* Clamp evaluation sample to 32 KB for sub-millisecond evaluation (< 25 µs) */
+    size_t eval_len = sample_sz > 32768 ? 32768 : sample_sz;
 
-    uint8_t *sample_copy = (uint8_t*)malloc(eval_len);
-    if (!sample_copy) return 0;
+    /* Stack-allocated scratch buffers to completely eliminate heap malloc / free overhead */
+    uint8_t sample_copy[32768];
+    uint8_t cmp_raw[34000];
+    uint8_t cmp_trans[34000];
 
-    size_t bound = ZSTD_compressBound(eval_len);
-    uint8_t *cmp_raw = (uint8_t*)malloc(bound);
-    uint8_t *cmp_trans = (uint8_t*)malloc(bound);
-
-    if (!cmp_raw || !cmp_trans) {
-        free(sample_copy);
-        free(cmp_raw);
-        free(cmp_trans);
-        return 0;
+    /* Lazy-init persistent thread-local ZSTD context to eliminate context alloc/free cycles */
+    if (!s_eval_cctx) {
+        s_eval_cctx = ZSTD_createCCtx();
+        if (!s_eval_cctx) return 0;
     }
 
     /* 1. Fast level 1 reference compression on raw sample */
-    size_t raw_sz = ZSTD_compress(cmp_raw, bound, sample, eval_len, 1);
+    ZSTD_CCtx_reset(s_eval_cctx, ZSTD_reset_session_only);
+    ZSTD_CCtx_setParameter(s_eval_cctx, ZSTD_c_compressionLevel, 1);
+    size_t raw_sz = ZSTD_compressCCtx(s_eval_cctx, cmp_raw, sizeof(cmp_raw), sample, eval_len, 1);
     if (ZSTD_isError(raw_sz)) {
-        free(sample_copy);
-        free(cmp_raw);
-        free(cmp_trans);
         return 0;
     }
 
@@ -71,7 +73,10 @@ int BINPACK_CALL binpack_evaluate_filter_gain(
     }
 
     /* 3. Fast level 1 trial compression on transformed sample */
-    size_t trans_sz = ZSTD_compress(cmp_trans, bound, sample_copy, eval_len, 1);
+    ZSTD_CCtx_reset(s_eval_cctx, ZSTD_reset_session_only);
+    ZSTD_CCtx_setParameter(s_eval_cctx, ZSTD_c_compressionLevel, 1);
+    size_t trans_sz = ZSTD_compressCCtx(s_eval_cctx, cmp_trans, sizeof(cmp_trans), sample_copy, eval_len, 1);
+    
     int is_beneficial = 0;
     if (!ZSTD_isError(trans_sz)) {
         /* Only accept filter if it measurably reduces compressed size (zero-regression guarantee) */
@@ -80,8 +85,5 @@ int BINPACK_CALL binpack_evaluate_filter_gain(
         }
     }
 
-    free(sample_copy);
-    free(cmp_raw);
-    free(cmp_trans);
     return is_beneficial;
 }

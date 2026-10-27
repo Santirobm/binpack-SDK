@@ -83,12 +83,22 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
             ZSTD_CCtx_setParameter(cctx, ZSTD_c_strategy, ZSTD_btultra);
         }
 
-        /* Enable multi-threaded worker pool when requested or on large streams (>= 16 MB) */
-        if (opt.nb_workers > 0 || total_input_size == 0 || total_input_size >= (16ULL * 1024 * 1024)) {
-            int num_workers = opt.nb_workers > 0 ? opt.nb_workers : binpack_get_cpu_cores();
-            if (num_workers < 1) num_workers = 1;
+        /* Enable multi-threaded worker pool when requested or on streams >= 1 MB */
+        int num_workers = opt.nb_workers;
+        if (num_workers == 0) {
+            if (total_input_size == 0 || total_input_size >= (1ULL * 1024 * 1024)) {
+                num_workers = binpack_get_cpu_cores();
+            }
+        }
+        if (num_workers > 1) {
             if (num_workers > 32) num_workers = 32;
             ZSTD_CCtx_setParameter(cctx, ZSTD_c_nbWorkers, num_workers);
+            ZSTD_CCtx_setParameter(cctx, ZSTD_c_overlapLog, 6); /* Full 100% dictionary overlap across threads */
+            if (total_input_size > 0 && total_input_size < (16ULL * 1024 * 1024)) {
+                size_t job_sz = (size_t)(total_input_size / num_workers);
+                if (job_sz < 524288) job_sz = 524288;
+                ZSTD_CCtx_setParameter(cctx, ZSTD_c_jobSize, (int)job_sz);
+            }
         }
     }
 

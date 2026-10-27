@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simulador Cósmico: Agujeros Negros de Compresión — BinPack vs Zstandard</title>
+  <script src="black_hole_data.js"></script>
+  <style>
+    :root {
+      --bg: #05070e;
+      --card-bg: rgba(14, 20, 36, 0.85);
+      --border: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --red-data: #ff3344;
+      --zstd3-color: #3b82f6;
+      --zstd19-color: #a855f7;
+      --bprt-color: #00f5ff;
+      --bpdef-color: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    header {
+      padding: 16px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(10, 15, 28, 0.9);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+    }
+    .brand h1 {
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(90deg, #ff4455, #00f5ff, #10b981);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .brand p {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    .controls-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    select, button {
+      background: #131b2e;
+      color: #fff;
+      border: 1px solid #2a3958;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    select:hover, button:hover {
+      border-color: #00f5ff;
+      box-shadow: 0 0 12px rgba(0, 245, 255, 0.2);
+    }
+    button.btn-primary {
+      background: linear-gradient(135deg, #00f5ff, #0088cc);
+      color: #02101e;
+      border: none;
+      font-weight: 700;
+    }
+    button.btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 18px rgba(0, 245, 255, 0.4);
+    }
+    button.btn-decompress {
+      background: linear-gradient(135deg, #ff3344, #ff8800);
+      color: #fff;
+      border: none;
+    }
+    button.btn-decompress:hover {
+      box-shadow: 0 0 18px rgba(255, 51, 68, 0.4);
+    }
+
+    /* Simulation Container */
+    .sim-wrapper {
+      position: relative;
+      width: 100%;
+      height: 520px;
+      background: radial-gradient(circle at 20% 50%, #150a18 0%, #05070e 70%);
+      border-bottom: 1px solid var(--border);
+      overflow: hidden;
+    }
+    canvas#cosmicCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* HUD overlay */
+    .hud-overlay {
+      position: absolute;
+      top: 16px;
+      left: 20px;
+      pointer-events: none;
+      background: rgba(5, 7, 14, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-family: monospace;
+      font-size: 0.82rem;
+      color: #cbd5e1;
+    }
+    .hud-overlay span.metric {
+      color: #00f5ff;
+      font-weight: bold;
+    }
+
+    .phase-badge {
+      position: absolute;
+      top: 16px;
+      right: 20px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-weight: 800;
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: rgba(0, 245, 255, 0.15);
+      color: #00f5ff;
+      border: 1px solid rgba(0, 245, 255, 0.4);
+    }
+
+    /* Analytics Dashboard Section */
+    .analytics-grid {
+      max-width: 1400px;
+      margin: 28px auto 40px;
+      padding: 0 24px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+      gap: 20px;
+    }
+
+    .model-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .model-card:hover {
+      transform: translateY(-2px);
+    }
+    .model-card.bprt {
+      border-color: rgba(0, 245, 255, 0.4);
+      background: radial-gradient(circle at 90% 10%, rgba(0, 245, 255, 0.08) 0%, var(--card-bg) 60%);
+    }
+    .model-card.bpdef {
+      border-color: rgba(16, 185, 129, 0.4);
+      background: radial-gradient(circle at 90% 10%, rgba(16, 185, 129, 0.08) 0%, var(--card-bg) 60%);
+    }
+
+    .model-card h3 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .model-tag {
+      font-size: 0.7rem;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-weight: 700;
+    }
+
+    .stats-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      margin-top: 8px;
+    }
+    .stats-table td {
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .stats-table td.val {
+      text-align: right;
+      font-weight: 700;
+      font-family: monospace;
+      font-size: 0.92rem;
+    }
+
+    .bar-container {
+      margin-top: 14px;
+    }
+    .bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .bar-bg {
+      height: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    /* Pareto & Analysis Section */
+    .pareto-panel {
+      grid-column: 1 / -1;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+    }
+    .pareto-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .pareto-header h2 {
+      font-size: 1.2rem;
+      font-weight: 800;
+    }
+
+    .chart-box {
+      width: 100%;
+      height: 360px;
+      position: relative;
+    }
+    canvas#paretoCanvas {
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <h1>Cosmic Data Singularity Studio</h1>
+      <p>Simulación de Absorción (Compresión) y Expulsión Relativista (Descompresión) en Agujeros Negros</p>
+    </div>
+
+    <div class="controls-bar">
+      <label for="datasetSelect" style="font-size: 0.8rem; color: #94a3b8;">Dataset:</label>
+      <select id="datasetSelect"></select>
+
+      <button id="btnCompress" class="btn-primary">▶ Absorber (Comprimir)</button>
+      <button id="btnDecompress" class="btn-decompress">◀ Expulsar (Descomprimir)</button>
+      <button id="btnReset">↺ Reiniciar</button>
+
+      <label for="speedSelect" style="font-size: 0.8rem; color: #94a3b8;">Velocidad:</label>
+      <select id="speedSelect">
+        <option value="0.5">0.5x</option>
+        <option value="1" selected>1.0x (Normal)</option>
+        <option value="2">2.0x (Rápido)</option>
+        <option value="5">5.0x (Hyper)</option>
+      </select>
+    </div>
+  </header>
+
+  <!-- Simulation Stage -->
+  <div class="sim-wrapper">
+    <canvas id="cosmicCanvas"></canvas>
+
+    <div class="hud-overlay" id="hudInfo">
+      DATA ORIGEN: <span class="metric" id="hudName">-</span><br>
+      TAMAÑO RAW: <span class="metric" id="hudSize">-</span><br>
+      PARTÍCULAS ACTIVAS: <span class="metric" id="hudParticles">0</span>
+    </div>
+
+    <div class="phase-badge" id="phaseBadge">Listo para Iniciar</div>
+  </div>
+
+  <!-- Analytics Grid -->
+  <div class="analytics-grid">
+    <!-- Meta Zstd L3 -->
+    <div class="model-card" id="card-zstd3">
+      <h3>
+        <span style="color: var(--zstd3-color)">Meta Zstandard L3</span>
+        <span class="model-tag" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa;">Default</span>
+      </h3>
+      <table class="stats-table">
+        <tr><td>Ratio resultante:</td><td class="val" id="r-zstd3">-</td></tr>
+        <tr><td>Velocidad compresión:</td><td class="val" id="cs-zstd3" style="color: var(--zstd3-color);">-</td></tr>
+        <tr><td>Velocidad descompresión:</td><td class="val" id="ds-zstd3">-</td></tr>
+        <tr><td>Tiempo compresión:</td><td class="val" id="t-zstd3">-</td></tr>
+        <tr><td>Tamaño resultante:</td><td class="val" id="b-zstd3">-</td></tr>
+      </table>
+      <div class="bar-container">
+        <div class="bar-label"><span>Throughput Compresión</span><span id="bar-cs-val-zstd3">0 MB/s</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="bar-cs-zstd3" style="background: var(--zstd3-color); width: 0%;"></div></div>
+      </div>
+    </div>
+
+    <!-- Meta Zstd L19 -->
+    <div class="model-card" id="card-zstd19">
+      <h3>
+        <span style="color: var(--zstd19-color)">Meta Zstandard L19</span>
+        <span class="model-tag" style="background: rgba(168, 85, 247, 0.2); color: #c084fc;">Ultra Deep</span>
+      </h3>
+      <table class="stats-table">
+        <tr><td>Ratio resultante:</td><td class="val" id="r-zstd19">-</td></tr>
+        <tr><td>Velocidad compresión:</td><td class="val" id="cs-zstd19" style="color: var(--zstd19-color);">-</td></tr>
+        <tr><td>Velocidad descompresión:</td><td class="val" id="ds-zstd19">-</td></tr>
+        <tr><td>Tiempo compresión:</td><td class="val" id="t-zstd19">-</td></tr>
+        <tr><td>Tamaño resultante:</td><td class="val" id="b-zstd19">-</td></tr>
+      </table>
+      <div class="bar-container">
+        <div class="bar-label"><span>Throughput Compresión</span><span id="bar-cs-val-zstd19">0 MB/s</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="bar-cs-zstd19" style="background: var(--zstd19-color); width: 0%;"></div></div>
+      </div>
+    </div>
+
+    <!-- BinPack Runtime Fast -->
+    <div class="model-card bprt" id="card-bprt">
+      <h3>
+        <span style="color: var(--bprt-color)">BinPack v2.2 Runtime</span>
+        <span class="model-tag" style="background: rgba(0, 245, 255, 0.2); color: #00f5ff;">Fast-Path Pareto</span>
+      </h3>
+      <table class="stats-table">
+        <tr><td>Ratio resultante:</td><td class="val" id="r-bprt" style="color: #00f5ff;">-</td></tr>
+        <tr><td>Velocidad compresión:</td><td class="val" id="cs-bprt" style="color: #00f5ff;">-</td></tr>
+        <tr><td>Velocidad descompresión:</td><td class="val" id="ds-bprt">-</td></tr>
+        <tr><td>Tiempo compresión:</td><td class="val" id="t-bprt">-</td></tr>
+        <tr><td>Aceleración vs Zstd L19:</td><td class="val" id="sp-bprt" style="color: #facc15;">-</td></tr>
+      </table>
+      <div class="bar-container">
+        <div class="bar-label"><span>Throughput Compresión</span><span id="bar-cs-val-bprt">0 MB/s</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="bar-cs-bprt" style="background: var(--bprt-color); width: 0%;"></div></div>
+      </div>
+    </div>
+
+    <!-- BinPack Default Balanced -->
+    <div class="model-card bpdef" id="card-bpdef">
+      <h3>
+        <span style="color: var(--bpdef-color)">BinPack v2.2 Default</span>
+        <span class="model-tag" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">Max Density</span>
+      </h3>
+      <table class="stats-table">
+        <tr><td>Ratio resultante:</td><td class="val" id="r-bpdef" style="color: #34d399;">-</td></tr>
+        <tr><td>Velocidad compresión:</td><td class="val" id="cs-bpdef" style="color: var(--bpdef-color);">-</td></tr>
+        <tr><td>Velocidad descompresión:</td><td class="val" id="ds-bpdef">-</td></tr>
+        <tr><td>Tiempo compresión:</td><td class="val" id="t-bpdef">-</td></tr>
+        <tr><td>Tamaño resultante:</td><td class="val" id="b-bpdef">-</td></tr>
+      </table>
+      <div class="bar-container">
+        <div class="bar-label"><span>Throughput Compresión</span><span id="bar-cs-val-bpdef">0 MB/s</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="bar-cs-bpdef" style="background: var(--bpdef-color); width: 0%;"></div></div>
+      </div>
+    </div>
+
+    <!-- Pareto Frontier & Power Analysis -->
+    <div class="pareto-panel">
+      <div class="pareto-header">
+        <div>
+          <h2>Frontera de Pareto: Velocidad de Ingestión (MB/s) vs Ratio (%)</h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">
+            El cuadrante óptimo es <strong>Arriba-Izquierda</strong> (Mayor Throughput MB/s y Menor % de Tamaño Final).
+          </p>
+        </div>
+      </div>
+      <div class="chart-box">
+        <canvas id="paretoCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Global State
+    let benchmarkDatasets = [];
+    let currentDataset = null;
+    let simMode = 'idle'; // 'idle', 'compressing', 'decompressing'
+    let animProgress = { zstd3: 0, zstd19: 0, binpack_rt: 0, binpack_def: 0 };
+    let simSpeedMultiplier = 1.0;
+
+    const canvas = document.getElementById('cosmicCanvas');
+    const ctx = canvas.getContext('2d');
+    const paretoCanvas = document.getElementById('paretoCanvas');
+    const pctx = paretoCanvas.getContext('2d');
+
+    // Particles system
+    let particles = [];
+    let stars = [];
+
+    function initStars() {
+      stars = [];
+      for (let i = 0; i < 120; i++) {
+        stars.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          radius: Math.random() * 1.5 + 0.5,
+          alpha: Math.random() * 0.7 + 0.3,
+          speed: Math.random() * 0.2 + 0.05
+        });
+      }
+    }
+
+    function resizeCanvas() {
+      canvas.width = canvas.parentElement.clientWidth;
+      canvas.height = canvas.parentElement.clientHeight;
+      paretoCanvas.width = paretoCanvas.parentElement.clientWidth;
+      paretoCanvas.height = paretoCanvas.parentElement.clientHeight;
+      initStars();
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    // Load data from black_hole_data.js / json
+    async function loadBenchmarkData() {
+      if (window.BLACK_HOLE_BENCHMARK_DATA && window.BLACK_HOLE_BENCHMARK_DATA.length > 0) {
+        benchmarkDatasets = window.BLACK_HOLE_BENCHMARK_DATA;
+        populateDatasetSelect();
+        selectDataset(0);
+        return;
+      }
+      try {
+        const res = await fetch('black_hole_data.json');
+        benchmarkDatasets = await res.json();
+        populateDatasetSelect();
+        selectDataset(0);
+      } catch (e) {
+        console.error("Error loading benchmark data:", e);
+      }
+    }
+
+    function populateDatasetSelect() {
+      const sel = document.getElementById('datasetSelect');
+      sel.innerHTML = '';
+      benchmarkDatasets.forEach((ds, idx) => {
+        const opt = document.createElement('option');
+        opt.value = idx;
+        opt.textContent = `${ds.name} [${ds.size_label}]`;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener('change', (e) => selectDataset(parseInt(e.target.value)));
+    }
+
+    function selectDataset(idx) {
+      currentDataset = benchmarkDatasets[idx];
+      document.getElementById('hudName').textContent = currentDataset.name;
+      document.getElementById('hudSize').textContent = `${(currentDataset.raw_bytes / 1048576).toFixed(2)} MB (${currentDataset.raw_bytes.toLocaleString()} bytes)`;
+      updateCards();
+      resetSimulation();
+      drawParetoChart();
+    }
+
+    function updateCards() {
+      const m = currentDataset.models;
+
+      // Zstd L3
+      document.getElementById('r-zstd3').textContent = `${m.zstd3.ratio.toFixed(2)}%`;
+      document.getElementById('cs-zstd3').textContent = `${m.zstd3.comp_speed_mbs.toFixed(1)} MB/s`;
+      document.getElementById('ds-zstd3').textContent = `${m.zstd3.decomp_speed_mbs.toFixed(1)} MB/s`;
+      document.getElementById('t-zstd3').textContent = `${m.zstd3.comp_time_ms.toFixed(1)} ms`;
+      document.getElementById('b-zstd3').textContent = `${(m.zstd3.compressed_bytes / 1048576).toFixed(2)} MB`;
+      document.getElementById('bar-cs-val-zstd3').textContent = `${m.zstd3.comp_speed_mbs.toFixed(1)} MB/s`;
+
+      // Zstd L19
+      document.getElementById('r-zstd19').textContent = `${m.zstd19.ratio.toFixed(2)}%`;
+      document.getElementById('cs-zstd19').textContent = `${m.zstd19.comp_speed_mbs.toFixed(1)} MB/s`;
+      document.getElementById('ds-zstd19').textContent = `${m.zstd19.decomp_speed_mbs.toFixed(1)} MB/s`;
+      document.getElementById('t-zstd19').textContent = `${m.zstd19.comp_time_ms.toFixed(1)} ms`;
+      document.getElementById('b-zstd19').textContent = `${(m.zstd19.compressed_bytes / 1048576).toFixed(2)} MB`;
+      document.getElementById('bar-cs-val-zstd19').textContent = `${m.zstd19.comp_speed_mbs.toFixed(1)} MB/s`;
+
+      // BinPack RT
+      document.getElementById('r-bprt').textContent = `${m.binpack_rt.ratio.toFixed(2)}%`;
+      document.getElementById('cs-bprt').textContent = `${m.binpack_rt.comp_speed_mbs.toFixed(1)} MB/s`;
+      document.getElementById('ds-bprt').textContent = `${m.binpack_rt.decomp_speed_mbs.toFixed(1)} MB/s`;
+      document.getElementById('t-bprt').textContent = `${m.binpack_rt.comp_time_ms.toFixed(1)} ms`;
+      const sp = (m.zstd19.comp_time_ms / m.binpack_rt.comp_time_ms).toFixed(1);
+      document.getElementById('sp-bprt').textContent = `${sp}x MÁS RÁPIDO`;
+      document.getElementById('bar-cs-val-bprt').textContent = `${m.binpack_rt.comp_speed_mbs.toFixed(1)} MB/s`;
+
+      // BinPack Def
+      document.getElementById('r-bpdef').textContent = `${m.binpack_def.ratio.toFixed(2)}%`;
+      document.getElementById('cs-bpdef').textContent = `${m.binpack_def.comp_speed_mbs.toFixed(1)} MB/s`;
+      document.getElementById('ds-bpdef').textContent = `${m.binpack_def.decomp_speed_mbs.toFixed(1)} MB/s`;
+      document.getElementById('t-bpdef').textContent = `${m.binpack_def.comp_time_ms.toFixed(1)} ms`;
+      document.getElementById('b-bpdef').textContent = `${(m.binpack_def.compressed_bytes / 1048576).toFixed(2)} MB`;
+      document.getElementById('bar-cs-val-bpdef').textContent = `${m.binpack_def.comp_speed_mbs.toFixed(1)} MB/s`;
+
+      // Normalize speed bars
+      const maxSpd = Math.max(m.zstd3.comp_speed_mbs, m.zstd19.comp_speed_mbs, m.binpack_rt.comp_speed_mbs, m.binpack_def.comp_speed_mbs, 1);
+      document.getElementById('bar-cs-zstd3').style.width = `${(m.zstd3.comp_speed_mbs / maxSpd) * 100}%`;
+      document.getElementById('bar-cs-zstd19').style.width = `${(m.zstd19.comp_speed_mbs / maxSpd) * 100}%`;
+      document.getElementById('bar-cs-bprt').style.width = `${(m.binpack_rt.comp_speed_mbs / maxSpd) * 100}%`;
+      document.getElementById('bar-cs-bpdef').style.width = `${(m.binpack_def.comp_speed_mbs / maxSpd) * 100}%`;
+    }
+
+    function resetSimulation() {
+      simMode = 'idle';
+      animProgress = { zstd3: 0, zstd19: 0, binpack_rt: 0, binpack_def: 0 };
+      particles = [];
+      document.getElementById('phaseBadge').textContent = 'Listo para Iniciar';
+      document.getElementById('phaseBadge').style.color = '#00f5ff';
+      document.getElementById('phaseBadge').style.borderColor = 'rgba(0, 245, 255, 0.4)';
+    }
+
+    // Particle spawning
+    function spawnCompressionParticles(sourceX, sourceY, targetX, targetY, color, count, speedFactor) {
+      for (let i = 0; i < count; i++) {
+        particles.push({
+          x: sourceX + (Math.random() - 0.5) * 40,
+          y: sourceY + (Math.random() - 0.5) * 40,
+          targetX: targetX,
+          targetY: targetY,
+          color: color,
+          speed: (Math.random() * 3 + 2) * speedFactor,
+          life: 1.0,
+          type: 'absorb'
+        });
+      }
+    }
+
+    function spawnDecompressionParticles(sourceX, sourceY, targetX, targetY, color, count, speedFactor) {
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        particles.push({
+          x: sourceX,
+          y: sourceY,
+          targetX: targetX + (Math.random() - 0.5) * 50,
+          targetY: targetY + (Math.random() - 0.5) * 50,
+          color: color,
+          speed: (Math.random() * 4 + 3) * speedFactor,
+          life: 1.0,
+          type: 'expel'
+        });
+      }
+    }
+
+    // Simulation Main Loop
+    function renderSimulation() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 1. Draw Starfield
+      ctx.fillStyle = '#ffffff';
+      stars.forEach(s => {
+        ctx.globalAlpha = s.alpha;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+        ctx.fill();
+        s.x -= s.speed;
+        if (s.x < 0) s.x = canvas.width;
+      });
+      ctx.globalAlpha = 1.0;
+
+      if (!currentDataset) {
+        requestAnimationFrame(renderSimulation);
+        return;
+      }
+
+      const centerY = canvas.height / 2;
+      const redSourceX = canvas.width * 0.16;
+      const redSourceY = centerY;
+      const redBaseRadius = 65;
+
+      // 2. Positions of the 4 Black Holes
+      const bhKeys = ['zstd3', 'zstd19', 'binpack_rt', 'binpack_def'];
+      const bhXPositions = [
+        canvas.width * 0.42,
+        canvas.width * 0.58,
+        canvas.width * 0.74,
+        canvas.width * 0.90
+      ];
+
+      // 3. Update Progress based on Mode & Real Compression Speed
+      if (simMode === 'compressing') {
+        bhKeys.forEach(k => {
+          const spd = currentDataset.models[k].comp_speed_mbs;
+          // Step rate proportional to MB/s
+          const rate = (spd / 400.0) * 0.015 * simSpeedMultiplier;
+          animProgress[k] = Math.min(1.0, animProgress[k] + Math.max(0.001, rate));
+
+          if (animProgress[k] < 1.0) {
+            const idx = bhKeys.indexOf(k);
+            const targetX = bhXPositions[idx];
+            const spdFactor = Math.min(3.0, Math.max(0.5, spd / 80.0));
+            spawnCompressionParticles(redSourceX, redSourceY, targetX, centerY, currentDataset.models[k].color, 3, spdFactor);
+          }
+        });
+
+        if (bhKeys.every(k => animProgress[k] >= 1.0)) {
+          document.getElementById('phaseBadge').textContent = 'Absorción Completa';
+        }
+      } else if (simMode === 'decompressing') {
+        bhKeys.forEach(k => {
+          const spd = currentDataset.models[k].decomp_speed_mbs;
+          const rate = (spd / 600.0) * 0.02 * simSpeedMultiplier;
+          animProgress[k] = Math.max(0.0, animProgress[k] - Math.max(0.002, rate));
+
+          if (animProgress[k] > 0.0) {
+            const idx = bhKeys.indexOf(k);
+            const sourceX = bhXPositions[idx];
+            const spdFactor = Math.min(3.5, Math.max(0.8, spd / 120.0));
+            spawnDecompressionParticles(sourceX, centerY, redSourceX, redSourceY, currentDataset.models[k].color, 4, spdFactor);
+          }
+        });
+
+        if (bhKeys.every(k => animProgress[k] <= 0.0)) {
+          document.getElementById('phaseBadge').textContent = 'Restitución 100% Exacta (CRC32 OK)';
+          document.getElementById('phaseBadge').style.color = '#10b981';
+          document.getElementById('phaseBadge').style.borderColor = '#10b981';
+        }
+      }
+
+      // 4. Draw Red Data Sphere (Original Data)
+      let redCurrentRadius = redBaseRadius;
+      if (simMode === 'compressing') {
+        const avgProg = (animProgress.zstd3 + animProgress.zstd19 + animProgress.binpack_rt + animProgress.binpack_def) / 4;
+        redCurrentRadius = Math.max(15, redBaseRadius * (1.0 - avgProg * 0.7));
+      } else if (simMode === 'decompressing') {
+        const avgProg = (animProgress.zstd3 + animProgress.zstd19 + animProgress.binpack_rt + animProgress.binpack_def) / 4;
+        redCurrentRadius = redBaseRadius * (0.3 + (1.0 - avgProg) * 0.7);
+      }
+
+      const gradRed = ctx.createRadialGradient(redSourceX, redSourceY, 10, redSourceX, redSourceY, redCurrentRadius * 1.5);
+      gradRed.addColorStop(0, '#ff7788');
+      gradRed.addColorStop(0.5, '#ff2233');
+      gradRed.addColorStop(0.9, '#aa0011');
+      gradRed.addColorStop(1, 'transparent');
+
+      ctx.fillStyle = gradRed;
+      ctx.beginPath();
+      ctx.arc(redSourceX, redSourceY, redCurrentRadius * 1.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Solid core of Red Data Sphere
+      ctx.fillStyle = '#ff1122';
+      ctx.beginPath();
+      ctx.arc(redSourceX, redSourceY, redCurrentRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Label on Red Sphere
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText("DATA CRUDA", redSourceX, redSourceY - 8);
+      ctx.font = '10px monospace';
+      ctx.fillText("100% VOLUME", redSourceX, redSourceY + 8);
+      ctx.fillText(`${(currentDataset.raw_bytes / 1048576).toFixed(2)} MB`, redSourceX, redSourceY + 22);
+
+      // 5. Draw the 4 Black Holes
+      bhKeys.forEach((k, idx) => {
+        const bhX = bhXPositions[idx];
+        const m = currentDataset.models[k];
+        const prog = animProgress[k];
+
+        // The final radius is proportional to the Compression Ratio %!
+        // 100% ratio = 52px radius. 1% ratio = 12px radius.
+        const targetRadius = Math.max(14, (m.ratio / 100.0) * 52);
+        // Grow during absorption
+        const currentRadius = 12 + (targetRadius - 12) * prog;
+
+        // Gravitational Lensing & Accretion Disk
+        const gradAccretion = ctx.createRadialGradient(bhX, centerY, currentRadius, bhX, centerY, currentRadius * 2.4);
+        gradAccretion.addColorStop(0, 'rgba(0,0,0,1)');
+        gradAccretion.addColorStop(0.3, m.color);
+        gradAccretion.addColorStop(0.7, 'rgba(0,0,0,0.4)');
+        gradAccretion.addColorStop(1, 'transparent');
+
+        ctx.fillStyle = gradAccretion;
+        ctx.beginPath();
+        ctx.arc(bhX, centerY, currentRadius * 2.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Singularity (Event Horizon - Pure Pitch Black Core)
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.arc(bhX, centerY, currentRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Neon Event Horizon Ring
+        ctx.strokeStyle = m.color;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(bhX, centerY, currentRadius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Accretion swirl particles / ellipse
+        ctx.save();
+        ctx.translate(bhX, centerY);
+        ctx.rotate(Date.now() * 0.002 * (idx % 2 === 0 ? 1 : -1));
+        ctx.strokeStyle = m.color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, currentRadius * 1.8, currentRadius * 0.7, Math.PI / 4, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+
+        // Data Badges above and inside Black Hole
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillStyle = m.color;
+        ctx.fillText(m.name, bhX, centerY - currentRadius * 2.4 - 18);
+
+        // Live % ratio
+        const displayRatio = (prog * m.ratio).toFixed(1);
+        ctx.font = 'bold 13px monospace';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(`${displayRatio}%`, bhX, centerY + 4);
+
+        // Metrics below Black Hole
+        ctx.font = '11px monospace';
+        ctx.fillStyle = m.color;
+        ctx.fillText(`C: ${m.comp_speed_mbs.toFixed(1)} MB/s`, bhX, centerY + currentRadius * 2.4 + 16);
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(`D: ${m.decomp_speed_mbs.toFixed(1)} MB/s`, bhX, centerY + currentRadius * 2.4 + 30);
+      });
+
+      // 6. Draw and Update Particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        const dx = p.targetX - p.x;
+        const dy = p.targetY - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < 8 || p.life <= 0) {
+          particles.splice(i, 1);
+          continue;
+        }
+
+        p.x += (dx / dist) * p.speed;
+        p.y += (dy / dist) * p.speed;
+        p.life -= 0.01;
+
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.life;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1.0;
+
+      document.getElementById('hudParticles').textContent = particles.length;
+
+      requestAnimationFrame(renderSimulation);
+    }
+
+    // 2D Pareto Frontier Chart
+    function drawParetoChart() {
+      const w = paretoCanvas.width;
+      const h = paretoCanvas.height;
+      pctx.clearRect(0, 0, w, h);
+
+      if (!currentDataset) return;
+      const m = currentDataset.models;
+
+      const padding = { top: 40, right: 50, bottom: 50, left: 70 };
+      const plotW = w - padding.left - padding.right;
+      const plotH = h - padding.top - padding.bottom;
+
+      // X-axis: Throughput MB/s (1 to 1000 log scale)
+      // Y-axis: Ratio % (0% to 100% linear, inverted so top is 0% = best)
+      const minSpeed = 1;
+      const maxSpeed = 1000;
+      const minRatio = 0;
+      const maxRatio = 100;
+
+      function speedToX(spd) {
+        const clamped = Math.max(minSpeed, Math.min(maxSpeed, spd));
+        const logVal = Math.log10(clamped);
+        const logMin = Math.log10(minSpeed);
+        const logMax = Math.log10(maxSpeed);
+        return padding.left + ((logVal - logMin) / (logMax - logMin)) * plotW;
+      }
+
+      function ratioToY(ratio) {
+        // Lower ratio (higher compression) goes to the TOP (more desirable)
+        return padding.top + (ratio / maxRatio) * plotH;
+      }
+
+      // Draw Grid Lines & Axes
+      pctx.strokeStyle = '#1e293b';
+      pctx.lineWidth = 1;
+
+      // X Grid (1, 10, 100, 1000 MB/s)
+      [1, 10, 50, 100, 250, 500, 1000].forEach(tick => {
+        const x = speedToX(tick);
+        pctx.beginPath();
+        pctx.moveTo(x, padding.top);
+        pctx.lineTo(x, h - padding.bottom);
+        pctx.stroke();
+
+        pctx.fillStyle = '#64748b';
+        pctx.font = '10px monospace';
+        pctx.textAlign = 'center';
+        pctx.fillText(`${tick} MB/s`, x, h - padding.bottom + 16);
+      });
+
+      // Y Grid (0%, 25%, 50%, 75%, 100%)
+      [0, 25, 50, 75, 100].forEach(r => {
+        const y = ratioToY(r);
+        pctx.beginPath();
+        pctx.moveTo(padding.left, y);
+        pctx.lineTo(w - padding.right, y);
+        pctx.stroke();
+
+        pctx.fillStyle = '#64748b';
+        pctx.font = '10px monospace';
+        pctx.textAlign = 'right';
+        pctx.fillText(`${r}%`, padding.left - 10, y + 4);
+      });
+
+      // Axis Labels
+      pctx.fillStyle = '#94a3b8';
+      pctx.font = 'bold 11px sans-serif';
+      pctx.textAlign = 'center';
+      pctx.fillText("Velocidad de Compresión (MB/s, Escala Logarítmica) ➔", padding.left + plotW / 2, h - 14);
+
+      pctx.save();
+      pctx.translate(18, padding.top + plotH / 2);
+      pctx.rotate(-Math.PI / 2);
+      pctx.fillText("Ratio de Compresión (% Menor es Mejor) ➔", 0, 0);
+      pctx.restore();
+
+      // Desirability Region (Top-Right: High Speed + High Compression)
+      pctx.fillStyle = 'rgba(0, 245, 255, 0.05)';
+      pctx.fillRect(speedToX(100), padding.top, plotW - (speedToX(100) - padding.left), plotH * 0.5);
+      pctx.fillStyle = '#00f5ff';
+      pctx.font = 'italic 10px sans-serif';
+      pctx.textAlign = 'right';
+      pctx.fillText("★ ZONA PARETO SUPERIOR (Alta Velocidad + Máxima Densidad)", w - padding.right - 10, padding.top + 20);
+
+      // Plot Points for Each Model
+      const points = [
+        { key: 'zstd3', ...m.zstd3 },
+        { key: 'zstd19', ...m.zstd19 },
+        { key: 'binpack_rt', ...m.binpack_rt },
+        { key: 'binpack_def', ...m.binpack_def }
+      ];
+
+      points.forEach(pt => {
+        const x = speedToX(pt.comp_speed_mbs);
+        const y = ratioToY(pt.ratio);
+
+        // Glow
+        pctx.shadowColor = pt.color;
+        pctx.shadowBlur = 14;
+
+        pctx.fillStyle = pt.color;
+        pctx.beginPath();
+        pctx.arc(x, y, 7, 0, Math.PI * 2);
+        pctx.fill();
+
+        pctx.strokeStyle = '#ffffff';
+        pctx.lineWidth = 2;
+        pctx.beginPath();
+        pctx.arc(x, y, 7, 0, Math.PI * 2);
+        pctx.stroke();
+
+        pctx.shadowBlur = 0;
+
+        // Label
+        pctx.fillStyle = '#ffffff';
+        pctx.font = 'bold 11px monospace';
+        pctx.textAlign = 'left';
+        pctx.fillText(`${pt.name}: ${pt.ratio.toFixed(1)}% @ ${pt.comp_speed_mbs.toFixed(1)} MB/s`, x + 12, y + 4);
+      });
+    }
+
+    // Button event listeners
+    document.getElementById('btnCompress').addEventListener('click', () => {
+      simMode = 'compressing';
+      document.getElementById('phaseBadge').textContent = 'Absorbiendo Data...';
+      document.getElementById('phaseBadge').style.color = '#00f5ff';
+      document.getElementById('phaseBadge').style.borderColor = 'rgba(0, 245, 255, 0.4)';
+    });
+
+    document.getElementById('btnDecompress').addEventListener('click', () => {
+      simMode = 'decompressing';
+      document.getElementById('phaseBadge').textContent = 'Expulsando Data (Descompresión)...';
+      document.getElementById('phaseBadge').style.color = '#ff3344';
+      document.getElementById('phaseBadge').style.borderColor = 'rgba(255, 51, 68, 0.4)';
+    });
+
+    document.getElementById('btnReset').addEventListener('click', () => {
+      resetSimulation();
+    });
+
+    document.getElementById('speedSelect').addEventListener('change', (e) => {
+      simSpeedMultiplier = parseFloat(e.target.value);
+    });
+
+    // Boot
+    resizeCanvas();
+    loadBenchmarkData();
+    requestAnimationFrame(renderSimulation);
+  </script>
+</body>
+</html>

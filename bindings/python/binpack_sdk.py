@@ -282,6 +282,8 @@ def compress(
         "archival": BinPackEngineMode.ARCHIVAL,
     }
     opts.mode = m_map.get(mode.lower(), BinPackEngineMode.DEFAULT)
+    if opts.mode == BinPackEngineMode.RUNTIME:
+        opts.enable_micro_trial = 0
 
     dst_ptr = ctypes.c_void_p()
     dst_sz = ctypes.c_size_t()
