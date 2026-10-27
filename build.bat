@@ -13,15 +13,16 @@ where zig >nul 2>nul
 if %ERRORLEVEL% equ 0 (
     echo [BUILD] Building BinPack Enterprise SDK with Zig CC AVX2 Vectorized...
     
+    if not exist deps\lib mkdir deps\lib
     if not exist deps\lib\liblzma_static.lib (
         echo [DEP] Compiling LZMA Range Coder Core...
-        zig cc -O3 -D_7ZIP_ST -Ideps/lzma -c deps/lzma/Alloc.c -o deps/lzma/Alloc.o
-        zig cc -O3 -D_7ZIP_ST -Ideps/lzma -c deps/lzma/LzFind.c -o deps/lzma/LzFind.o
-        zig cc -O3 -D_7ZIP_ST -Ideps/lzma -c deps/lzma/LzmaDec.c -o deps/lzma/LzmaDec.o
-        zig cc -O3 -D_7ZIP_ST -Ideps/lzma -c deps/lzma/LzmaEnc.c -o deps/lzma/LzmaEnc.o
-        zig cc -O3 -D_7ZIP_ST -Ideps/lzma -c deps/lzma/LzmaLib.c -o deps/lzma/LzmaLib.o
-        zig cc -O3 -D_7ZIP_ST -Ideps/lzma -c deps/lzma/Bra86.c -o deps/lzma/Bra86.o
-        zig cc -O3 -D_7ZIP_ST -Ideps/lzma -c deps/lzma/Bra.c -o deps/lzma/Bra.o
+        zig cc -O3 -D_7ZIP_ST -Wno-empty-body -Ideps/lzma -c deps/lzma/Alloc.c -o deps/lzma/Alloc.o
+        zig cc -O3 -D_7ZIP_ST -Wno-empty-body -Ideps/lzma -c deps/lzma/LzFind.c -o deps/lzma/LzFind.o
+        zig cc -O3 -D_7ZIP_ST -Wno-empty-body -Ideps/lzma -c deps/lzma/LzmaDec.c -o deps/lzma/LzmaDec.o
+        zig cc -O3 -D_7ZIP_ST -Wno-empty-body -Ideps/lzma -c deps/lzma/LzmaEnc.c -o deps/lzma/LzmaEnc.o
+        zig cc -O3 -D_7ZIP_ST -Wno-empty-body -Ideps/lzma -c deps/lzma/LzmaLib.c -o deps/lzma/LzmaLib.o
+        zig cc -O3 -D_7ZIP_ST -Wno-empty-body -Ideps/lzma -c deps/lzma/Bra86.c -o deps/lzma/Bra86.o
+        zig cc -O3 -D_7ZIP_ST -Wno-empty-body -Ideps/lzma -c deps/lzma/Bra.c -o deps/lzma/Bra.o
         zig ar rcs deps/lib/liblzma_static.lib deps/lzma/Alloc.o deps/lzma/LzFind.o deps/lzma/LzmaDec.o deps/lzma/LzmaEnc.o deps/lzma/LzmaLib.o deps/lzma/Bra86.o deps/lzma/Bra.o
         if exist deps\lzma\*.o del deps\lzma\*.o
     )

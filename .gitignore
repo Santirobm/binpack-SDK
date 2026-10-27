@@ -1,11 +1,11 @@
 # BinPack SDK .gitignore
 
 # Build outputs
-build/
-bin/
-lib/
-out/
-target/
+/build/
+/bin/
+/lib/
+/out/
+/target/
 *.obj
 *.o
 *.pdb
