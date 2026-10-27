@@ -90,7 +90,7 @@ namespace BinPack.Enterprise
         private static extern void binpack_default_options(out BinPackOptions opts);
     }
 
-    [StructLayout(LayoutKind.Sequential)]
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct BinPackFileInfo
     {
         public uint Version;
@@ -102,7 +102,7 @@ namespace BinPack.Enterprise
         public byte Flags;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct BinPackChunkInfo
     {
         public uint ChunkIndex;
@@ -112,9 +112,9 @@ namespace BinPack.Enterprise
         public byte FilterId;
         public byte FilterFlags;
         public ushort FilterParam;
+        public uint ChunkCrc32;
         public uint CodeOffset;
         public uint CodeLength;
-        public uint ChunkCrc32;
     }
 
     public sealed class BinPackArchive : IDisposable
@@ -318,6 +318,14 @@ namespace BinPack.Enterprise
 
         public static string GetErrorString(BinPackStatus status) =>
             Marshal.PtrToStringAnsi(binpack_error_string(status)) ?? "Unknown";
+
+        public static byte[] Compress(byte[] input, BinPackEngineMode mode)
+        {
+            BinPackOptions opts = mode == BinPackEngineMode.Runtime
+                ? BinPackOptions.FastRuntime
+                : (mode == BinPackEngineMode.Archival ? BinPackOptions.Archival : BinPackOptions.Default);
+            return Compress(input, opts);
+        }
 
         public static byte[] Compress(byte[] input, BinPackOptions? options = null)
         {

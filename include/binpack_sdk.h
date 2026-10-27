@@ -122,6 +122,8 @@ typedef struct binpack_options_s {
     binpack_engine_mode_t mode;  /**< Engine operational mode (DEFAULT, RUNTIME, or ARCHIVAL) */
 } binpack_options_t;
 
+#pragma pack(push, 1)
+
 /**
  * @brief Archive query information.
  */
@@ -136,7 +138,7 @@ typedef struct binpack_file_info_s {
 } binpack_file_info_t;
 
 /**
- * @brief Information for an individual seekable chunk.
+ * @brief Information for an individual seekable chunk (36 bytes packed).
  */
 typedef struct binpack_chunk_info_s {
     uint32_t chunk_index;        /**< Zero-based index of chunk */
@@ -150,6 +152,8 @@ typedef struct binpack_chunk_info_s {
     uint32_t code_offset;        /**< Executable section offset within chunk */
     uint32_t code_length;        /**< Executable section byte length within chunk */
 } binpack_chunk_info_t;
+
+#pragma pack(pop)
 
 /**
  * @brief Opaque handle for random-access archives.

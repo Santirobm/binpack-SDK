@@ -85,9 +85,32 @@ static size_t mem_write_cb(void *user_data, const void *buffer, size_t size) {
 
 #if defined(_MSC_VER)
     static __declspec(thread) ZSTD_CCtx *s_fast_cctx = NULL;
+    static __declspec(thread) uint8_t   *s_sdk_scratch = NULL;
+    static __declspec(thread) size_t     s_sdk_scratch_cap = 0;
 #else
     static __thread ZSTD_CCtx *s_fast_cctx = NULL;
+    static __thread uint8_t   *s_sdk_scratch = NULL;
+    static __thread size_t     s_sdk_scratch_cap = 0;
 #endif
+
+static uint8_t* bp_acquire_sdk_scratch(size_t size, int *out_must_free) {
+    if (size <= (64ULL * 1024 * 1024)) {
+        if (s_sdk_scratch_cap < size) {
+            uint8_t *new_buf = (uint8_t*)realloc(s_sdk_scratch, size);
+            if (!new_buf) return NULL;
+            s_sdk_scratch = new_buf;
+            s_sdk_scratch_cap = size;
+        }
+        *out_must_free = 0;
+        return s_sdk_scratch;
+    }
+    *out_must_free = 1;
+    return (uint8_t*)malloc(size);
+}
+
+static inline void bp_release_sdk_scratch(uint8_t *ptr, int must_free) {
+    if (must_free && ptr) free(ptr);
+}
 
 static binpack_status_t binpack_compress_into_fast(
     const void *src, size_t src_sz,
@@ -129,38 +152,42 @@ static binpack_status_t binpack_compress_into_fast(
     bounds.code_length = (uint32_t)src_sz;
 
     /* Prepare Data for compression */
+    int scratch_must_free = 0;
     uint8_t *scratch = NULL;
     const uint8_t *data_to_compress = (const uint8_t*)src;
 
     if (filter != BINPACK_FILTER_NONE) {
-        scratch = (uint8_t*)malloc(src_sz);
+        scratch = bp_acquire_sdk_scratch(src_sz, &scratch_must_free);
         if (!scratch) return BINPACK_ERR_OUT_OF_MEMORY;
-        memcpy(scratch, src, src_sz);
         data_to_compress = scratch;
 
-        if (filter == BINPACK_FILTER_X86_64 || filter == BINPACK_FILTER_ARM32 ||
-            filter == BINPACK_FILTER_AARCH64 || filter == BINPACK_FILTER_RISCV) {
-            if (code_len > 0 && code_off < src_sz && (code_off + code_len) <= src_sz) {
-                if (code_off > 0 || code_len < src_sz) {
-                    filter_flags |= BP_CHUNK_FLAG_BOUNDS;
-                    bounds.code_offset = (uint32_t)code_off;
-                    bounds.code_length = (uint32_t)code_len;
-                }
-                uint8_t *target = scratch + code_off;
-                if (filter == BINPACK_FILTER_X86_64) binpack_bcj_x86_filter(target, code_len);
-                else if (filter == BINPACK_FILTER_ARM32) binpack_bcj_arm32_filter(target, code_len);
-                else if (filter == BINPACK_FILTER_AARCH64) binpack_bcj_aarch64_filter(target, code_len);
-                else if (filter == BINPACK_FILTER_RISCV) binpack_bcj_riscv_filter(target, code_len);
-            }
-        } else if (filter == BINPACK_FILTER_TRANSPOSE_DELTA) {
+        if (filter == BINPACK_FILTER_TRANSPOSE_DELTA) {
             if (filter_param < 2) filter_param = 4;
-            binpack_transpose_delta_filter(scratch, src_sz, filter_param);
-        } else if (filter == BINPACK_FILTER_BITSHUFFLE) {
-            if (filter_param < 1) filter_param = 4;
-            binpack_bitshuffle_filter(scratch, src_sz, filter_param);
-        } else if (filter == BINPACK_FILTER_TEXTURE_BCN) {
-            if (filter_param != 8 && filter_param != 16) filter_param = 8;
-            binpack_texture_bcn_filter(scratch, src_sz, filter_param);
+            /* Out-of-place single-pass deinterleave + SIMD delta without memcpy */
+            binpack_transpose_delta_filter_into((const uint8_t*)src, scratch, src_sz, filter_param);
+        } else {
+            memcpy(scratch, src, src_sz);
+            if (filter == BINPACK_FILTER_X86_64 || filter == BINPACK_FILTER_ARM32 ||
+                filter == BINPACK_FILTER_AARCH64 || filter == BINPACK_FILTER_RISCV) {
+                if (code_len > 0 && code_off < src_sz && (code_off + code_len) <= src_sz) {
+                    if (code_off > 0 || code_len < src_sz) {
+                        filter_flags |= BP_CHUNK_FLAG_BOUNDS;
+                        bounds.code_offset = (uint32_t)code_off;
+                        bounds.code_length = (uint32_t)code_len;
+                    }
+                    uint8_t *target = scratch + code_off;
+                    if (filter == BINPACK_FILTER_X86_64) binpack_bcj_x86_filter(target, code_len);
+                    else if (filter == BINPACK_FILTER_ARM32) binpack_bcj_arm32_filter(target, code_len);
+                    else if (filter == BINPACK_FILTER_AARCH64) binpack_bcj_aarch64_filter(target, code_len);
+                    else if (filter == BINPACK_FILTER_RISCV) binpack_bcj_riscv_filter(target, code_len);
+                }
+            } else if (filter == BINPACK_FILTER_BITSHUFFLE) {
+                if (filter_param < 1) filter_param = 4;
+                binpack_bitshuffle_filter(scratch, src_sz, filter_param);
+            } else if (filter == BINPACK_FILTER_TEXTURE_BCN) {
+                if (filter_param != 8 && filter_param != 16) filter_param = 8;
+                binpack_texture_bcn_filter(scratch, src_sz, filter_param);
+            }
         }
     }
 
@@ -172,7 +199,7 @@ static binpack_status_t binpack_compress_into_fast(
     size_t ftr_sz = sizeof(binpack_v2_footer_t);
 
     if (dst_capacity < payload_offset + ftr_sz + 64) {
-        if (scratch) free(scratch);
+        bp_release_sdk_scratch(scratch, scratch_must_free);
         return BINPACK_ERR_BUFFER_TOO_SMALL;
     }
 
@@ -182,7 +209,7 @@ static binpack_status_t binpack_compress_into_fast(
     if (!s_fast_cctx) {
         s_fast_cctx = ZSTD_createCCtx();
         if (!s_fast_cctx) {
-            if (scratch) free(scratch);
+            bp_release_sdk_scratch(scratch, scratch_must_free);
             return BINPACK_ERR_OUT_OF_MEMORY;
         }
     }
@@ -223,7 +250,7 @@ static binpack_status_t binpack_compress_into_fast(
         ZSTD_outBuffer out_buf = { out + payload_offset, avail_dst, 0 };
         size_t rem = ZSTD_compressStream2(s_fast_cctx, &out_buf, &in, ZSTD_e_end);
         if (ZSTD_isError(rem)) {
-            if (scratch) free(scratch);
+            bp_release_sdk_scratch(scratch, scratch_must_free);
             return BINPACK_ERR_COMPRESSION_FAILED;
         }
         c_size = out_buf.pos;
@@ -236,15 +263,17 @@ static binpack_status_t binpack_compress_into_fast(
         );
     }
 
-    if (scratch) free(scratch);
+    bp_release_sdk_scratch(scratch, scratch_must_free);
 
     if (ZSTD_isError(c_size)) {
         return BINPACK_ERR_COMPRESSION_FAILED;
     }
 
     uint32_t chunk_crc = 0;
+    uint16_t hdr_flags = 0;
     if (opt->mode != BINPACK_MODE_RUNTIME || opt->enable_micro_trial) {
         chunk_crc = binpack_crc32(0, (const uint8_t*)src, src_sz);
+        hdr_flags = BP_FLAG_CHECKSUM;
     }
 
     /* Fill Framing Headers */
@@ -252,7 +281,7 @@ static binpack_status_t binpack_compress_into_fast(
     v2_hdr->magic = BINPACK_MAGIC_V2;
     v2_hdr->version_major = BINPACK_SDK_VERSION_MAJOR;
     v2_hdr->version_minor = BINPACK_SDK_VERSION_MINOR;
-    v2_hdr->flags = BP_FLAG_CHECKSUM;
+    v2_hdr->flags = hdr_flags;
     v2_hdr->default_chunk_sz = (uint32_t)src_sz;
     v2_hdr->reserved = 0;
 
@@ -370,6 +399,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_buffer_ex(
         const uint8_t *s = (const uint8_t*)src;
         uint32_t magic = *(const uint32_t*)s;
         if (magic == BINPACK_MAGIC_V2) {
+            const binpack_v2_header_t *v2_hdr = (const binpack_v2_header_t*)s;
             binpack_chunk_header_t *chdr = (binpack_chunk_header_t*)(s + sizeof(binpack_v2_header_t));
             if (chdr->chunk_magic == BINPACK_MAGIC_CHUNK &&
                 chdr->uncompressed_sz > 0 && chdr->uncompressed_sz <= (BINPACK_MAX_CHUNK_SIZE * 4ULL)) {
@@ -447,7 +477,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_buffer_ex(
                         }
 
                         /* Integrity verification */
-                        if (verify_checksum && chdr->chunk_crc32 != 0) {
+                        if (verify_checksum && (v2_hdr->flags & BP_FLAG_CHECKSUM)) {
                             uint32_t chk = binpack_crc32(0, out, chdr->uncompressed_sz);
                             if (chk != chdr->chunk_crc32) {
                                 free(out);
@@ -598,6 +628,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_into(
         const uint8_t *s = (const uint8_t*)src;
         uint32_t magic = *(const uint32_t*)s;
         if (magic == BINPACK_MAGIC_V2) {
+            const binpack_v2_header_t *v2_hdr = (const binpack_v2_header_t*)s;
             const binpack_chunk_header_t *chdr = (const binpack_chunk_header_t*)(s + sizeof(binpack_v2_header_t));
             if (chdr->chunk_magic == BINPACK_MAGIC_CHUNK &&
                 chdr->uncompressed_sz > 0 && chdr->uncompressed_sz <= (BINPACK_MAX_CHUNK_SIZE * 4ULL)) {
@@ -675,7 +706,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_into(
                             binpack_texture_bcn_unfilter(out, chdr->uncompressed_sz, chdr->filter_param);
                         }
 
-                        if (verify_checksum && chdr->chunk_crc32 != 0) {
+                        if (verify_checksum && (v2_hdr->flags & BP_FLAG_CHECKSUM)) {
                             uint32_t chk = binpack_crc32(0, out, chdr->uncompressed_sz);
                             if (chk != chdr->chunk_crc32) {
                                 *decompressed_sz = 0;

@@ -1,8 +1,11 @@
 CC ?= gcc
-CFLAGS ?= -O3 -Wall -Wextra -Iinclude -Ideps/include
+CFLAGS ?= -O3 -mavx2 -D_7ZIP_ST -Wall -Wextra -Iinclude -Ideps/include -Ideps/lzma
 LDFLAGS ?= -Ldeps/lib -lzstd
 
-SRC = src/binpack_core.c src/binpack_eval.c src/binpack_stream.c src/binpack_sdk.c
+SRC = src/binpack_core.c src/binpack_eval.c src/binpack_stream.c src/binpack_sdk.c \
+      src/binpack_dict.c src/binpack_patch.c src/binpack_archive.c \
+      deps/lzma/Alloc.c deps/lzma/LzFind.c deps/lzma/LzmaDec.c \
+      deps/lzma/LzmaEnc.c deps/lzma/LzmaLib.c deps/lzma/Bra86.c deps/lzma/Bra.c
 OBJ = $(SRC:.c=.o)
 
 all: libbinpack.so binpack-sdk test_sdk

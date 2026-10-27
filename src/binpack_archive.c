@@ -352,10 +352,12 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_archive_decompress_chunk(
         binpack_texture_bcn_unfilter(raw_buf, c->uncompressed_sz, (stride == 8 || stride == 16) ? stride : 8);
     }
 
-    /* Verify Chunk CRC32 integrity */
-    uint32_t actual_crc = binpack_crc32(0, raw_buf, c->uncompressed_sz);
-    if (actual_crc != c->chunk_crc32) {
-        return BINPACK_ERR_CHECKSUM_MISMATCH;
+    /* Verify Chunk CRC32 integrity when checksum flag is active */
+    if (archive->header.flags & BP_FLAG_CHECKSUM) {
+        uint32_t actual_crc = binpack_crc32(0, raw_buf, c->uncompressed_sz);
+        if (actual_crc != c->chunk_crc32) {
+            return BINPACK_ERR_CHECKSUM_MISMATCH;
+        }
     }
 
     *decompressed_sz = c->uncompressed_sz;

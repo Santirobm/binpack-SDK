@@ -17,6 +17,7 @@ pub enum BinPackStatus {
     IOError = -7,
     UnsupportedVersion = -8,
     BufferTooSmall = -9,
+    PatchMismatch = -10,
 }
 
 #[repr(C)]
@@ -62,6 +63,7 @@ pub fn default_options() -> BinPackOptions {
         enable_micro_trial: 1,
         filter: 0,
         transpose_stride: 4,
+        mode: 0,
     };
     unsafe { binpack_default_options(&mut opts) };
     opts

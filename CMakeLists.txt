@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(binpack_sdk VERSION 2.0.0 LANGUAGES C CXX)
+project(binpack_sdk VERSION 2.2.0 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -12,13 +12,32 @@ option(BINPACK_BUILD_STATIC "Build static library (binpack.lib / libbinpack.a)" 
 option(BINPACK_BUILD_CLI "Build standalone command-line tool" ON)
 option(BINPACK_BUILD_TESTS "Build regression test suite" ON)
 
-include_directories(include deps/include)
+include_directories(include deps/include deps/lzma)
+add_compile_definitions(_7ZIP_ST)
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    if(MSVC)
+        add_compile_options(/arch:AVX2)
+    else()
+        add_compile_options(-mavx2)
+    endif()
+endif()
 
 set(BINPACK_SOURCES
     src/binpack_core.c
     src/binpack_eval.c
     src/binpack_stream.c
     src/binpack_sdk.c
+    src/binpack_dict.c
+    src/binpack_patch.c
+    src/binpack_archive.c
+    deps/lzma/Alloc.c
+    deps/lzma/LzFind.c
+    deps/lzma/LzmaDec.c
+    deps/lzma/LzmaEnc.c
+    deps/lzma/LzmaLib.c
+    deps/lzma/Bra86.c
+    deps/lzma/Bra.c
 )
 
 # External Zstandard linkage

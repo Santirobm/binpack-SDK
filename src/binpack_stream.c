@@ -349,6 +349,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_stream(
             idx_table = new_idx;
         }
         binpack_chunk_info_t *info = &idx_table[chunk_count];
+        memset(info, 0, sizeof(binpack_chunk_info_t));
         info->chunk_index = chunk_count;
         info->file_offset = payload_offset;
         info->uncompressed_sz = (uint32_t)bytes_read;

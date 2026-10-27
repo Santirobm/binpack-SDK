@@ -17,6 +17,12 @@
 
 namespace binpack {
 
+enum class Mode : int {
+    Default  = BINPACK_MODE_DEFAULT,
+    Runtime  = BINPACK_MODE_RUNTIME,
+    Archival = BINPACK_MODE_ARCHIVAL
+};
+
 class Exception : public std::runtime_error {
 public:
     binpack_status_t status;
@@ -53,6 +59,22 @@ inline std::vector<uint8_t> compress(
     const binpack_options_t *options = nullptr
 ) {
     return compress(data.data(), data.size(), options);
+}
+
+inline std::vector<uint8_t> compress(
+    const std::vector<uint8_t> &data,
+    Mode mode
+) {
+    binpack_options_t opts;
+    binpack_default_options(&opts);
+    opts.mode = static_cast<binpack_engine_mode_t>(mode);
+    if (mode == Mode::Runtime) {
+        opts.clevel = 3;
+        opts.enable_micro_trial = 0;
+    } else if (mode == Mode::Archival) {
+        opts.clevel = 22;
+    }
+    return compress(data.data(), data.size(), &opts);
 }
 
 inline std::vector<uint8_t> decompress(const uint8_t *data, size_t size) {

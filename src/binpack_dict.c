@@ -78,6 +78,14 @@ BINPACK_API const void* BINPACK_CALL binpack_get_dict_buffer(
     return dict->buffer;
 }
 
+#if defined(_MSC_VER)
+    static __declspec(thread) ZSTD_CCtx *s_dict_cctx = NULL;
+    static __declspec(thread) ZSTD_DCtx *s_dict_dctx = NULL;
+#else
+    static __thread ZSTD_CCtx *s_dict_cctx = NULL;
+    static __thread ZSTD_DCtx *s_dict_dctx = NULL;
+#endif
+
 BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_dict(
     const void *src, size_t src_sz,
     void *dst, size_t dst_cap,
@@ -88,11 +96,12 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_compress_dict(
         return BINPACK_ERR_INVALID_PARAM;
     }
 
-    ZSTD_CCtx *cctx = ZSTD_createCCtx();
-    if (!cctx) return BINPACK_ERR_OUT_OF_MEMORY;
+    if (!s_dict_cctx) {
+        s_dict_cctx = ZSTD_createCCtx();
+        if (!s_dict_cctx) return BINPACK_ERR_OUT_OF_MEMORY;
+    }
 
-    size_t c_size = ZSTD_compress_usingCDict(cctx, dst, dst_cap, src, src_sz, dict->cdict);
-    ZSTD_freeCCtx(cctx);
+    size_t c_size = ZSTD_compress_usingCDict(s_dict_cctx, dst, dst_cap, src, src_sz, dict->cdict);
 
     if (ZSTD_isError(c_size)) {
         return BINPACK_ERR_COMPRESSION_FAILED;
@@ -112,11 +121,12 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_dict(
         return BINPACK_ERR_INVALID_PARAM;
     }
 
-    ZSTD_DCtx *dctx = ZSTD_createDCtx();
-    if (!dctx) return BINPACK_ERR_OUT_OF_MEMORY;
+    if (!s_dict_dctx) {
+        s_dict_dctx = ZSTD_createDCtx();
+        if (!s_dict_dctx) return BINPACK_ERR_OUT_OF_MEMORY;
+    }
 
-    size_t d_size = ZSTD_decompress_usingDDict(dctx, dst, dst_cap, src, src_sz, dict->ddict);
-    ZSTD_freeDCtx(dctx);
+    size_t d_size = ZSTD_decompress_usingDDict(s_dict_dctx, dst, dst_cap, src, src_sz, dict->ddict);
 
     if (ZSTD_isError(d_size)) {
         return BINPACK_ERR_DECOMPRESSION_FAILED;

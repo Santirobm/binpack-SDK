@@ -16,7 +16,7 @@
 /* ========================================================================= */
 
 static uint32_t s_crc32_table[8][256];
-static int s_crc32_initialized = 0;
+static volatile int s_crc32_initialized = 0;
 
 static void binpack_init_crc32_table(void) {
     if (s_crc32_initialized) return;
@@ -32,11 +32,19 @@ static void binpack_init_crc32_table(void) {
             s_crc32_table[j][i] = (s_crc32_table[j - 1][i] >> 8) ^ s_crc32_table[0][s_crc32_table[j - 1][i] & 0xFF];
         }
     }
+#if defined(__GNUC__) || defined(__clang__)
+    __atomic_store_n(&s_crc32_initialized, 1, __ATOMIC_RELEASE);
+#else
     s_crc32_initialized = 1;
+#endif
 }
 
 uint32_t binpack_crc32(uint32_t crc, const uint8_t *buf, size_t len) {
+#if defined(__GNUC__) || defined(__clang__)
+    if (!__atomic_load_n(&s_crc32_initialized, __ATOMIC_ACQUIRE)) binpack_init_crc32_table();
+#else
     if (!s_crc32_initialized) binpack_init_crc32_table();
+#endif
     crc = crc ^ 0xFFFFFFFF;
 
     /* Slicing-by-8 parallel table lookups */
@@ -113,16 +121,16 @@ void binpack_find_code_bounds(const uint8_t *data, size_t size, size_t *out_offs
                 if (strtab_sec + 40 <= size) {
                     uint32_t strtab_off = *(const uint32_t*)&data[strtab_sec + 16];
                     uint32_t strtab_sz = *(const uint32_t*)&data[strtab_sec + 20];
-                    if (strtab_off + strtab_sz <= size) {
+                    if (strtab_off <= size && strtab_sz <= size - strtab_off) {
                         for (uint16_t i = 0; i < shnum; i++) {
                             size_t cur = shoff + (size_t)i * shentsize;
                             if (cur + 40 > size) break;
                             uint32_t name_idx = *(const uint32_t*)&data[cur];
-                            if (name_idx < strtab_sz &&
-                                strcmp((const char*)&data[strtab_off + name_idx], ".text") == 0) {
+                            if (name_idx + 6 <= strtab_sz &&
+                                memcmp(&data[strtab_off + name_idx], ".text\0", 6) == 0) {
                                 uint32_t sec_off = *(const uint32_t*)&data[cur + 16];
                                 uint32_t sec_sz = *(const uint32_t*)&data[cur + 20];
-                                if (sec_off < size && (size_t)sec_off + sec_sz <= size) {
+                                if (sec_off <= size && sec_sz <= size - sec_off) {
                                     *out_offset = sec_off;
                                     *out_length = sec_sz;
                                     return;
@@ -143,16 +151,16 @@ void binpack_find_code_bounds(const uint8_t *data, size_t size, size_t *out_offs
                 if (strtab_sec + 64 <= size) {
                     uint64_t strtab_off = *(const uint64_t*)&data[strtab_sec + 24];
                     uint64_t strtab_sz = *(const uint64_t*)&data[strtab_sec + 32];
-                    if (strtab_off + strtab_sz <= size) {
+                    if (strtab_off <= size && strtab_sz <= size - strtab_off) {
                         for (uint16_t i = 0; i < shnum; i++) {
                             size_t cur = (size_t)shoff + (size_t)i * shentsize;
                             if (cur + 64 > size) break;
                             uint32_t name_idx = *(const uint32_t*)&data[cur];
-                            if (name_idx < strtab_sz &&
-                                strcmp((const char*)&data[strtab_off + name_idx], ".text") == 0) {
+                            if ((uint64_t)name_idx + 6 <= strtab_sz &&
+                                memcmp(&data[strtab_off + name_idx], ".text\0", 6) == 0) {
                                 uint64_t sec_off = *(const uint64_t*)&data[cur + 24];
                                 uint64_t sec_sz = *(const uint64_t*)&data[cur + 32];
-                                if (sec_off < size && (size_t)sec_off + sec_sz <= size) {
+                                if (sec_off <= size && sec_sz <= size - sec_off) {
                                     *out_offset = (size_t)sec_off;
                                     *out_length = (size_t)sec_sz;
                                     return;
@@ -426,6 +434,34 @@ void binpack_bcj_riscv_unfilter(uint8_t *data, size_t size) {
 /* Cascaded Stride-N Transpose + Delta Prefilter (SIMD & Fused Single-Pass)  */
 /* ========================================================================= */
 
+#if defined(_MSC_VER)
+    static __declspec(thread) uint8_t *s_core_scratch = NULL;
+    static __declspec(thread) size_t   s_core_scratch_cap = 0;
+#else
+    static __thread uint8_t *s_core_scratch = NULL;
+    static __thread size_t   s_core_scratch_cap = 0;
+#endif
+
+static uint8_t* bp_acquire_core_scratch(size_t size, int *out_must_free) {
+    /* Reuse thread-local buffer up to 64 MB to eliminate OS VirtualAlloc/VirtualFree page faults */
+    if (size <= (64ULL * 1024 * 1024)) {
+        if (s_core_scratch_cap < size) {
+            uint8_t *new_buf = (uint8_t*)realloc(s_core_scratch, size);
+            if (!new_buf) return NULL;
+            s_core_scratch = new_buf;
+            s_core_scratch_cap = size;
+        }
+        *out_must_free = 0;
+        return s_core_scratch;
+    }
+    *out_must_free = 1;
+    return (uint8_t*)malloc(size);
+}
+
+static inline void bp_release_core_scratch(uint8_t *ptr, int must_free) {
+    if (must_free && ptr) free(ptr);
+}
+
 static void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride) {
     if (stride == 2) {
         uint8_t *d0 = dst;
@@ -484,6 +520,54 @@ static void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t nu
             d2[i] = src[4 * i + 2];
             d3[i] = src[4 * i + 3];
         }
+    } else if (stride == 8) {
+        uint8_t *d0 = dst;
+        uint8_t *d1 = dst + num_elements;
+        uint8_t *d2 = dst + 2 * num_elements;
+        uint8_t *d3 = dst + 3 * num_elements;
+        uint8_t *d4 = dst + 4 * num_elements;
+        uint8_t *d5 = dst + 5 * num_elements;
+        uint8_t *d6 = dst + 6 * num_elements;
+        uint8_t *d7 = dst + 7 * num_elements;
+        size_t i = 0;
+#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
+        __m128i mask = _mm_setr_epi8(0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15);
+        for (; i + 8 <= num_elements; i += 8) {
+            __m128i v0 = _mm_loadu_si128((const __m128i*)(src + 8 * i));
+            __m128i v1 = _mm_loadu_si128((const __m128i*)(src + 8 * i + 16));
+            __m128i v2 = _mm_loadu_si128((const __m128i*)(src + 8 * i + 32));
+            __m128i v3 = _mm_loadu_si128((const __m128i*)(src + 8 * i + 48));
+
+            __m128i s0 = _mm_shuffle_epi8(v0, mask);
+            __m128i s1 = _mm_shuffle_epi8(v1, mask);
+            __m128i s2 = _mm_shuffle_epi8(v2, mask);
+            __m128i s3 = _mm_shuffle_epi8(v3, mask);
+
+            __m128i p0 = _mm_unpacklo_epi16(s0, s1);
+            __m128i p1 = _mm_unpackhi_epi16(s0, s1);
+            __m128i p2 = _mm_unpacklo_epi16(s2, s3);
+            __m128i p3 = _mm_unpackhi_epi16(s2, s3);
+
+            __m128i q0 = _mm_unpacklo_epi32(p0, p2);
+            __m128i q1 = _mm_unpackhi_epi32(p0, p2);
+            __m128i q2 = _mm_unpacklo_epi32(p1, p3);
+            __m128i q3 = _mm_unpackhi_epi32(p1, p3);
+
+            _mm_storel_epi64((__m128i*)(d0 + i), q0);
+            _mm_storel_epi64((__m128i*)(d1 + i), _mm_unpackhi_epi64(q0, q0));
+            _mm_storel_epi64((__m128i*)(d2 + i), q1);
+            _mm_storel_epi64((__m128i*)(d3 + i), _mm_unpackhi_epi64(q1, q1));
+            _mm_storel_epi64((__m128i*)(d4 + i), q2);
+            _mm_storel_epi64((__m128i*)(d5 + i), _mm_unpackhi_epi64(q2, q2));
+            _mm_storel_epi64((__m128i*)(d6 + i), q3);
+            _mm_storel_epi64((__m128i*)(d7 + i), _mm_unpackhi_epi64(q3, q3));
+        }
+#endif
+        for (; i < num_elements; i++) {
+            const uint8_t *elem = src + 8 * i;
+            d0[i] = elem[0]; d1[i] = elem[1]; d2[i] = elem[2]; d3[i] = elem[3];
+            d4[i] = elem[4]; d5[i] = elem[5]; d6[i] = elem[6]; d7[i] = elem[7];
+        }
     } else {
         for (size_t i = 0; i < num_elements; i++) {
             const uint8_t *elem = src + i * stride;
@@ -541,6 +625,48 @@ static void bp_interleave_channels(const uint8_t *src, uint8_t *dst, size_t num_
             dst[4 * i + 2] = s2[i];
             dst[4 * i + 3] = s3[i];
         }
+    } else if (stride == 8) {
+        const uint8_t *s0 = src;
+        const uint8_t *s1 = src + num_elements;
+        const uint8_t *s2 = src + 2 * num_elements;
+        const uint8_t *s3 = src + 3 * num_elements;
+        const uint8_t *s4 = src + 4 * num_elements;
+        const uint8_t *s5 = src + 5 * num_elements;
+        const uint8_t *s6 = src + 6 * num_elements;
+        const uint8_t *s7 = src + 7 * num_elements;
+        size_t i = 0;
+#if defined(__SSE2__) || defined(__x86_64__) || defined(_M_X64)
+        for (; i + 8 <= num_elements; i += 8) {
+            __m128i r0 = _mm_loadl_epi64((const __m128i*)(s0 + i));
+            __m128i r1 = _mm_loadl_epi64((const __m128i*)(s1 + i));
+            __m128i r2 = _mm_loadl_epi64((const __m128i*)(s2 + i));
+            __m128i r3 = _mm_loadl_epi64((const __m128i*)(s3 + i));
+            __m128i r4 = _mm_loadl_epi64((const __m128i*)(s4 + i));
+            __m128i r5 = _mm_loadl_epi64((const __m128i*)(s5 + i));
+            __m128i r6 = _mm_loadl_epi64((const __m128i*)(s6 + i));
+            __m128i r7 = _mm_loadl_epi64((const __m128i*)(s7 + i));
+
+            __m128i v0 = _mm_unpacklo_epi8(r0, r1);
+            __m128i v1 = _mm_unpacklo_epi8(r2, r3);
+            __m128i v2 = _mm_unpacklo_epi8(r4, r5);
+            __m128i v3 = _mm_unpacklo_epi8(r6, r7);
+
+            __m128i t0 = _mm_unpacklo_epi16(v0, v1);
+            __m128i t1 = _mm_unpackhi_epi16(v0, v1);
+            __m128i t2 = _mm_unpacklo_epi16(v2, v3);
+            __m128i t3 = _mm_unpackhi_epi16(v2, v3);
+
+            _mm_storeu_si128((__m128i*)(dst + 8 * i),      _mm_unpacklo_epi32(t0, t2));
+            _mm_storeu_si128((__m128i*)(dst + 8 * i + 16), _mm_unpackhi_epi32(t0, t2));
+            _mm_storeu_si128((__m128i*)(dst + 8 * i + 32), _mm_unpacklo_epi32(t1, t3));
+            _mm_storeu_si128((__m128i*)(dst + 8 * i + 48), _mm_unpackhi_epi32(t1, t3));
+        }
+#endif
+        for (; i < num_elements; i++) {
+            uint8_t *elem = dst + 8 * i;
+            elem[0] = s0[i]; elem[1] = s1[i]; elem[2] = s2[i]; elem[3] = s3[i];
+            elem[4] = s4[i]; elem[5] = s5[i]; elem[6] = s6[i]; elem[7] = s7[i];
+        }
     } else {
         for (size_t i = 0; i < num_elements; i++) {
             uint8_t *elem = dst + i * stride;
@@ -551,9 +677,47 @@ static void bp_interleave_channels(const uint8_t *src, uint8_t *dst, size_t num_
     }
 }
 
+int binpack_transpose_delta_filter_into(const uint8_t *src, uint8_t *dst, size_t size, uint16_t stride) {
+    if (!src || !dst || size < 4 || stride < 2 || stride > 256) return -1;
+
+    size_t num_elements = size / stride;
+    size_t aligned_sz = num_elements * stride;
+
+    /* 1. Deinterleave directly from src into dst (zero intermediate malloc or memcpy) */
+    bp_deinterleave_channels(src, dst, num_elements, stride);
+    if (aligned_sz < size) {
+        memcpy(dst + aligned_sz, src + aligned_sz, size - aligned_sz);
+    }
+
+    /* 2. In-place SIMD delta encode on L1/L2-warm dst channels */
+    for (size_t s = 0; s < stride; s++) {
+        size_t base = s * num_elements;
+        uint8_t prev = 0;
+        size_t i = 0;
+#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
+        __m128i prev_v = _mm_setzero_si128();
+        for (; i + 16 <= num_elements; i += 16) {
+            __m128i cur_v = _mm_loadu_si128((const __m128i*)(dst + base + i));
+            prev = dst[base + i + 15];
+            __m128i shifted = _mm_alignr_epi8(cur_v, prev_v, 15);
+            __m128i diff = _mm_sub_epi8(cur_v, shifted);
+            _mm_storeu_si128((__m128i*)(dst + base + i), diff);
+            prev_v = cur_v;
+        }
+#endif
+        for (; i < num_elements; i++) {
+            uint8_t cur = dst[base + i];
+            dst[base + i] = cur - prev;
+            prev = cur;
+        }
+    }
+    return 0;
+}
+
 BINPACK_API int BINPACK_CALL binpack_transpose_delta_filter(uint8_t *data, size_t size, uint16_t stride) {
     if (!data || size < 4 || stride < 2 || stride > 256) return -1;
-    uint8_t *temp = (uint8_t*)malloc(size);
+    int must_free = 0;
+    uint8_t *temp = bp_acquire_core_scratch(size, &must_free);
     if (!temp) return -1;
 
     size_t num_elements = size / stride;
@@ -583,22 +747,39 @@ BINPACK_API int BINPACK_CALL binpack_transpose_delta_filter(uint8_t *data, size_
         }
     }
 
-    free(temp);
+    bp_release_core_scratch(temp, must_free);
     return 0;
 }
 
 BINPACK_API int BINPACK_CALL binpack_transpose_delta_unfilter(uint8_t *data, size_t size, uint16_t stride) {
     if (!data || size < 4 || stride < 2 || stride > 256) return -1;
-    uint8_t *temp = (uint8_t*)malloc(size);
+    int must_free = 0;
+    uint8_t *temp = bp_acquire_core_scratch(size, &must_free);
     if (!temp) return -1;
 
     size_t num_elements = size / stride;
 
-    /* Prefix-sum decode from data into temp (eliminating initial memcpy) */
+    /* Vectorized SIMD Parallel Prefix-Sum decode from data into temp */
     for (size_t s = 0; s < stride; s++) {
         size_t base = s * num_elements;
         uint8_t acc = 0;
-        for (size_t i = 0; i < num_elements; i++) {
+        size_t i = 0;
+#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
+        __m128i carry = _mm_setzero_si128();
+        __m128i bcast15 = _mm_set1_epi8(15);
+        for (; i + 16 <= num_elements; i += 16) {
+            __m128i x = _mm_loadu_si128((const __m128i*)(data + base + i));
+            x = _mm_add_epi8(x, _mm_slli_si128(x, 1));
+            x = _mm_add_epi8(x, _mm_slli_si128(x, 2));
+            x = _mm_add_epi8(x, _mm_slli_si128(x, 4));
+            x = _mm_add_epi8(x, _mm_slli_si128(x, 8));
+            x = _mm_add_epi8(x, carry);
+            _mm_storeu_si128((__m128i*)(temp + base + i), x);
+            carry = _mm_shuffle_epi8(x, bcast15);
+        }
+        if (i > 0) acc = temp[base + i - 1];
+#endif
+        for (; i < num_elements; i++) {
             acc = (uint8_t)(acc + data[base + i]);
             temp[base + i] = acc;
         }
@@ -607,7 +788,7 @@ BINPACK_API int BINPACK_CALL binpack_transpose_delta_unfilter(uint8_t *data, siz
     /* SIMD-accelerated interleave directly from temp back into data */
     bp_interleave_channels(temp, data, num_elements, stride);
 
-    free(temp);
+    bp_release_core_scratch(temp, must_free);
     return 0;
 }
 
@@ -648,7 +829,8 @@ static inline void bp_transpose_32x8_bits_avx2(uint8_t *data) {
 
 int binpack_bitshuffle_filter(uint8_t *data, size_t size, uint16_t stride) {
     if (!data || size < 8 || stride < 1 || stride > 256) return -1;
-    uint8_t *temp = (uint8_t*)malloc(size);
+    int must_free = 0;
+    uint8_t *temp = bp_acquire_core_scratch(size, &must_free);
     if (!temp) return -1;
 
     size_t num_elements = size / stride;
@@ -695,13 +877,14 @@ int binpack_bitshuffle_filter(uint8_t *data, size_t size, uint16_t stride) {
         }
     }
 
-    free(temp);
+    bp_release_core_scratch(temp, must_free);
     return 0;
 }
 
 int binpack_bitshuffle_unfilter(uint8_t *data, size_t size, uint16_t stride) {
     if (!data || size < 8 || stride < 1 || stride > 256) return -1;
-    uint8_t *temp = (uint8_t*)malloc(size);
+    int must_free = 0;
+    uint8_t *temp = bp_acquire_core_scratch(size, &must_free);
     if (!temp) return -1;
 
     size_t num_elements = size / stride;
@@ -745,7 +928,7 @@ int binpack_bitshuffle_unfilter(uint8_t *data, size_t size, uint16_t stride) {
         memcpy(data, temp, num_elements);
     }
 
-    free(temp);
+    bp_release_core_scratch(temp, must_free);
     return 0;
 }
 
@@ -762,7 +945,8 @@ int binpack_texture_bcn_filter(uint8_t *data, size_t size, uint16_t stride) {
     size_t remainder = size % block_size;
     if (num_blocks == 0) return 0;
 
-    uint8_t *temp = (uint8_t*)malloc(size);
+    int must_free = 0;
+    uint8_t *temp = bp_acquire_core_scratch(size, &must_free);
     if (!temp) return -1;
 
     if (stride == 8) {
@@ -805,7 +989,7 @@ int binpack_texture_bcn_filter(uint8_t *data, size_t size, uint16_t stride) {
         memcpy(temp + (num_blocks * block_size), data + (num_blocks * block_size), remainder);
     }
     memcpy(data, temp, size);
-    free(temp);
+    bp_release_core_scratch(temp, must_free);
     return 0;
 }
 
@@ -818,7 +1002,8 @@ int binpack_texture_bcn_unfilter(uint8_t *data, size_t size, uint16_t stride) {
     size_t remainder = size % block_size;
     if (num_blocks == 0) return 0;
 
-    uint8_t *temp = (uint8_t*)malloc(size);
+    int must_free = 0;
+    uint8_t *temp = bp_acquire_core_scratch(size, &must_free);
     if (!temp) return -1;
 
     memcpy(temp, data, size);
@@ -862,7 +1047,7 @@ int binpack_texture_bcn_unfilter(uint8_t *data, size_t size, uint16_t stride) {
     if (remainder > 0) {
         memcpy(data + (num_blocks * block_size), temp + (num_blocks * block_size), remainder);
     }
-    free(temp);
+    bp_release_core_scratch(temp, must_free);
     return 0;
 }
 
@@ -900,11 +1085,7 @@ BINPACK_API binpack_filter_t BINPACK_CALL binpack_auto_select_filter(const uint8
         return BINPACK_FILTER_X86_64;
     }
 
-    /* Fast-Exit Heuristic: Plain Text / ASCII / CSV / UTF-8 Bypass.
-     * If the payload is plain text or delimited tabular ASCII, candidate multi-channel
-     * stride transpositions and x86 opcode scans are structurally unproductive.
-     * Exiting immediately delivers identical compression ratio with zero detection overhead,
-     * matching raw Zstandard L3 speed (350+ MB/s). */
+    /* Fast-Exit Heuristic: Plain Text / ASCII / CSV / UTF-8 Bypass. */
     {
         size_t sample_len = size > 1024 ? 1024 : size;
         size_t valid = 0;
@@ -946,35 +1127,67 @@ BINPACK_API binpack_filter_t BINPACK_CALL binpack_auto_select_filter(const uint8
 
     if (size >= 1024) {
         static const uint16_t candidate_strides[] = {
-            2, 4, 8, 12, 16, 24, 32, 48, 64, 84, 96, 104, 128
+            2, 4, 8, 12, 16, 20, 24, 28, 32, 48, 64, 84, 96, 104, 128
         };
         /* Sample from middle of buffer when large to avoid archive/container headers */
         const uint8_t *sample = (size > 65536) ? (data + (size / 2) - 4096) : data;
         size_t test_len = size > 8192 ? 8192 : size;
+        size_t max_rows = (size <= 16384) ? 16 : 48;
 
-        /* Measure baseline stride-1 byte correlation (rejects zero-runs / plain text) */
+        /* Measure baseline stride-1 byte correlation (1st & 2nd order delta) */
+        size_t s1_len = (size <= 16384) ? 512 : 2048;
+        if (s1_len > test_len) s1_len = test_len;
         size_t s1_matches = 0;
-        for (size_t i = 1; i < test_len; i++) {
+        uint8_t prev_s1_d = 0;
+        for (size_t i = 1; i < s1_len; i++) {
             int diff = (int)sample[i] - (int)sample[i - 1];
-            if (diff > -4 && diff < 4) s1_matches++;
+            uint8_t d1 = (uint8_t)diff;
+            if ((diff > -4 && diff < 4) || (i >= 2 && d1 == prev_s1_d)) s1_matches++;
+            prev_s1_d = d1;
         }
-        double s1_score = (double)s1_matches / (double)(test_len - 1);
+        double s1_score = (double)s1_matches / (double)(s1_len - 1);
 
         uint16_t best_stride = 0;
         double best_score = 0.0;
 
         for (size_t c = 0; c < sizeof(candidate_strides) / sizeof(candidate_strides[0]); c++) {
             uint16_t st = candidate_strides[c];
-            if (test_len <= (size_t)st * 8) continue;
-            size_t matches = 0;
-            size_t total = test_len - st;
-            for (size_t i = st; i < test_len; i++) {
-                int diff = (int)sample[i] - (int)sample[i - st];
-                if (diff > -4 && diff < 4) matches++;
+            size_t num_rows = test_len / st;
+            if (num_rows < 8) continue;
+            if (num_rows > max_rows) num_rows = max_rows;
+
+            size_t total_matches = 0;
+            uint16_t strong_lanes = 0;
+            size_t rows_m1 = num_rows - 1;
+
+            for (uint16_t s = 0; s < st; s++) {
+                size_t lane_matches = 0;
+                uint8_t prev_d1 = 0;
+                const uint8_t *p = sample + s;
+                int prv = (int)p[0];
+                for (size_t r = 1; r < num_rows; r++) {
+                    p += st;
+                    int cur = (int)p[0];
+                    int diff = cur - prv;
+                    uint8_t d1 = (uint8_t)diff;
+                    if ((diff > -4 && diff < 4) || (r >= 2 && d1 == prev_d1)) {
+                        lane_matches++;
+                    }
+                    prev_d1 = d1;
+                    prv = cur;
+                }
+                total_matches += lane_matches;
+                if (lane_matches * 10 >= rows_m1 * 6) { /* >= 60% correlation in this byte lane */
+                    strong_lanes++;
+                }
             }
-            double score = (double)matches / (double)total;
-            if (score > 0.40 && score > s1_score + 0.15 && score > best_score + 0.03) {
-                best_score = score;
+
+            double avg_score = (double)total_matches / (double)(rows_m1 * st);
+            int has_lane_structure = (strong_lanes >= 1 && (uint32_t)strong_lanes * 4 >= (uint32_t)st && avg_score > 0.22);
+            if ((avg_score > 0.40 || has_lane_structure) &&
+                avg_score > s1_score + 0.12 &&
+                avg_score > best_score + 0.03) {
+                best_score = avg_score;
                 best_stride = st;
             }
         }
@@ -984,12 +1197,17 @@ BINPACK_API binpack_filter_t BINPACK_CALL binpack_auto_select_filter(const uint8
         }
     }
 
-    size_t jump_count = 0;
+    /* Hardened x86-64 CALL/JMP heuristic for headerless executable blobs:
+     * Verify E8/E9 relative target high byte is 0x00 or 0xFF (sign-extended +/-16MB offset)
+     * to prevent false positives on floating-point or random binary data. */
+    size_t valid_call_count = 0;
     size_t sample_len = size > 16384 ? 16384 : size;
-    for (size_t i = 0; i < sample_len; i++) {
-        if (data[i] == 0xE8 || data[i] == 0xE9) jump_count++;
+    for (size_t i = 0; i + 5 <= sample_len; i++) {
+        if ((data[i] == 0xE8 || data[i] == 0xE9) && (data[i + 4] == 0x00 || data[i + 4] == 0xFF)) {
+            valid_call_count++;
+        }
     }
-    if (jump_count * 100 / sample_len >= 1) {
+    if (valid_call_count * 1000 / sample_len >= 3) { /* >= 0.3% valid relative calls (random is 0.006%) */
         return BINPACK_FILTER_X86_64;
     }
 

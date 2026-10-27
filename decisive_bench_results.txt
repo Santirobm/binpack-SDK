@@ -10,182 +10,182 @@ DATASET: NASA_Turbofan_F32      | Grupo: 1. Telemetria Real   | Tamano:   1.89 M
 ----------------------------------------------------------------------------------------------------------------------------------
 Motor Evaluado     | Ratio (%)  | Comp (MB/s)    | Decomp (MB/s)  | Latencia 4KB   | Latencia 64KB  | Integridad
 ----------------------------------------------------------------------------------------------------------------------------------
-LZ4 (Fast)         |    56.49%  |      764.3 M   |     5895.7 M   |       3.00 us  |      69.85 us  | BIT-EXACT
-Meta Zstd L3       |    38.26%  |      273.1 M   |     1308.8 M   |      12.96 us  |     157.64 us  | BIT-EXACT
-Meta Zstd L19      |    31.02%  |        3.8 M   |     1420.1 M   |     507.89 us  |   12724.46 us  | BIT-EXACT
-Gorilla (FB '15)   |   106.18%  |       42.2 M   |      227.3 M   |      73.04 us  |    1467.23 us  | BIT-EXACT
-Chimp (VLDB '22)   |   106.18%  |       45.4 M   |      231.6 M   |      69.24 us  |    1343.34 us  | BIT-EXACT
+LZ4 (Fast)         |    56.49%  |      773.7 M   |     6208.2 M   |       2.87 us  |      59.50 us  | BIT-EXACT
+Meta Zstd L3       |    38.26%  |      282.5 M   |     1307.5 M   |      12.09 us  |     150.50 us  | BIT-EXACT
+Meta Zstd L19      |    31.02%  |        4.5 M   |     1506.2 M   |     503.12 us  |   13324.78 us  | BIT-EXACT
+Gorilla (FB '15)   |   106.18%  |       42.2 M   |      226.8 M   |      73.41 us  |    1466.32 us  | BIT-EXACT
+Chimp (VLDB '22)   |   106.18%  |       46.6 M   |      230.2 M   |      69.27 us  |    1368.10 us  | BIT-EXACT
 Sprintz (IoT '18)  | N/A        | -              | -              | -              | -              | N/A (Solo Enteros)
-BINPACK RT         |    28.49%  |      509.4 M   |      989.4 M   |      21.31 us  |     139.51 us  | BIT-EXACT
-BINPACK Default    |    27.25%  |       13.2 M   |      891.3 M   |     711.47 us  |    4702.86 us  | BIT-EXACT
+BINPACK RT         |    28.49%  |      689.7 M   |     1685.8 M   |      16.50 us  |     142.76 us  | BIT-EXACT
+BINPACK Default    |    27.25%  |       13.5 M   |     1417.5 M   |     721.88 us  |    4776.95 us  | BIT-EXACT
 ----------------------------------------------------------------------------------------------------------------------------------
 DATASET: NASA_Bearing_Vib       | Grupo: 1. Telemetria Real   | Tamano:   1.82 MB (1905892 bytes)
 ----------------------------------------------------------------------------------------------------------------------------------
 Motor Evaluado     | Ratio (%)  | Comp (MB/s)    | Decomp (MB/s)  | Latencia 4KB   | Latencia 64KB  | Integridad
 ----------------------------------------------------------------------------------------------------------------------------------
-LZ4 (Fast)         |    77.13%  |      667.8 M   |     4558.6 M   |       3.17 us  |     140.83 us  | BIT-EXACT
-Meta Zstd L3       |    42.92%  |      199.1 M   |     1311.6 M   |      11.62 us  |     331.61 us  | BIT-EXACT
-Meta Zstd L19      |    37.06%  |        2.6 M   |      905.7 M   |     772.73 us  |   19086.00 us  | BIT-EXACT
+LZ4 (Fast)         |    77.13%  |      659.0 M   |     4284.7 M   |       3.18 us  |     128.45 us  | BIT-EXACT
+Meta Zstd L3       |    42.92%  |      191.4 M   |     1293.1 M   |      11.64 us  |     215.80 us  | BIT-EXACT
+Meta Zstd L19      |    37.06%  |        3.9 M   |     1619.1 M   |     449.43 us  |   11175.55 us  | BIT-EXACT
 Gorilla (FB '15)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Chimp (VLDB '22)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Sprintz (IoT '18)  | N/A        | -              | -              | -              | -              | N/A (Solo Enteros)
-BINPACK RT         |    42.93%  |      117.8 M   |      631.7 M   |      23.16 us  |     423.52 us  | BIT-EXACT
-BINPACK Default    |    37.06%  |        2.6 M   |      903.2 M   |     750.79 us  |   18579.97 us  | BIT-EXACT
+BINPACK RT         |    42.93%  |      197.0 M   |     1303.4 M   |      12.55 us  |     216.04 us  | BIT-EXACT
+BINPACK Default    |    37.06%  |        4.0 M   |     1508.7 M   |     449.91 us  |   11183.84 us  | BIT-EXACT
 ----------------------------------------------------------------------------------------------------------------------------------
 DATASET: ETTh1_Transformer      | Grupo: 1. Telemetria Real   | Tamano:   2.47 MB (2589657 bytes)
 ----------------------------------------------------------------------------------------------------------------------------------
 Motor Evaluado     | Ratio (%)  | Comp (MB/s)    | Decomp (MB/s)  | Latencia 4KB   | Latencia 64KB  | Integridad
 ----------------------------------------------------------------------------------------------------------------------------------
-LZ4 (Fast)         |    25.04%  |      457.0 M   |     2128.1 M   |       4.85 us  |     100.17 us  | BIT-EXACT
-Meta Zstd L3       |    13.94%  |      413.6 M   |     1235.9 M   |      17.49 us  |     196.97 us  | BIT-EXACT
-Meta Zstd L19      |    10.93%  |        2.5 M   |     1339.5 M   |     963.05 us  |   24442.12 us  | BIT-EXACT
+LZ4 (Fast)         |    25.04%  |      751.4 M   |     3967.5 M   |       2.66 us  |      60.33 us  | BIT-EXACT
+Meta Zstd L3       |    13.94%  |      713.9 M   |     2537.9 M   |       9.50 us  |      90.86 us  | BIT-EXACT
+Meta Zstd L19      |    10.93%  |        4.1 M   |     2825.0 M   |     577.94 us  |   15080.64 us  | BIT-EXACT
 Gorilla (FB '15)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Chimp (VLDB '22)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Sprintz (IoT '18)  | N/A        | -              | -              | -              | -              | N/A (Solo Enteros)
-BINPACK RT         |    13.94%  |      418.0 M   |     1246.0 M   |      19.14 us  |     195.74 us  | BIT-EXACT
-BINPACK Default    |    10.93%  |        2.5 M   |     1312.9 M   |     947.44 us  |   24334.81 us  | BIT-EXACT
+BINPACK RT         |    13.94%  |      711.3 M   |     2526.6 M   |      10.45 us  |      92.74 us  | BIT-EXACT
+BINPACK Default    |    10.93%  |        3.9 M   |     2787.5 M   |     587.09 us  |   14858.75 us  | BIT-EXACT
 ----------------------------------------------------------------------------------------------------------------------------------
 DATASET: Sensor_Matrix_16b      | Grupo: 1. Telemetria Real   | Tamano:   0.25 MB (262144 bytes)
 ----------------------------------------------------------------------------------------------------------------------------------
 Motor Evaluado     | Ratio (%)  | Comp (MB/s)    | Decomp (MB/s)  | Latencia 4KB   | Latencia 64KB  | Integridad
 ----------------------------------------------------------------------------------------------------------------------------------
-LZ4 (Fast)         |   100.39%  |    10000.0 M   |    13992.5 M   |       6.95 us  |      72.28 us  | BIT-EXACT
-Meta Zstd L3       |    90.54%  |      146.9 M   |      847.4 M   |      28.34 us  |      76.63 us  | BIT-EXACT
-Meta Zstd L19      |    86.30%  |        8.1 M   |      550.6 M   |     328.76 us  |    5837.86 us  | BIT-EXACT
+LZ4 (Fast)         |   100.39%  |    19968.1 M   |    49277.3 M   |       3.91 us  |      40.00 us  | BIT-EXACT
+Meta Zstd L3       |    90.54%  |      275.1 M   |     1333.9 M   |      16.34 us  |      47.03 us  | BIT-EXACT
+Meta Zstd L19      |    86.30%  |       16.0 M   |      931.9 M   |     172.80 us  |    3055.23 us  | BIT-EXACT
 Gorilla (FB '15)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Chimp (VLDB '22)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
-Sprintz (IoT '18)  |   103.81%  |       20.8 M   |      117.9 M   |     160.92 us  |    2969.47 us  | BIT-EXACT
-BINPACK RT         |    34.99%  |      140.6 M   |      533.7 M   |      40.41 us  |     405.02 us  | BIT-EXACT
-BINPACK Default    |    29.46%  |        4.8 M   |      498.9 M   |    1272.13 us  |   13616.11 us  | BIT-EXACT
+Sprintz (IoT '18)  |   103.81%  |       28.1 M   |      227.8 M   |     120.62 us  |    2215.71 us  | BIT-EXACT
+BINPACK RT         |    34.99%  |      262.1 M   |     1648.6 M   |      14.32 us  |     220.57 us  | BIT-EXACT
+BINPACK Default    |    29.46%  |        8.3 M   |     1189.3 M   |     191.47 us  |    8200.70 us  | BIT-EXACT
 ----------------------------------------------------------------------------------------------------------------------------------
 DATASET: F32_Ramp_1MB           | Grupo: 2. Series Numericas  | Tamano:   1.00 MB (1048576 bytes)
 ----------------------------------------------------------------------------------------------------------------------------------
 Motor Evaluado     | Ratio (%)  | Comp (MB/s)    | Decomp (MB/s)  | Latencia 4KB   | Latencia 64KB  | Integridad
 ----------------------------------------------------------------------------------------------------------------------------------
-LZ4 (Fast)         |   100.39%  |    12483.4 M   |    20226.5 M   |       1.33 us  |       9.19 us  | BIT-EXACT
-Meta Zstd L3       |    72.00%  |      671.7 M   |     1219.2 M   |      13.81 us  |      88.15 us  | BIT-EXACT
-Meta Zstd L19      |    14.28%  |        5.3 M   |      304.1 M   |     422.96 us  |    7388.96 us  | BIT-EXACT
-Gorilla (FB '15)   |   103.12%  |       99.8 M   |      126.5 M   |      42.47 us  |     654.15 us  | BIT-EXACT
-Chimp (VLDB '22)   |   106.25%  |       82.9 M   |      121.4 M   |      48.57 us  |     770.14 us  | BIT-EXACT
+LZ4 (Fast)         |   100.39%  |    18166.4 M   |    26132.4 M   |       0.72 us  |       3.85 us  | BIT-EXACT
+Meta Zstd L3       |    72.00%  |      987.0 M   |     1639.1 M   |       8.77 us  |      56.90 us  | BIT-EXACT
+Meta Zstd L19      |    14.28%  |        9.0 M   |      595.9 M   |     218.27 us  |    3831.04 us  | BIT-EXACT
+Gorilla (FB '15)   |   103.12%  |      118.1 M   |      238.7 M   |      32.36 us  |     525.77 us  | BIT-EXACT
+Chimp (VLDB '22)   |   106.25%  |      124.8 M   |      230.8 M   |      32.24 us  |     505.70 us  | BIT-EXACT
 Sprintz (IoT '18)  | N/A        | -              | -              | -              | -              | N/A (Solo Enteros)
-BINPACK RT         |     0.11%  |      991.0 M   |     1096.1 M   |      25.83 us  |      86.05 us  | BIT-EXACT
-BINPACK Default    |     0.05%  |      202.1 M   |     1254.4 M   |     628.71 us  |     705.22 us  | BIT-EXACT
+BINPACK RT         |     0.20%  |     2156.0 M   |     3472.0 M   |      11.74 us  |      48.47 us  | BIT-EXACT
+BINPACK Default    |     0.11%  |      160.0 M   |     3513.4 M   |    1814.32 us  |    3450.14 us  | BIT-EXACT
 ----------------------------------------------------------------------------------------------------------------------------------
 DATASET: F32_Sine_Smooth_1MB    | Grupo: 2. Series Numericas  | Tamano:   1.00 MB (1048576 bytes)
 ----------------------------------------------------------------------------------------------------------------------------------
 Motor Evaluado     | Ratio (%)  | Comp (MB/s)    | Decomp (MB/s)  | Latencia 4KB   | Latencia 64KB  | Integridad
 ----------------------------------------------------------------------------------------------------------------------------------
-LZ4 (Fast)         |   100.39%  |     6835.9 M   |    12534.5 M   |       1.32 us  |       9.16 us  | BIT-EXACT
-Meta Zstd L3       |    86.64%  |      261.2 M   |      861.0 M   |      13.31 us  |      86.53 us  | BIT-EXACT
-Meta Zstd L19      |    70.04%  |        6.1 M   |      346.7 M   |     281.27 us  |    5212.98 us  | BIT-EXACT
-Gorilla (FB '15)   |   106.18%  |       36.9 M   |      122.2 M   |      98.30 us  |    1667.49 us  | BIT-EXACT
-Chimp (VLDB '22)   |   106.25%  |       35.3 M   |      121.3 M   |     103.39 us  |    1743.79 us  | BIT-EXACT
+LZ4 (Fast)         |   100.39%  |    11072.6 M   |    25938.1 M   |       0.71 us  |       3.84 us  | BIT-EXACT
+Meta Zstd L3       |    86.64%  |      417.9 M   |     1295.9 M   |       8.61 us  |      56.90 us  | BIT-EXACT
+Meta Zstd L19      |    70.04%  |       11.1 M   |      633.3 M   |     152.03 us  |    2779.27 us  | BIT-EXACT
+Gorilla (FB '15)   |   106.18%  |       46.2 M   |      225.6 M   |      78.67 us  |    1368.96 us  | BIT-EXACT
+Chimp (VLDB '22)   |   106.25%  |       47.8 M   |      231.2 M   |      79.40 us  |    1304.54 us  | BIT-EXACT
 Sprintz (IoT '18)  | N/A        | -              | -              | -              | -              | N/A (Solo Enteros)
-BINPACK RT         |    11.46%  |      357.9 M   |      873.7 M   |      37.76 us  |     233.84 us  | BIT-EXACT
-BINPACK Default    |     7.89%  |        8.9 M   |      819.8 M   |     670.64 us  |   14663.16 us  | BIT-EXACT
+BINPACK RT         |    11.46%  |      810.9 M   |     2878.0 M   |      15.89 us  |     133.50 us  | BIT-EXACT
+BINPACK Default    |     7.89%  |       14.2 M   |     2275.1 M   |     407.08 us  |    8949.93 us  | BIT-EXACT
 ----------------------------------------------------------------------------------------------------------------------------------
 DATASET: F32_Sine_Wave_1MB      | Grupo: 2. Series Numericas  | Tamano:   1.00 MB (1048576 bytes)
 ----------------------------------------------------------------------------------------------------------------------------------
 Motor Evaluado     | Ratio (%)  | Comp (MB/s)    | Decomp (MB/s)  | Latencia 4KB   | Latencia 64KB  | Integridad
 ----------------------------------------------------------------------------------------------------------------------------------
-LZ4 (Fast)         |   100.39%  |    12734.5 M   |    18780.5 M   |       1.32 us  |       9.20 us  | BIT-EXACT
-Meta Zstd L3       |    89.56%  |      526.6 M   |     1057.9 M   |      13.51 us  |      81.62 us  | BIT-EXACT
-Meta Zstd L19      |    87.44%  |        9.8 M   |      677.5 M   |     283.65 us  |    5390.21 us  | BIT-EXACT
-Gorilla (FB '15)   |   106.25%  |       29.0 M   |      121.9 M   |     117.85 us  |    2102.65 us  | BIT-EXACT
-Chimp (VLDB '22)   |   106.25%  |       28.1 M   |      121.9 M   |     123.84 us  |    2207.92 us  | BIT-EXACT
+LZ4 (Fast)         |   100.39%  |    16733.6 M   |    21717.1 M   |       0.71 us  |       4.85 us  | BIT-EXACT
+Meta Zstd L3       |    89.56%  |      842.1 M   |     1529.8 M   |       7.92 us  |      49.22 us  | BIT-EXACT
+Meta Zstd L19      |    87.44%  |       20.7 M   |     1087.5 M   |     151.15 us  |    2839.81 us  | BIT-EXACT
+Gorilla (FB '15)   |   106.25%  |       36.4 M   |      228.8 M   |      91.99 us  |    1717.82 us  | BIT-EXACT
+Chimp (VLDB '22)   |   106.25%  |       37.0 M   |      230.1 M   |      96.29 us  |    1692.58 us  | BIT-EXACT
 Sprintz (IoT '18)  | N/A        | -              | -              | -              | -              | N/A (Solo Enteros)
-BINPACK RT         |    89.56%  |      515.8 M   |     1065.5 M   |      33.67 us  |     124.14 us  | BIT-EXACT
-BINPACK Default    |    87.45%  |       10.0 M   |      673.9 M   |     303.96 us  |    5539.15 us  | BIT-EXACT
+BINPACK RT         |    42.17%  |      792.2 M   |     3061.5 M   |      14.75 us  |      58.62 us  | BIT-EXACT
+BINPACK Default    |    38.17%  |       10.0 M   |     1877.8 M   |     358.24 us  |    7290.38 us  | BIT-EXACT
 ----------------------------------------------------------------------------------------------------------------------------------
 DATASET: F32_Sine_Noise         | Grupo: 2. Series Numericas  | Tamano:   1.00 MB (1048576 bytes)
 ----------------------------------------------------------------------------------------------------------------------------------
 Motor Evaluado     | Ratio (%)  | Comp (MB/s)    | Decomp (MB/s)  | Latencia 4KB   | Latencia 64KB  | Integridad
 ----------------------------------------------------------------------------------------------------------------------------------
-LZ4 (Fast)         |   100.39%  |    10657.2 M   |    13277.9 M   |       1.34 us  |       9.45 us  | BIT-EXACT
-Meta Zstd L3       |    89.76%  |      551.7 M   |     1070.9 M   |      12.98 us  |      81.37 us  | BIT-EXACT
-Meta Zstd L19      |    89.79%  |        9.3 M   |      996.4 M   |     278.28 us  |    5225.19 us  | BIT-EXACT
-Gorilla (FB '15)   |   106.25%  |       28.8 M   |      122.8 M   |     117.13 us  |    2135.37 us  | BIT-EXACT
-Chimp (VLDB '22)   |   106.25%  |       27.9 M   |      121.3 M   |     124.17 us  |    2211.05 us  | BIT-EXACT
+LZ4 (Fast)         |   100.39%  |    18277.1 M   |    27218.3 M   |       0.71 us  |       3.83 us  | BIT-EXACT
+Meta Zstd L3       |    89.76%  |      958.9 M   |     1541.8 M   |       7.95 us  |      49.12 us  | BIT-EXACT
+Meta Zstd L19      |    89.79%  |       20.8 M   |     1403.9 M   |     159.72 us  |    2826.86 us  | BIT-EXACT
+Gorilla (FB '15)   |   106.25%  |       34.6 M   |      147.9 M   |      92.20 us  |    1749.82 us  | BIT-EXACT
+Chimp (VLDB '22)   |   106.25%  |       36.3 M   |      231.6 M   |      99.56 us  |    1708.90 us  | BIT-EXACT
 Sprintz (IoT '18)  | N/A        | -              | -              | -              | -              | N/A (Solo Enteros)
-BINPACK RT         |    89.77%  |      588.4 M   |     1071.4 M   |      33.71 us  |     124.33 us  | BIT-EXACT
-BINPACK Default    |    89.80%  |       10.6 M   |      987.9 M   |     298.37 us  |    5475.87 us  | BIT-EXACT
+BINPACK RT         |    71.49%  |     1786.9 M   |     3211.2 M   |      16.53 us  |      64.65 us  | BIT-EXACT
+BINPACK Default    |    70.04%  |        6.7 M   |     1971.0 M   |     424.44 us  |   11463.12 us  | BIT-EXACT
 ----------------------------------------------------------------------------------------------------------------------------------
 DATASET: F64_Sine_Wave_1MB      | Grupo: 2. Series Numericas  | Tamano:   1.00 MB (1048576 bytes)
 ----------------------------------------------------------------------------------------------------------------------------------
 Motor Evaluado     | Ratio (%)  | Comp (MB/s)    | Decomp (MB/s)  | Latencia 4KB   | Latencia 64KB  | Integridad
 ----------------------------------------------------------------------------------------------------------------------------------
-LZ4 (Fast)         |   100.39%  |    13026.5 M   |    20865.2 M   |       1.33 us  |       9.08 us  | BIT-EXACT
-Meta Zstd L3       |    94.95%  |      522.8 M   |      974.1 M   |      13.74 us  |      78.20 us  | BIT-EXACT
-Meta Zstd L19      |    94.27%  |        9.9 M   |      990.2 M   |     281.86 us  |    5457.51 us  | BIT-EXACT
-Gorilla (FB '15)   |   103.12%  |       27.7 M   |      129.9 M   |     126.42 us  |    2231.66 us  | BIT-EXACT
+LZ4 (Fast)         |   100.39%  |    17317.0 M   |    24228.7 M   |       0.75 us  |       4.01 us  | BIT-EXACT
+Meta Zstd L3       |    94.95%  |      833.5 M   |     1368.2 M   |       8.42 us  |      47.90 us  | BIT-EXACT
+Meta Zstd L19      |    94.27%  |       21.6 M   |     1422.1 M   |     154.98 us  |    2861.63 us  | BIT-EXACT
+Gorilla (FB '15)   |   103.12%  |       36.9 M   |      237.1 M   |      92.56 us  |    1689.41 us  | BIT-EXACT
 Chimp (VLDB '22)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Sprintz (IoT '18)  | N/A        | -              | -              | -              | -              | N/A (Solo Enteros)
-BINPACK RT         |    94.95%  |      526.5 M   |      984.3 M   |      33.84 us  |     117.80 us  | BIT-EXACT
-BINPACK Default    |    94.27%  |       10.6 M   |      982.4 M   |     300.89 us  |    5489.02 us  | BIT-EXACT
+BINPACK RT         |    68.23%  |     1350.6 M   |     4739.8 M   |      16.72 us  |      67.95 us  | BIT-EXACT
+BINPACK Default    |    66.93%  |       18.1 M   |     3073.6 M   |     367.60 us  |    5157.31 us  | BIT-EXACT
 ----------------------------------------------------------------------------------------------------------------------------------
 DATASET: Int16_Sine_1MB         | Grupo: 2. Series Numericas  | Tamano:   1.00 MB (1048576 bytes)
 ----------------------------------------------------------------------------------------------------------------------------------
 Motor Evaluado     | Ratio (%)  | Comp (MB/s)    | Decomp (MB/s)  | Latencia 4KB   | Latencia 64KB  | Integridad
 ----------------------------------------------------------------------------------------------------------------------------------
-LZ4 (Fast)         |    97.64%  |     1053.4 M   |    12751.8 M   |       3.47 us  |      97.19 us  | BIT-EXACT
-Meta Zstd L3       |    21.26%  |      280.1 M   |     1112.7 M   |      24.47 us  |     365.11 us  | BIT-EXACT
-Meta Zstd L19      |    15.32%  |        3.7 M   |      868.5 M   |     289.81 us  |    6903.71 us  | BIT-EXACT
+LZ4 (Fast)         |    97.64%  |     2286.1 M   |    19833.4 M   |       1.90 us  |      42.93 us  | BIT-EXACT
+Meta Zstd L3       |    21.26%  |      503.8 M   |     2191.6 M   |      14.14 us  |     188.39 us  | BIT-EXACT
+Meta Zstd L19      |    15.32%  |        6.7 M   |     1708.2 M   |     155.06 us  |    3815.71 us  | BIT-EXACT
 Gorilla (FB '15)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Chimp (VLDB '22)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
-Sprintz (IoT '18)  |    69.99%  |       32.1 M   |      161.3 M   |     100.76 us  |    1931.93 us  | BIT-EXACT
-BINPACK RT         |    14.89%  |      247.4 M   |      637.0 M   |      39.32 us  |     230.16 us  | BIT-EXACT
-BINPACK Default    |     9.03%  |        5.4 M   |      610.6 M   |    1377.14 us  |   23126.28 us  | BIT-EXACT
+Sprintz (IoT '18)  |    69.99%  |       43.1 M   |      328.8 M   |      68.58 us  |    1430.75 us  | BIT-EXACT
+BINPACK RT         |    14.89%  |      522.9 M   |     1842.5 M   |      16.32 us  |     113.23 us  | BIT-EXACT
+BINPACK Default    |     9.03%  |        8.2 M   |     1372.6 M   |     846.64 us  |   14058.11 us  | BIT-EXACT
 ----------------------------------------------------------------------------------------------------------------------------------
 DATASET: Int32_Ramp_1MB         | Grupo: 2. Series Numericas  | Tamano:   1.00 MB (1048576 bytes)
 ----------------------------------------------------------------------------------------------------------------------------------
 Motor Evaluado     | Ratio (%)  | Comp (MB/s)    | Decomp (MB/s)  | Latencia 4KB   | Latencia 64KB  | Integridad
 ----------------------------------------------------------------------------------------------------------------------------------
-LZ4 (Fast)         |   100.39%  |     9144.1 M   |    19347.3 M   |       2.04 us  |      14.03 us  | BIT-EXACT
-Meta Zstd L3       |    72.32%  |      586.9 M   |     1104.3 M   |      16.14 us  |     128.66 us  | BIT-EXACT
-Meta Zstd L19      |    23.31%  |        6.9 M   |      251.4 M   |     435.41 us  |    6038.79 us  | BIT-EXACT
+LZ4 (Fast)         |   100.39%  |    14982.0 M   |    25041.7 M   |       1.13 us  |       6.67 us  | BIT-EXACT
+Meta Zstd L3       |    72.32%  |      865.3 M   |     1479.2 M   |      10.16 us  |      80.32 us  | BIT-EXACT
+Meta Zstd L19      |    23.31%  |       12.0 M   |      441.7 M   |     225.51 us  |    3041.68 us  | BIT-EXACT
 Gorilla (FB '15)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Chimp (VLDB '22)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Sprintz (IoT '18)  | N/A        | -              | -              | -              | -              | N/A (Solo Enteros)
-BINPACK RT         |     0.20%  |      875.1 M   |     1105.9 M   |      22.24 us  |      62.50 us  | BIT-EXACT
-BINPACK Default    |     0.02%  |      175.8 M   |     1311.4 M   |      93.29 us  |     368.62 us  | BIT-EXACT
+BINPACK RT         |     0.20%  |     4510.2 M   |     5198.9 M   |       5.79 us  |      23.53 us  | BIT-EXACT
+BINPACK Default    |     0.02%  |      319.5 M   |     7905.1 M   |      48.29 us  |     244.12 us  | BIT-EXACT
 ----------------------------------------------------------------------------------------------------------------------------------
 DATASET: SCADA_PLC_Frame_1MB    | Grupo: 3. Mixtos SCADA      | Tamano:   0.95 MB (1000000 bytes)
 ----------------------------------------------------------------------------------------------------------------------------------
 Motor Evaluado     | Ratio (%)  | Comp (MB/s)    | Decomp (MB/s)  | Latencia 4KB   | Latencia 64KB  | Integridad
 ----------------------------------------------------------------------------------------------------------------------------------
-LZ4 (Fast)         |    83.30%  |      517.6 M   |     3226.2 M   |       6.64 us  |     124.30 us  | BIT-EXACT
-Meta Zstd L3       |    59.16%  |      135.6 M   |      582.1 M   |      25.86 us  |     372.97 us  | BIT-EXACT
-Meta Zstd L19      |    37.39%  |        5.3 M   |      449.4 M   |     506.55 us  |   10813.28 us  | BIT-EXACT
+LZ4 (Fast)         |    83.30%  |     1079.2 M   |     4639.5 M   |       3.31 us  |      62.58 us  | BIT-EXACT
+Meta Zstd L3       |    59.16%  |      252.1 M   |     1050.5 M   |      14.50 us  |     187.54 us  | BIT-EXACT
+Meta Zstd L19      |    37.39%  |        8.8 M   |      874.7 M   |     266.71 us  |    6276.54 us  | BIT-EXACT
 Gorilla (FB '15)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Chimp (VLDB '22)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Sprintz (IoT '18)  | N/A        | -              | -              | -              | -              | N/A (Solo Enteros)
-BINPACK RT         |    59.17%  |      133.7 M   |      584.1 M   |      46.71 us  |     414.99 us  | BIT-EXACT
-BINPACK Default    |    37.39%  |        5.3 M   |      447.9 M   |     520.02 us  |   10860.75 us  | BIT-EXACT
+BINPACK RT         |    10.20%  |      817.5 M   |     2040.6 M   |      13.75 us  |      75.80 us  | BIT-EXACT
+BINPACK Default    |     7.63%  |       19.2 M   |     1785.2 M   |    1364.74 us  |    5224.17 us  | BIT-EXACT
 ----------------------------------------------------------------------------------------------------------------------------------
 DATASET: Astrometry_Sao_Bin     | Grupo: 3. Mixtos SCADA      | Tamano:   6.92 MB (7251944 bytes)
 ----------------------------------------------------------------------------------------------------------------------------------
 Motor Evaluado     | Ratio (%)  | Comp (MB/s)    | Decomp (MB/s)  | Latencia 4KB   | Latencia 64KB  | Integridad
 ----------------------------------------------------------------------------------------------------------------------------------
-LZ4 (Fast)         |    93.63%  |      431.0 M   |     3852.5 M   |       7.64 us  |     167.38 us  | BIT-EXACT
-Meta Zstd L3       |    76.22%  |      119.8 M   |      605.9 M   |      28.09 us  |     441.52 us  | BIT-EXACT
-Meta Zstd L19      |    68.95%  |        3.3 M   |      598.4 M   |     459.68 us  |   10637.64 us  | BIT-EXACT
+LZ4 (Fast)         |    93.63%  |      858.4 M   |     6902.5 M   |       3.40 us  |      76.83 us  | BIT-EXACT
+Meta Zstd L3       |    76.22%  |      202.3 M   |     1090.7 M   |      15.59 us  |     226.07 us  | BIT-EXACT
+Meta Zstd L19      |    68.95%  |        5.1 M   |     1167.4 M   |     229.43 us  |    6068.33 us  | BIT-EXACT
 Gorilla (FB '15)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Chimp (VLDB '22)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Sprintz (IoT '18)  | N/A        | -              | -              | -              | -              | N/A (Solo Enteros)
-BINPACK RT         |    76.22%  |      120.4 M   |      608.9 M   |      48.51 us  |     481.25 us  | BIT-EXACT
-BINPACK Default    |    68.96%  |        3.4 M   |      598.8 M   |     467.38 us  |   10350.77 us  | BIT-EXACT
+BINPACK RT         |    76.22%  |      201.4 M   |     1080.6 M   |      16.87 us  |     252.85 us  | BIT-EXACT
+BINPACK Default    |    68.96%  |        5.1 M   |     1129.9 M   |     259.98 us  |    6044.22 us  | BIT-EXACT
 ----------------------------------------------------------------------------------------------------------------------------------
 DATASET: Kennedy_Xls_OLE2       | Grupo: 3. Mixtos SCADA      | Tamano:   0.98 MB (1029744 bytes)
 ----------------------------------------------------------------------------------------------------------------------------------
 Motor Evaluado     | Ratio (%)  | Comp (MB/s)    | Decomp (MB/s)  | Latencia 4KB   | Latencia 64KB  | Integridad
 ----------------------------------------------------------------------------------------------------------------------------------
-LZ4 (Fast)         |    36.03%  |      511.0 M   |     3291.1 M   |       5.65 us  |      79.76 us  | BIT-EXACT
-Meta Zstd L3       |    10.86%  |      359.5 M   |      868.1 M   |      22.51 us  |     171.25 us  | BIT-EXACT
-Meta Zstd L19      |     6.30%  |        2.8 M   |      550.9 M   |     512.22 us  |   13827.01 us  | BIT-EXACT
+LZ4 (Fast)         |    36.03%  |      847.9 M   |     5588.9 M   |       3.80 us  |      51.16 us  | BIT-EXACT
+Meta Zstd L3       |    10.86%  |      633.6 M   |     1708.6 M   |      13.21 us  |      96.86 us  | BIT-EXACT
+Meta Zstd L19      |     6.30%  |        4.7 M   |     1088.7 M   |     259.66 us  |    7720.66 us  | BIT-EXACT
 Gorilla (FB '15)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Chimp (VLDB '22)   | N/A        | -              | -              | -              | -              | N/A (Solo Floats)
 Sprintz (IoT '18)  | N/A        | -              | -              | -              | -              | N/A (Solo Enteros)
-BINPACK RT         |    10.42%  |      278.4 M   |      580.1 M   |      41.12 us  |     551.99 us  | BIT-EXACT
-BINPACK Default    |     6.30%  |        2.9 M   |      544.6 M   |     576.41 us  |   14047.18 us  | BIT-EXACT
+BINPACK RT         |    10.42%  |      610.4 M   |     1412.9 M   |      18.40 us  |     200.20 us  | BIT-EXACT
+BINPACK Default    |     6.30%  |        4.5 M   |     1084.5 M   |     298.88 us  |    7954.66 us  | BIT-EXACT
 ==================================================================================================================================
 

@@ -99,7 +99,8 @@ typedef struct binpack_patch_header_s {
     uint32_t old_crc32;          /* Baseline uncompressed CRC32 */
     uint32_t new_crc32;          /* Restored target CRC32 */
     uint8_t  filter_id;          /* Prefilter used on both buffers */
-    uint8_t  reserved[7];        /* Alignment padding */
+    uint16_t filter_param;       /* Filter parameter (e.g. stride) */
+    uint8_t  reserved[5];        /* Alignment padding */
 } binpack_patch_header_t;
 
 #pragma pack(pop)
@@ -151,6 +152,7 @@ void binpack_bcj_riscv_filter(uint8_t *data, size_t size);
 void binpack_bcj_riscv_unfilter(uint8_t *data, size_t size);
 
 int binpack_transpose_delta_filter(uint8_t *data, size_t size, uint16_t stride);
+int binpack_transpose_delta_filter_into(const uint8_t *src, uint8_t *dst, size_t size, uint16_t stride);
 int binpack_transpose_delta_unfilter(uint8_t *data, size_t size, uint16_t stride);
 
 /* Bitshuffle Bit-Level Transposition */

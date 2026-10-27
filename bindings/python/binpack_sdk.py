@@ -49,6 +49,7 @@ class _BinPackOptions(ctypes.Structure):
     ]
 
 class _BinPackFileInfo(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
         ("version", ctypes.c_uint32),
         ("uncompressed_size", ctypes.c_uint64),
@@ -60,6 +61,7 @@ class _BinPackFileInfo(ctypes.Structure):
     ]
 
 class _BinPackChunkInfo(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
         ("chunk_index", ctypes.c_uint32),
         ("file_offset", ctypes.c_uint64),
@@ -68,9 +70,9 @@ class _BinPackChunkInfo(ctypes.Structure):
         ("filter_id", ctypes.c_uint8),
         ("filter_flags", ctypes.c_uint8),
         ("filter_param", ctypes.c_uint16),
+        ("chunk_crc32", ctypes.c_uint32),
         ("code_offset", ctypes.c_uint32),
         ("code_length", ctypes.c_uint32),
-        ("chunk_crc32", ctypes.c_uint32),
     ]
 
 def _load_library():
@@ -263,25 +265,31 @@ def compress(
     opts.nb_workers = threads
     opts.transpose_stride = stride
 
-    f_map = {
-        "auto": BinPackFilter.AUTO,
-        "none": BinPackFilter.NONE,
-        "x86": BinPackFilter.X86_64,
-        "arm": BinPackFilter.ARM32,
-        "arm64": BinPackFilter.AARCH64,
-        "riscv": BinPackFilter.RISCV,
-        "delta": BinPackFilter.TRANSPOSE_DELTA,
-        "bitshuffle": BinPackFilter.BITSHUFFLE,
-        "texture": BinPackFilter.TEXTURE_BCN,
-    }
-    opts.filter = f_map.get(filter_mode.lower(), BinPackFilter.AUTO)
+    if isinstance(filter_mode, int):
+        opts.filter = filter_mode
+    else:
+        f_map = {
+            "auto": BinPackFilter.AUTO,
+            "none": BinPackFilter.NONE,
+            "x86": BinPackFilter.X86_64,
+            "arm": BinPackFilter.ARM32,
+            "arm64": BinPackFilter.AARCH64,
+            "riscv": BinPackFilter.RISCV,
+            "delta": BinPackFilter.TRANSPOSE_DELTA,
+            "bitshuffle": BinPackFilter.BITSHUFFLE,
+            "texture": BinPackFilter.TEXTURE_BCN,
+        }
+        opts.filter = f_map.get(str(filter_mode).lower(), BinPackFilter.AUTO)
 
-    m_map = {
-        "default": BinPackEngineMode.DEFAULT,
-        "runtime": BinPackEngineMode.RUNTIME,
-        "archival": BinPackEngineMode.ARCHIVAL,
-    }
-    opts.mode = m_map.get(mode.lower(), BinPackEngineMode.DEFAULT)
+    if isinstance(mode, int):
+        opts.mode = mode
+    else:
+        m_map = {
+            "default": BinPackEngineMode.DEFAULT,
+            "runtime": BinPackEngineMode.RUNTIME,
+            "archival": BinPackEngineMode.ARCHIVAL,
+        }
+        opts.mode = m_map.get(str(mode).lower(), BinPackEngineMode.DEFAULT)
     if opts.mode == BinPackEngineMode.RUNTIME:
         opts.enable_micro_trial = 0
 

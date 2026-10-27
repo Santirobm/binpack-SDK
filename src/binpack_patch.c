@@ -42,7 +42,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_create_patch(
         filter = binpack_auto_select_filter(new_work, new_sz, &filter_param);
     }
 
-    /* Apply branch normalization if machine code */
+    /* Apply architectural or structural prefilter on both buffers */
     if (filter == BINPACK_FILTER_X86_64) {
         binpack_bcj_x86_filter(old_work, old_sz);
         binpack_bcj_x86_filter(new_work, new_sz);
@@ -52,6 +52,21 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_create_patch(
     } else if (filter == BINPACK_FILTER_AARCH64) {
         binpack_bcj_aarch64_filter(old_work, old_sz);
         binpack_bcj_aarch64_filter(new_work, new_sz);
+    } else if (filter == BINPACK_FILTER_RISCV) {
+        binpack_bcj_riscv_filter(old_work, old_sz);
+        binpack_bcj_riscv_filter(new_work, new_sz);
+    } else if (filter == BINPACK_FILTER_TRANSPOSE_DELTA) {
+        if (filter_param < 2) filter_param = 4;
+        binpack_transpose_delta_filter(old_work, old_sz, filter_param);
+        binpack_transpose_delta_filter(new_work, new_sz, filter_param);
+    } else if (filter == BINPACK_FILTER_BITSHUFFLE) {
+        if (filter_param < 1) filter_param = 4;
+        binpack_bitshuffle_filter(old_work, old_sz, filter_param);
+        binpack_bitshuffle_filter(new_work, new_sz, filter_param);
+    } else if (filter == BINPACK_FILTER_TEXTURE_BCN) {
+        if (filter_param != 8 && filter_param != 16) filter_param = 8;
+        binpack_texture_bcn_filter(old_work, old_sz, filter_param);
+        binpack_texture_bcn_filter(new_work, new_sz, filter_param);
     }
 
     /* Use Zstandard sliding prefix dictionary compression with old_work as base */
@@ -106,6 +121,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_create_patch(
     hdr.old_crc32 = old_crc;
     hdr.new_crc32 = new_crc;
     hdr.filter_id = (uint8_t)filter;
+    hdr.filter_param = filter_param;
 
     memcpy(patch_data, &hdr, sizeof(hdr));
     memcpy(patch_data + sizeof(hdr), cmp_payload, out_buf.pos);
@@ -145,12 +161,21 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_apply_patch(
     memcpy(old_work, old_buf, old_sz);
 
     binpack_filter_t filter = (binpack_filter_t)hdr->filter_id;
+    uint16_t filter_param = hdr->filter_param;
     if (filter == BINPACK_FILTER_X86_64) {
         binpack_bcj_x86_filter(old_work, old_sz);
     } else if (filter == BINPACK_FILTER_ARM32) {
         binpack_bcj_arm32_filter(old_work, old_sz);
     } else if (filter == BINPACK_FILTER_AARCH64) {
         binpack_bcj_aarch64_filter(old_work, old_sz);
+    } else if (filter == BINPACK_FILTER_RISCV) {
+        binpack_bcj_riscv_filter(old_work, old_sz);
+    } else if (filter == BINPACK_FILTER_TRANSPOSE_DELTA) {
+        binpack_transpose_delta_filter(old_work, old_sz, filter_param >= 2 ? filter_param : 4);
+    } else if (filter == BINPACK_FILTER_BITSHUFFLE) {
+        binpack_bitshuffle_filter(old_work, old_sz, filter_param >= 1 ? filter_param : 4);
+    } else if (filter == BINPACK_FILTER_TEXTURE_BCN) {
+        binpack_texture_bcn_filter(old_work, old_sz, (filter_param == 8 || filter_param == 16) ? filter_param : 8);
     }
 
     /* Allocate buffer for reconstructed target */
@@ -192,6 +217,14 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_apply_patch(
         binpack_bcj_arm32_unfilter(new_work, expected_new_sz);
     } else if (filter == BINPACK_FILTER_AARCH64) {
         binpack_bcj_aarch64_unfilter(new_work, expected_new_sz);
+    } else if (filter == BINPACK_FILTER_RISCV) {
+        binpack_bcj_riscv_unfilter(new_work, expected_new_sz);
+    } else if (filter == BINPACK_FILTER_TRANSPOSE_DELTA) {
+        binpack_transpose_delta_unfilter(new_work, expected_new_sz, filter_param >= 2 ? filter_param : 4);
+    } else if (filter == BINPACK_FILTER_BITSHUFFLE) {
+        binpack_bitshuffle_unfilter(new_work, expected_new_sz, filter_param >= 1 ? filter_param : 4);
+    } else if (filter == BINPACK_FILTER_TEXTURE_BCN) {
+        binpack_texture_bcn_unfilter(new_work, expected_new_sz, (filter_param == 8 || filter_param == 16) ? filter_param : 8);
     }
 
     /* Verify target integrity */
