@@ -49,6 +49,10 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Upstream clones
+deps/zstd_src/
+
+
 # Benchmark corpora (downloaded on demand via fetch_corpora.py)
 tests/corpora/
 

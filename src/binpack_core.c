@@ -170,13 +170,13 @@ void binpack_find_code_bounds(const uint8_t *data, size_t size, size_t *out_offs
 /* BCJ x86 / x64 Branch Address Normalization (State-Machine Accelerated)    */
 /* ========================================================================= */
 
-void binpack_bcj_x86_filter(uint8_t *data, size_t size) {
+BINPACK_API void BINPACK_CALL binpack_bcj_x86_filter(uint8_t *data, size_t size) {
     if (!data || size < 5) return;
     UInt32 state = 0;
     x86_Convert(data, size, 0, &state, 1);
 }
 
-void binpack_bcj_x86_unfilter(uint8_t *data, size_t size) {
+BINPACK_API void BINPACK_CALL binpack_bcj_x86_unfilter(uint8_t *data, size_t size) {
     if (!data || size < 5) return;
     UInt32 state = 0;
     x86_Convert(data, size, 0, &state, 0);
@@ -186,7 +186,7 @@ void binpack_bcj_x86_unfilter(uint8_t *data, size_t size) {
 /* BCJ ARM32 Thumb-2 / ARMv7-A Normalization                                 */
 /* ========================================================================= */
 
-void binpack_bcj_arm32_filter(uint8_t *data, size_t size) {
+BINPACK_API void BINPACK_CALL binpack_bcj_arm32_filter(uint8_t *data, size_t size) {
     if (!data || size < 4) return;
     for (size_t i = 0; i + 4 <= size; i += 4) {
         if (data[i + 3] == 0xEB) {
@@ -199,7 +199,7 @@ void binpack_bcj_arm32_filter(uint8_t *data, size_t size) {
     }
 }
 
-void binpack_bcj_arm32_unfilter(uint8_t *data, size_t size) {
+BINPACK_API void BINPACK_CALL binpack_bcj_arm32_unfilter(uint8_t *data, size_t size) {
     if (!data || size < 4) return;
     for (size_t i = 0; i + 4 <= size; i += 4) {
         if (data[i + 3] == 0xEB) {
@@ -551,7 +551,7 @@ static void bp_interleave_channels(const uint8_t *src, uint8_t *dst, size_t num_
     }
 }
 
-int binpack_transpose_delta_filter(uint8_t *data, size_t size, uint16_t stride) {
+BINPACK_API int BINPACK_CALL binpack_transpose_delta_filter(uint8_t *data, size_t size, uint16_t stride) {
     if (!data || size < 4 || stride < 2 || stride > 256) return -1;
     uint8_t *temp = (uint8_t*)malloc(size);
     if (!temp) return -1;
@@ -587,7 +587,7 @@ int binpack_transpose_delta_filter(uint8_t *data, size_t size, uint16_t stride) 
     return 0;
 }
 
-int binpack_transpose_delta_unfilter(uint8_t *data, size_t size, uint16_t stride) {
+BINPACK_API int BINPACK_CALL binpack_transpose_delta_unfilter(uint8_t *data, size_t size, uint16_t stride) {
     if (!data || size < 4 || stride < 2 || stride > 256) return -1;
     uint8_t *temp = (uint8_t*)malloc(size);
     if (!temp) return -1;
@@ -870,7 +870,7 @@ int binpack_texture_bcn_unfilter(uint8_t *data, size_t size, uint16_t stride) {
 /* Automatic Filter Selection Heuristic                                      */
 /* ========================================================================= */
 
-binpack_filter_t binpack_auto_select_filter(const uint8_t *data, size_t size, uint16_t *out_param) {
+BINPACK_API binpack_filter_t BINPACK_CALL binpack_auto_select_filter(const uint8_t *data, size_t size, uint16_t *out_param) {
     *out_param = 0;
     if (!data || size < 64) return BINPACK_FILTER_NONE;
 

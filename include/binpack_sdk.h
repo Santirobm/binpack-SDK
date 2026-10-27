@@ -341,6 +341,18 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_archive_decompress_chunk(
 BINPACK_API void BINPACK_CALL binpack_archive_close(binpack_archive_t *archive);
 
 /* ========================================================================= */
+/* Low-Level Prefilter & Analysis API                                        */
+/* ========================================================================= */
+
+BINPACK_API binpack_filter_t BINPACK_CALL binpack_auto_select_filter(const uint8_t *data, size_t size, uint16_t *out_param);
+BINPACK_API int BINPACK_CALL binpack_transpose_delta_filter(uint8_t *data, size_t size, uint16_t stride);
+BINPACK_API int BINPACK_CALL binpack_transpose_delta_unfilter(uint8_t *data, size_t size, uint16_t stride);
+BINPACK_API void BINPACK_CALL binpack_bcj_x86_filter(uint8_t *data, size_t size);
+BINPACK_API void BINPACK_CALL binpack_bcj_x86_unfilter(uint8_t *data, size_t size);
+BINPACK_API void BINPACK_CALL binpack_bcj_arm32_filter(uint8_t *data, size_t size);
+BINPACK_API void BINPACK_CALL binpack_bcj_arm32_unfilter(uint8_t *data, size_t size);
+
+/* ========================================================================= */
 /* Informational & Status Functions                                          */
 /* ========================================================================= */
 

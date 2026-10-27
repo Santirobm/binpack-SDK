@@ -217,12 +217,24 @@ static binpack_status_t binpack_compress_into_fast(
 
     size_t avail_dst = dst_capacity - payload_offset - ftr_sz;
     /* Compress DIRECTLY into destination payload slot with ZERO redundant memcpy */
-    size_t c_size = ZSTD_compressCCtx(
-        s_fast_cctx,
-        out + payload_offset, avail_dst,
-        data_to_compress, src_sz,
-        clevel
-    );
+    size_t c_size = 0;
+    if (num_workers > 1) {
+        ZSTD_inBuffer in = { data_to_compress, src_sz, 0 };
+        ZSTD_outBuffer out_buf = { out + payload_offset, avail_dst, 0 };
+        size_t rem = ZSTD_compressStream2(s_fast_cctx, &out_buf, &in, ZSTD_e_end);
+        if (ZSTD_isError(rem)) {
+            if (scratch) free(scratch);
+            return BINPACK_ERR_COMPRESSION_FAILED;
+        }
+        c_size = out_buf.pos;
+    } else {
+        c_size = ZSTD_compressCCtx(
+            s_fast_cctx,
+            out + payload_offset, avail_dst,
+            data_to_compress, src_sz,
+            clevel
+        );
+    }
 
     if (scratch) free(scratch);
 
