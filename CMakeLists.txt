@@ -16,15 +16,14 @@ include_directories(include deps/include deps/lzma)
 add_compile_definitions(_7ZIP_ST)
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-    if(MSVC)
-        add_compile_options(/arch:AVX2)
-    else()
-        add_compile_options(-mavx2)
+    if(NOT MSVC)
+        add_compile_options(-march=x86-64 -mno-avx -mno-avx2)
     endif()
 endif()
 
 set(BINPACK_SOURCES
     src/binpack_core.c
+    src/binpack_cpu.c
     src/binpack_eval.c
     src/binpack_stream.c
     src/binpack_sdk.c
@@ -39,6 +38,15 @@ set(BINPACK_SOURCES
     deps/lzma/Bra86.c
     deps/lzma/Bra.c
 )
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    list(APPEND BINPACK_SOURCES src/binpack_core_avx2.c)
+    if(MSVC)
+        set_source_files_properties(src/binpack_core_avx2.c PROPERTIES COMPILE_FLAGS "/arch:AVX2")
+    else()
+        set_source_files_properties(src/binpack_core_avx2.c PROPERTIES COMPILE_FLAGS "-mavx2")
+    endif()
+endif()
 
 # External Zstandard linkage
 find_library(ZSTD_LIBRARY NAMES zstd libzstd_static libzstd PATHS deps/lib)
@@ -126,4 +134,12 @@ if(BINPACK_BUILD_TESTS)
         target_link_libraries(test_pe_elf_bounds PRIVATE binpack ${ZSTD_LIBRARY})
     endif()
     add_test(NAME PeElfBoundsTests COMMAND test_pe_elf_bounds)
+
+    add_executable(test_cpu_dispatch tests/test_cpu_dispatch.c)
+    if(BINPACK_BUILD_STATIC)
+        target_link_libraries(test_cpu_dispatch PRIVATE binpack_static ${ZSTD_LIBRARY})
+    elseif(BINPACK_BUILD_SHARED)
+        target_link_libraries(test_cpu_dispatch PRIVATE binpack ${ZSTD_LIBRARY})
+    endif()
+    add_test(NAME CpuDispatchTests COMMAND test_cpu_dispatch)
 endif()

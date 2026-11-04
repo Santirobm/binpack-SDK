@@ -1,14 +1,18 @@
 CC ?= gcc
-CFLAGS ?= -O3 -mavx2 -D_7ZIP_ST -Wall -Wextra -Iinclude -Ideps/include -Ideps/lzma
+CFLAGS ?= -O3 -march=x86-64 -mno-avx -mno-avx2 -D_7ZIP_ST -Wall -Wextra -Iinclude -Ideps/include -Ideps/lzma
+AVX2_CFLAGS ?= -O3 -mavx2 -D_7ZIP_ST -Wall -Wextra -Iinclude -Ideps/include -Ideps/lzma
 LDFLAGS ?= -Ldeps/lib -lzstd
 
-SRC = src/binpack_core.c src/binpack_eval.c src/binpack_stream.c src/binpack_sdk.c \
+SRC = src/binpack_core.c src/binpack_cpu.c src/binpack_eval.c src/binpack_stream.c src/binpack_sdk.c \
       src/binpack_dict.c src/binpack_patch.c src/binpack_archive.c \
       deps/lzma/Alloc.c deps/lzma/LzFind.c deps/lzma/LzmaDec.c \
       deps/lzma/LzmaEnc.c deps/lzma/LzmaLib.c deps/lzma/Bra86.c deps/lzma/Bra.c
-OBJ = $(SRC:.c=.o)
+OBJ = $(SRC:.c=.o) src/binpack_core_avx2.o
 
 all: libbinpack.so binpack-sdk test_sdk
+
+src/binpack_core_avx2.o: src/binpack_core_avx2.c
+	$(CC) $(AVX2_CFLAGS) -fPIC -c $< -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -fPIC -c $< -o $@

@@ -301,39 +301,12 @@ BINPACK_API void BINPACK_CALL binpack_bcj_arm32_unfilter(uint8_t *data, size_t s
 }
 
 /* ========================================================================= */
-/* BCJ AArch64 (ARM64) Branch Normalization (Vectorized AVX2 Fast-Path)      */
+/* BCJ AArch64 (ARM64) Branch Normalization - Portable Scalar Baseline       */
 /* ========================================================================= */
 
-void binpack_bcj_aarch64_filter(uint8_t *data, size_t size) {
+void bp_bcj_aarch64_filter_scalar(uint8_t *data, size_t size) {
     if (!data || size < 4) return;
-    size_t i = 0;
-#if defined(__AVX2__)
-    for (; i + 32 <= size; i += 32) {
-        __m256i instrs = _mm256_loadu_si256((const __m256i*)(data + i));
-        __m256i ops = _mm256_srli_epi32(instrs, 26);
-        __m256i m_bl = _mm256_cmpeq_epi32(ops, _mm256_set1_epi32(0x25));
-        __m256i m_b  = _mm256_cmpeq_epi32(ops, _mm256_set1_epi32(0x05));
-        __m256i m_any = _mm256_or_si256(m_bl, m_b);
-        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(m_any));
-        if (mask == 0) continue;
-
-        for (size_t k = 0; k < 8; k++) {
-            if ((mask >> k) & 1) {
-                size_t pos = i + k * 4;
-                uint32_t instr = (uint32_t)data[pos] | ((uint32_t)data[pos+1] << 8) |
-                                 ((uint32_t)data[pos+2] << 16) | ((uint32_t)data[pos+3] << 24);
-                uint32_t src = instr & 0x03FFFFFF;
-                uint32_t dest = src + (uint32_t)(pos >> 2);
-                instr = (instr & 0xFC000000) | (dest & 0x03FFFFFF);
-                data[pos]   = (uint8_t)(instr);
-                data[pos+1] = (uint8_t)(instr >> 8);
-                data[pos+2] = (uint8_t)(instr >> 16);
-                data[pos+3] = (uint8_t)(instr >> 24);
-            }
-        }
-    }
-#endif
-    for (; i + 4 <= size; i += 4) {
+    for (size_t i = 0; i + 4 <= size; i += 4) {
         uint32_t instr = (uint32_t)data[i] | ((uint32_t)data[i+1] << 8) |
                          ((uint32_t)data[i+2] << 16) | ((uint32_t)data[i+3] << 24);
         uint32_t op = instr >> 26;
@@ -349,36 +322,9 @@ void binpack_bcj_aarch64_filter(uint8_t *data, size_t size) {
     }
 }
 
-void binpack_bcj_aarch64_unfilter(uint8_t *data, size_t size) {
+void bp_bcj_aarch64_unfilter_scalar(uint8_t *data, size_t size) {
     if (!data || size < 4) return;
-    size_t i = 0;
-#if defined(__AVX2__)
-    for (; i + 32 <= size; i += 32) {
-        __m256i instrs = _mm256_loadu_si256((const __m256i*)(data + i));
-        __m256i ops = _mm256_srli_epi32(instrs, 26);
-        __m256i m_bl = _mm256_cmpeq_epi32(ops, _mm256_set1_epi32(0x25));
-        __m256i m_b  = _mm256_cmpeq_epi32(ops, _mm256_set1_epi32(0x05));
-        __m256i m_any = _mm256_or_si256(m_bl, m_b);
-        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(m_any));
-        if (mask == 0) continue;
-
-        for (size_t k = 0; k < 8; k++) {
-            if ((mask >> k) & 1) {
-                size_t pos = i + k * 4;
-                uint32_t instr = (uint32_t)data[pos] | ((uint32_t)data[pos+1] << 8) |
-                                 ((uint32_t)data[pos+2] << 16) | ((uint32_t)data[pos+3] << 24);
-                uint32_t src = instr & 0x03FFFFFF;
-                uint32_t dest = src - (uint32_t)(pos >> 2);
-                instr = (instr & 0xFC000000) | (dest & 0x03FFFFFF);
-                data[pos]   = (uint8_t)(instr);
-                data[pos+1] = (uint8_t)(instr >> 8);
-                data[pos+2] = (uint8_t)(instr >> 16);
-                data[pos+3] = (uint8_t)(instr >> 24);
-            }
-        }
-    }
-#endif
-    for (; i + 4 <= size; i += 4) {
+    for (size_t i = 0; i + 4 <= size; i += 4) {
         uint32_t instr = (uint32_t)data[i] | ((uint32_t)data[i+1] << 8) |
                          ((uint32_t)data[i+2] << 16) | ((uint32_t)data[i+3] << 24);
         uint32_t op = instr >> 26;
@@ -394,45 +340,23 @@ void binpack_bcj_aarch64_unfilter(uint8_t *data, size_t size) {
     }
 }
 
+void binpack_bcj_aarch64_filter(uint8_t *data, size_t size) {
+    bp_ensure_cpu_dispatch_initialized();
+    g_bp_dispatch.bcj_aarch64_filter(data, size);
+}
+
+void binpack_bcj_aarch64_unfilter(uint8_t *data, size_t size) {
+    bp_ensure_cpu_dispatch_initialized();
+    g_bp_dispatch.bcj_aarch64_unfilter(data, size);
+}
+
 /* ========================================================================= */
-/* BCJ RISC-V (RV32I / RV64I JAL) Branch Normalization (Vectorized AVX2)     */
+/* BCJ RISC-V (RV32I / RV64I JAL) Branch Normalization - Portable Scalar     */
 /* ========================================================================= */
 
-void binpack_bcj_riscv_filter(uint8_t *data, size_t size) {
+void bp_bcj_riscv_filter_scalar(uint8_t *data, size_t size) {
     if (!data || size < 4) return;
-    size_t i = 0;
-#if defined(__AVX2__)
-    for (; i + 32 <= size; i += 32) {
-        __m256i instrs = _mm256_loadu_si256((const __m256i*)(data + i));
-        __m256i ops = _mm256_and_si256(instrs, _mm256_set1_epi32(0x7F));
-        __m256i m_jal = _mm256_cmpeq_epi32(ops, _mm256_set1_epi32(0x6F));
-        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(m_jal));
-        if (mask == 0) continue;
-
-        for (size_t k = 0; k < 8; k++) {
-            if ((mask >> k) & 1) {
-                size_t pos = i + k * 4;
-                uint32_t instr = (uint32_t)data[pos] | ((uint32_t)data[pos+1] << 8) |
-                                 ((uint32_t)data[pos+2] << 16) | ((uint32_t)data[pos+3] << 24);
-                uint32_t offset20 = (((instr >> 31) & 1) << 19) |
-                                    (((instr >> 12) & 0xFF) << 11) |
-                                    (((instr >> 20) & 1) << 10) |
-                                    ((instr >> 21) & 0x3FF);
-                uint32_t dest = (offset20 + (uint32_t)(pos >> 1)) & 0xFFFFF;
-                instr = (instr & 0x00000FFF) |
-                        (((dest >> 19) & 1) << 31) |
-                        ((dest & 0x3FF) << 21) |
-                        (((dest >> 10) & 1) << 20) |
-                        (((dest >> 11) & 0xFF) << 12);
-                data[pos]   = (uint8_t)(instr);
-                data[pos+1] = (uint8_t)(instr >> 8);
-                data[pos+2] = (uint8_t)(instr >> 16);
-                data[pos+3] = (uint8_t)(instr >> 24);
-            }
-        }
-    }
-#endif
-    for (; i + 4 <= size; i += 4) {
+    for (size_t i = 0; i + 4 <= size; i += 4) {
         uint32_t instr = (uint32_t)data[i] | ((uint32_t)data[i+1] << 8) |
                          ((uint32_t)data[i+2] << 16) | ((uint32_t)data[i+3] << 24);
         if ((instr & 0x7F) == 0x6F) { /* JAL instruction */
@@ -454,41 +378,9 @@ void binpack_bcj_riscv_filter(uint8_t *data, size_t size) {
     }
 }
 
-void binpack_bcj_riscv_unfilter(uint8_t *data, size_t size) {
+void bp_bcj_riscv_unfilter_scalar(uint8_t *data, size_t size) {
     if (!data || size < 4) return;
-    size_t i = 0;
-#if defined(__AVX2__)
-    for (; i + 32 <= size; i += 32) {
-        __m256i instrs = _mm256_loadu_si256((const __m256i*)(data + i));
-        __m256i ops = _mm256_and_si256(instrs, _mm256_set1_epi32(0x7F));
-        __m256i m_jal = _mm256_cmpeq_epi32(ops, _mm256_set1_epi32(0x6F));
-        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(m_jal));
-        if (mask == 0) continue;
-
-        for (size_t k = 0; k < 8; k++) {
-            if ((mask >> k) & 1) {
-                size_t pos = i + k * 4;
-                uint32_t instr = (uint32_t)data[pos] | ((uint32_t)data[pos+1] << 8) |
-                                 ((uint32_t)data[pos+2] << 16) | ((uint32_t)data[pos+3] << 24);
-                uint32_t offset20 = (((instr >> 31) & 1) << 19) |
-                                    (((instr >> 12) & 0xFF) << 11) |
-                                    (((instr >> 20) & 1) << 10) |
-                                    ((instr >> 21) & 0x3FF);
-                uint32_t dest = (offset20 - (uint32_t)(pos >> 1)) & 0xFFFFF;
-                instr = (instr & 0x00000FFF) |
-                        (((dest >> 19) & 1) << 31) |
-                        ((dest & 0x3FF) << 21) |
-                        (((dest >> 10) & 1) << 20) |
-                        (((dest >> 11) & 0xFF) << 12);
-                data[pos]   = (uint8_t)(instr);
-                data[pos+1] = (uint8_t)(instr >> 8);
-                data[pos+2] = (uint8_t)(instr >> 16);
-                data[pos+3] = (uint8_t)(instr >> 24);
-            }
-        }
-    }
-#endif
-    for (; i + 4 <= size; i += 4) {
+    for (size_t i = 0; i + 4 <= size; i += 4) {
         uint32_t instr = (uint32_t)data[i] | ((uint32_t)data[i+1] << 8) |
                          ((uint32_t)data[i+2] << 16) | ((uint32_t)data[i+3] << 24);
         if ((instr & 0x7F) == 0x6F) { /* JAL instruction */
@@ -510,6 +402,16 @@ void binpack_bcj_riscv_unfilter(uint8_t *data, size_t size) {
     }
 }
 
+void binpack_bcj_riscv_filter(uint8_t *data, size_t size) {
+    bp_ensure_cpu_dispatch_initialized();
+    g_bp_dispatch.bcj_riscv_filter(data, size);
+}
+
+void binpack_bcj_riscv_unfilter(uint8_t *data, size_t size) {
+    bp_ensure_cpu_dispatch_initialized();
+    g_bp_dispatch.bcj_riscv_unfilter(data, size);
+}
+
 /* ========================================================================= */
 /* Cascaded Stride-N Transpose + Delta Prefilter (SIMD & Fused Single-Pass)  */
 /* ========================================================================= */
@@ -522,7 +424,7 @@ void binpack_bcj_riscv_unfilter(uint8_t *data, size_t size) {
     static __thread size_t   s_core_scratch_cap = 0;
 #endif
 
-static uint8_t* bp_acquire_core_scratch(size_t size, int *out_must_free) {
+uint8_t* bp_acquire_core_scratch(size_t size, int *out_must_free) {
     /* Reuse thread-local buffer up to 64 MB to eliminate OS VirtualAlloc/VirtualFree page faults */
     if (size <= (64ULL * 1024 * 1024)) {
         if (s_core_scratch_cap < size) {
@@ -538,29 +440,15 @@ static uint8_t* bp_acquire_core_scratch(size_t size, int *out_must_free) {
     return (uint8_t*)malloc(size);
 }
 
-static inline void bp_release_core_scratch(uint8_t *ptr, int must_free) {
+void bp_release_core_scratch(uint8_t *ptr, int must_free) {
     if (must_free && ptr) free(ptr);
 }
 
-static void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride) {
+void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride) {
     if (stride == 2) {
         uint8_t *d0 = dst;
         uint8_t *d1 = dst + num_elements;
-        size_t i = 0;
-#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
-        __m128i mask = _mm_setr_epi8(0, 2, 4, 6, 8, 10, 12, 14, 1, 3, 5, 7, 9, 11, 13, 15);
-        for (; i + 16 <= num_elements; i += 16) {
-            __m128i v0 = _mm_loadu_si128((const __m128i*)(src + 2 * i));
-            __m128i v1 = _mm_loadu_si128((const __m128i*)(src + 2 * i + 16));
-            __m128i s0 = _mm_shuffle_epi8(v0, mask);
-            __m128i s1 = _mm_shuffle_epi8(v1, mask);
-            __m128i r0 = _mm_unpacklo_epi64(s0, s1);
-            __m128i r1 = _mm_unpackhi_epi64(s0, s1);
-            _mm_storeu_si128((__m128i*)(d0 + i), r0);
-            _mm_storeu_si128((__m128i*)(d1 + i), r1);
-        }
-#endif
-        for (; i < num_elements; i++) {
+        for (size_t i = 0; i < num_elements; i++) {
             d0[i] = src[2 * i];
             d1[i] = src[2 * i + 1];
         }
@@ -569,32 +457,7 @@ static void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t nu
         uint8_t *d1 = dst + num_elements;
         uint8_t *d2 = dst + 2 * num_elements;
         uint8_t *d3 = dst + 3 * num_elements;
-        size_t i = 0;
-#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
-        __m128i mask = _mm_setr_epi8(0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15);
-        for (; i + 16 <= num_elements; i += 16) {
-            __m128i v0 = _mm_loadu_si128((const __m128i*)(src + 4 * i));
-            __m128i v1 = _mm_loadu_si128((const __m128i*)(src + 4 * i + 16));
-            __m128i v2 = _mm_loadu_si128((const __m128i*)(src + 4 * i + 32));
-            __m128i v3 = _mm_loadu_si128((const __m128i*)(src + 4 * i + 48));
-
-            __m128i s0 = _mm_shuffle_epi8(v0, mask);
-            __m128i s1 = _mm_shuffle_epi8(v1, mask);
-            __m128i s2 = _mm_shuffle_epi8(v2, mask);
-            __m128i s3 = _mm_shuffle_epi8(v3, mask);
-
-            __m128i r0 = _mm_unpacklo_epi32(s0, s1);
-            __m128i r1 = _mm_unpackhi_epi32(s0, s1);
-            __m128i r2 = _mm_unpacklo_epi32(s2, s3);
-            __m128i r3 = _mm_unpackhi_epi32(s2, s3);
-
-            _mm_storeu_si128((__m128i*)(d0 + i), _mm_unpacklo_epi64(r0, r2));
-            _mm_storeu_si128((__m128i*)(d1 + i), _mm_unpackhi_epi64(r0, r2));
-            _mm_storeu_si128((__m128i*)(d2 + i), _mm_unpacklo_epi64(r1, r3));
-            _mm_storeu_si128((__m128i*)(d3 + i), _mm_unpackhi_epi64(r1, r3));
-        }
-#endif
-        for (; i < num_elements; i++) {
+        for (size_t i = 0; i < num_elements; i++) {
             d0[i] = src[4 * i];
             d1[i] = src[4 * i + 1];
             d2[i] = src[4 * i + 2];
@@ -609,41 +472,7 @@ static void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t nu
         uint8_t *d5 = dst + 5 * num_elements;
         uint8_t *d6 = dst + 6 * num_elements;
         uint8_t *d7 = dst + 7 * num_elements;
-        size_t i = 0;
-#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
-        __m128i mask = _mm_setr_epi8(0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15);
-        for (; i + 8 <= num_elements; i += 8) {
-            __m128i v0 = _mm_loadu_si128((const __m128i*)(src + 8 * i));
-            __m128i v1 = _mm_loadu_si128((const __m128i*)(src + 8 * i + 16));
-            __m128i v2 = _mm_loadu_si128((const __m128i*)(src + 8 * i + 32));
-            __m128i v3 = _mm_loadu_si128((const __m128i*)(src + 8 * i + 48));
-
-            __m128i s0 = _mm_shuffle_epi8(v0, mask);
-            __m128i s1 = _mm_shuffle_epi8(v1, mask);
-            __m128i s2 = _mm_shuffle_epi8(v2, mask);
-            __m128i s3 = _mm_shuffle_epi8(v3, mask);
-
-            __m128i p0 = _mm_unpacklo_epi16(s0, s1);
-            __m128i p1 = _mm_unpackhi_epi16(s0, s1);
-            __m128i p2 = _mm_unpacklo_epi16(s2, s3);
-            __m128i p3 = _mm_unpackhi_epi16(s2, s3);
-
-            __m128i q0 = _mm_unpacklo_epi32(p0, p2);
-            __m128i q1 = _mm_unpackhi_epi32(p0, p2);
-            __m128i q2 = _mm_unpacklo_epi32(p1, p3);
-            __m128i q3 = _mm_unpackhi_epi32(p1, p3);
-
-            _mm_storel_epi64((__m128i*)(d0 + i), q0);
-            _mm_storel_epi64((__m128i*)(d1 + i), _mm_unpackhi_epi64(q0, q0));
-            _mm_storel_epi64((__m128i*)(d2 + i), q1);
-            _mm_storel_epi64((__m128i*)(d3 + i), _mm_unpackhi_epi64(q1, q1));
-            _mm_storel_epi64((__m128i*)(d4 + i), q2);
-            _mm_storel_epi64((__m128i*)(d5 + i), _mm_unpackhi_epi64(q2, q2));
-            _mm_storel_epi64((__m128i*)(d6 + i), q3);
-            _mm_storel_epi64((__m128i*)(d7 + i), _mm_unpackhi_epi64(q3, q3));
-        }
-#endif
-        for (; i < num_elements; i++) {
+        for (size_t i = 0; i < num_elements; i++) {
             const uint8_t *elem = src + 8 * i;
             d0[i] = elem[0]; d1[i] = elem[1]; d2[i] = elem[2]; d3[i] = elem[3];
             d4[i] = elem[4]; d5[i] = elem[5]; d6[i] = elem[6]; d7[i] = elem[7];
@@ -658,7 +487,7 @@ static void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t nu
     }
 }
 
-static void bp_interleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride) {
+void bp_interleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride) {
     if (stride == 2) {
         const uint8_t *s0 = src;
         const uint8_t *s1 = src + num_elements;
@@ -769,23 +598,11 @@ int binpack_transpose_delta_filter_into(const uint8_t *src, uint8_t *dst, size_t
         memcpy(dst + aligned_sz, src + aligned_sz, size - aligned_sz);
     }
 
-    /* 2. In-place SIMD delta encode on L1/L2-warm dst channels */
+    /* 2. In-place delta encode on L1/L2-warm dst channels */
     for (size_t s = 0; s < stride; s++) {
         size_t base = s * num_elements;
         uint8_t prev = 0;
-        size_t i = 0;
-#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
-        __m128i prev_v = _mm_setzero_si128();
-        for (; i + 16 <= num_elements; i += 16) {
-            __m128i cur_v = _mm_loadu_si128((const __m128i*)(dst + base + i));
-            prev = dst[base + i + 15];
-            __m128i shifted = _mm_alignr_epi8(cur_v, prev_v, 15);
-            __m128i diff = _mm_sub_epi8(cur_v, shifted);
-            _mm_storeu_si128((__m128i*)(dst + base + i), diff);
-            prev_v = cur_v;
-        }
-#endif
-        for (; i < num_elements; i++) {
+        for (size_t i = 0; i < num_elements; i++) {
             uint8_t cur = dst[base + i];
             dst[base + i] = cur - prev;
             prev = cur;
@@ -808,19 +625,7 @@ BINPACK_API int BINPACK_CALL binpack_transpose_delta_filter(uint8_t *data, size_
     for (size_t s = 0; s < stride; s++) {
         size_t base = s * num_elements;
         uint8_t prev = 0;
-        size_t i = 0;
-#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
-        __m128i prev_v = _mm_set1_epi8(0);
-        for (; i + 16 <= num_elements; i += 16) {
-            __m128i cur_v = _mm_loadu_si128((const __m128i*)(temp + base + i));
-            __m128i shifted = _mm_alignr_epi8(cur_v, prev_v, 15);
-            __m128i diff = _mm_sub_epi8(cur_v, shifted);
-            _mm_storeu_si128((__m128i*)(data + base + i), diff);
-            prev_v = cur_v;
-            prev = (uint8_t)temp[base + i + 15];
-        }
-#endif
-        for (; i < num_elements; i++) {
+        for (size_t i = 0; i < num_elements; i++) {
             uint8_t cur = temp[base + i];
             data[base + i] = cur - prev;
             prev = cur;
@@ -839,33 +644,17 @@ BINPACK_API int BINPACK_CALL binpack_transpose_delta_unfilter(uint8_t *data, siz
 
     size_t num_elements = size / stride;
 
-    /* Vectorized SIMD Parallel Prefix-Sum decode from data into temp */
+    /* Decode from data into temp */
     for (size_t s = 0; s < stride; s++) {
         size_t base = s * num_elements;
         uint8_t acc = 0;
-        size_t i = 0;
-#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
-        __m128i carry = _mm_setzero_si128();
-        __m128i bcast15 = _mm_set1_epi8(15);
-        for (; i + 16 <= num_elements; i += 16) {
-            __m128i x = _mm_loadu_si128((const __m128i*)(data + base + i));
-            x = _mm_add_epi8(x, _mm_slli_si128(x, 1));
-            x = _mm_add_epi8(x, _mm_slli_si128(x, 2));
-            x = _mm_add_epi8(x, _mm_slli_si128(x, 4));
-            x = _mm_add_epi8(x, _mm_slli_si128(x, 8));
-            x = _mm_add_epi8(x, carry);
-            _mm_storeu_si128((__m128i*)(temp + base + i), x);
-            carry = _mm_shuffle_epi8(x, bcast15);
-        }
-        if (i > 0) acc = temp[base + i - 1];
-#endif
-        for (; i < num_elements; i++) {
+        for (size_t i = 0; i < num_elements; i++) {
             acc = (uint8_t)(acc + data[base + i]);
             temp[base + i] = acc;
         }
     }
 
-    /* SIMD-accelerated interleave directly from temp back into data */
+    /* Interleave directly from temp back into data */
     bp_interleave_channels(temp, data, num_elements, stride);
 
     bp_release_core_scratch(temp, must_free);
@@ -873,41 +662,10 @@ BINPACK_API int BINPACK_CALL binpack_transpose_delta_unfilter(uint8_t *data, siz
 }
 
 /* ========================================================================= */
-/* Bitshuffle: Bit-Level Matrix Transposition (SIMD / SWAR Accelerated)      */
+/* Bitshuffle: Bit-Level Matrix Transposition - Portable Scalar Baseline    */
 /* ========================================================================= */
 
-static inline uint64_t bp_transpose_8x8_bits(uint64_t x) {
-    uint64_t t;
-    t = (x ^ (x >> 7)) & 0x00AA00AA00AA00AAULL;
-    x = x ^ t ^ (t << 7);
-    t = (x ^ (x >> 14)) & 0x0000CCCC0000CCCCULL;
-    x = x ^ t ^ (t << 14);
-    t = (x ^ (x >> 28)) & 0x00000000F0F0F0F0ULL;
-    x = x ^ t ^ (t << 28);
-    return x;
-}
-
-#if defined(__AVX2__)
-static inline void bp_transpose_32x8_bits_avx2(uint8_t *data) {
-    __m256i x = _mm256_loadu_si256((const __m256i*)data);
-    __m256i m1 = _mm256_set1_epi64x(0x00AA00AA00AA00AAULL);
-    __m256i m2 = _mm256_set1_epi64x(0x0000CCCC0000CCCCULL);
-    __m256i m3 = _mm256_set1_epi64x(0x00000000F0F0F0F0ULL);
-
-    __m256i t = _mm256_and_si256(_mm256_xor_si256(x, _mm256_srli_epi64(x, 7)), m1);
-    x = _mm256_xor_si256(_mm256_xor_si256(x, t), _mm256_slli_epi64(t, 7));
-
-    t = _mm256_and_si256(_mm256_xor_si256(x, _mm256_srli_epi64(x, 14)), m2);
-    x = _mm256_xor_si256(_mm256_xor_si256(x, t), _mm256_slli_epi64(t, 14));
-
-    t = _mm256_and_si256(_mm256_xor_si256(x, _mm256_srli_epi64(x, 28)), m3);
-    x = _mm256_xor_si256(_mm256_xor_si256(x, t), _mm256_slli_epi64(t, 28));
-
-    _mm256_storeu_si256((__m256i*)data, x);
-}
-#endif
-
-int binpack_bitshuffle_filter(uint8_t *data, size_t size, uint16_t stride) {
+int bp_bitshuffle_filter_scalar(uint8_t *data, size_t size, uint16_t stride) {
     if (!data || size < 8 || stride < 1 || stride > 256) return -1;
     int must_free = 0;
     uint8_t *temp = bp_acquire_core_scratch(size, &must_free);
@@ -927,17 +685,7 @@ int binpack_bitshuffle_filter(uint8_t *data, size_t size, uint16_t stride) {
         size_t full_blocks = num_elements / 8;
         size_t b = 0;
         uint8_t prev = 0;
-#if defined(__AVX2__)
-        for (; b + 4 <= full_blocks; b += 4) {
-            size_t off = base + (b * 8);
-            bp_transpose_32x8_bits_avx2(temp + off);
-            for (size_t k = 0; k < 32; k++) {
-                uint8_t cur = temp[off + k];
-                data[off + k] = cur - prev;
-                prev = cur;
-            }
-        }
-#endif
+
         for (; b < full_blocks; b++) {
             size_t off = base + (b * 8);
             uint64_t val;
@@ -961,7 +709,7 @@ int binpack_bitshuffle_filter(uint8_t *data, size_t size, uint16_t stride) {
     return 0;
 }
 
-int binpack_bitshuffle_unfilter(uint8_t *data, size_t size, uint16_t stride) {
+int bp_bitshuffle_unfilter_scalar(uint8_t *data, size_t size, uint16_t stride) {
     if (!data || size < 8 || stride < 1 || stride > 256) return -1;
     int must_free = 0;
     uint8_t *temp = bp_acquire_core_scratch(size, &must_free);
@@ -969,22 +717,13 @@ int binpack_bitshuffle_unfilter(uint8_t *data, size_t size, uint16_t stride) {
 
     size_t num_elements = size / stride;
 
-    /* Fused Single-Pass Delta-Accumulate + AVX2 Bit-Transpose from data -> temp */
+    /* Fused Single-Pass Delta-Accumulate + Bit-Transpose from data -> temp */
     for (size_t s = 0; s < stride; s++) {
         size_t base = s * num_elements;
         size_t full_blocks = num_elements / 8;
         size_t b = 0;
         uint8_t acc = 0;
-#if defined(__AVX2__)
-        for (; b + 4 <= full_blocks; b += 4) {
-            size_t off = base + (b * 8);
-            for (size_t k = 0; k < 32; k++) {
-                acc = (uint8_t)(acc + data[off + k]);
-                temp[off + k] = acc;
-            }
-            bp_transpose_32x8_bits_avx2(temp + off);
-        }
-#endif
+
         for (; b < full_blocks; b++) {
             size_t off = base + (b * 8);
             for (size_t k = 0; k < 8; k++) {
@@ -1005,11 +744,21 @@ int binpack_bitshuffle_unfilter(uint8_t *data, size_t size, uint16_t stride) {
     if (stride > 1) {
         bp_interleave_channels(temp, data, num_elements, stride);
     } else {
-        memcpy(data, temp, num_elements);
+        memcpy(data, temp, size);
     }
 
     bp_release_core_scratch(temp, must_free);
     return 0;
+}
+
+int binpack_bitshuffle_filter(uint8_t *data, size_t size, uint16_t stride) {
+    bp_ensure_cpu_dispatch_initialized();
+    return g_bp_dispatch.bitshuffle_filter(data, size, stride);
+}
+
+int binpack_bitshuffle_unfilter(uint8_t *data, size_t size, uint16_t stride) {
+    bp_ensure_cpu_dispatch_initialized();
+    return g_bp_dispatch.bitshuffle_unfilter(data, size, stride);
 }
 
 /* ========================================================================= */

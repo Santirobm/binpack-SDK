@@ -261,4 +261,63 @@ binpack_filter_t binpack_auto_select_filter(const uint8_t *data, size_t size, ui
 
 int binpack_get_cpu_cores(void);
 
+/* ========================================================================= */
+/* Architecture SIMD Dispatch Engine & Kernel Contracts                      */
+/* ========================================================================= */
+
+#define BINPACK_BACKEND_SCALAR 0
+#define BINPACK_BACKEND_AVX2   1
+
+typedef void (*bp_bcj_fn)(uint8_t *data, size_t size);
+typedef int  (*bp_bitshuffle_fn)(uint8_t *data, size_t size, uint16_t stride);
+
+typedef struct {
+    bp_bcj_fn        bcj_aarch64_filter;
+    bp_bcj_fn        bcj_aarch64_unfilter;
+    bp_bcj_fn        bcj_riscv_filter;
+    bp_bcj_fn        bcj_riscv_unfilter;
+    bp_bitshuffle_fn bitshuffle_filter;
+    bp_bitshuffle_fn bitshuffle_unfilter;
+    int              backend_id;
+} binpack_dispatch_table_t;
+
+extern binpack_dispatch_table_t g_bp_dispatch;
+
+void bp_ensure_cpu_dispatch_initialized(void);
+int  bp_cpu_dispatch_get_active_backend(void);
+
+/* Portable Baseline / Scalar Kernels */
+void bp_bcj_aarch64_filter_scalar(uint8_t *data, size_t size);
+void bp_bcj_aarch64_unfilter_scalar(uint8_t *data, size_t size);
+void bp_bcj_riscv_filter_scalar(uint8_t *data, size_t size);
+void bp_bcj_riscv_unfilter_scalar(uint8_t *data, size_t size);
+int  bp_bitshuffle_filter_scalar(uint8_t *data, size_t size, uint16_t stride);
+int  bp_bitshuffle_unfilter_scalar(uint8_t *data, size_t size, uint16_t stride);
+
+/* AVX2 Accelerated Kernels (binpack_core_avx2.c) */
+void bp_bcj_aarch64_filter_avx2(uint8_t *data, size_t size);
+void bp_bcj_aarch64_unfilter_avx2(uint8_t *data, size_t size);
+void bp_bcj_riscv_filter_avx2(uint8_t *data, size_t size);
+void bp_bcj_riscv_unfilter_avx2(uint8_t *data, size_t size);
+int  bp_bitshuffle_filter_avx2(uint8_t *data, size_t size, uint16_t stride);
+int  bp_bitshuffle_unfilter_avx2(uint8_t *data, size_t size, uint16_t stride);
+
+/* Core Scratch Buffer Management (Thread-Local Pool) */
+uint8_t* bp_acquire_core_scratch(size_t size, int *out_must_free);
+void     bp_release_core_scratch(uint8_t *ptr, int must_free);
+
+void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride);
+void bp_interleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride);
+
+static inline uint64_t bp_transpose_8x8_bits(uint64_t x) {
+    uint64_t t;
+    t = (x ^ (x >> 7)) & 0x00AA00AA00AA00AAULL;
+    x = x ^ t ^ (t << 7);
+    t = (x ^ (x >> 14)) & 0x0000CCCC0000CCCCULL;
+    x = x ^ t ^ (t << 14);
+    t = (x ^ (x >> 28)) & 0x00000000F0F0F0F0ULL;
+    x = x ^ t ^ (t << 28);
+    return x;
+}
+
 #endif /* BINPACK_INTERNAL_H */
