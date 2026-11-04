@@ -754,13 +754,13 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_stream(
         if (reader(user_data, rest_v1, 28) != 28) {
             return BINPACK_ERR_CORRUPT_DATA;
         }
-        uint32_t orig_sz  = *(uint32_t*)&rest_v1[0];
-        uint32_t comp_sz  = *(uint32_t*)&rest_v1[4];
-        uint32_t orig_crc = *(uint32_t*)&rest_v1[8];
+        uint32_t orig_sz  = binpack_load_le32(&rest_v1[0]);
+        uint32_t comp_sz  = binpack_load_le32(&rest_v1[4]);
+        uint32_t orig_crc = binpack_load_le32(&rest_v1[8]);
         uint8_t filter_id = rest_v1[12];
-        uint16_t stride   = *(uint16_t*)&rest_v1[14];
-        uint32_t code_off = *(uint32_t*)&rest_v1[20];
-        uint32_t code_len = *(uint32_t*)&rest_v1[24];
+        uint16_t stride   = binpack_load_le16(&rest_v1[14]);
+        uint32_t code_off = binpack_load_le32(&rest_v1[20]);
+        uint32_t code_len = binpack_load_le32(&rest_v1[24]);
 
         uint8_t *cbuf = (uint8_t*)malloc(comp_sz);
         uint8_t *dbuf = (uint8_t*)malloc(orig_sz);

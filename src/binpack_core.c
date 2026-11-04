@@ -126,8 +126,8 @@ uint32_t binpack_crc32(uint32_t crc, const uint8_t *buf, size_t len) {
 
     /* Slicing-by-8 parallel table lookups */
     while (len >= 8) {
-        uint32_t one = *(const uint32_t*)buf ^ crc;
-        uint32_t two = *(const uint32_t*)(buf + 4);
+        uint32_t one = binpack_load_le32(buf) ^ crc;
+        uint32_t two = binpack_load_le32(buf + 4);
         crc = s_crc32_table[7][one & 0xFF] ^
               s_crc32_table[6][(one >> 8) & 0xFF] ^
               s_crc32_table[5][(one >> 16) & 0xFF] ^
@@ -158,24 +158,23 @@ void binpack_find_code_bounds(const uint8_t *data, size_t size, size_t *out_offs
 
     /* 1. Portable Executable (PE32 / PE32+) Detection */
     if (data[0] == 'M' && data[1] == 'Z') {
-        if (size > 0x3C + 4) {
-            uint32_t pe_off = (uint32_t)data[0x3C] | ((uint32_t)data[0x3D] << 8) |
-                              ((uint32_t)data[0x3E] << 16) | ((uint32_t)data[0x3F] << 24);
-            if (pe_off + 24 < size && data[pe_off] == 'P' && data[pe_off + 1] == 'E' &&
+        if (size >= 0x3C + 4) {
+            uint32_t pe_off = binpack_load_le32(&data[0x3C]);
+            if ((size_t)pe_off + 24 <= size && data[pe_off] == 'P' && data[pe_off + 1] == 'E' &&
                 data[pe_off + 2] == 0 && data[pe_off + 3] == 0) {
-                uint16_t num_sections = (uint16_t)data[pe_off + 6] | ((uint16_t)data[pe_off + 7] << 8);
-                uint16_t opt_hdr_sz = (uint16_t)data[pe_off + 20] | ((uint16_t)data[pe_off + 21] << 8);
-                size_t sec_table_off = pe_off + 24 + opt_hdr_sz;
+                uint16_t num_sections = binpack_load_le16(&data[pe_off + 6]);
+                uint16_t opt_hdr_sz = binpack_load_le16(&data[pe_off + 20]);
+                size_t sec_table_off = (size_t)pe_off + 24 + (size_t)opt_hdr_sz;
 
                 for (uint16_t i = 0; i < num_sections; i++) {
                     size_t cur = sec_table_off + (size_t)i * 40;
-                    if (cur + 40 > size) break;
+                    if (cur > size || cur + 40 > size) break;
                     if (memcmp(&data[cur], ".text", 5) == 0) {
-                        uint32_t raw_sz = *(const uint32_t*)&data[cur + 16];
-                        uint32_t raw_ptr = *(const uint32_t*)&data[cur + 20];
-                        if (raw_ptr < size && raw_sz > 0 && (size_t)raw_ptr + raw_sz <= size) {
-                            *out_offset = raw_ptr;
-                            *out_length = raw_sz;
+                        uint32_t raw_sz = binpack_load_le32(&data[cur + 16]);
+                        uint32_t raw_ptr = binpack_load_le32(&data[cur + 20]);
+                        if ((size_t)raw_ptr <= size && (size_t)raw_sz > 0 && (size_t)raw_ptr + (size_t)raw_sz <= size) {
+                            *out_offset = (size_t)raw_ptr;
+                            *out_length = (size_t)raw_sz;
                             return;
                         }
                     }
@@ -185,31 +184,35 @@ void binpack_find_code_bounds(const uint8_t *data, size_t size, size_t *out_offs
     }
 
     /* 2. Executable and Linkable Format (ELF32 / ELF64) Detection */
-    if (data[0] == 0x7F && data[1] == 'E' && data[2] == 'L' && data[3] == 'F') {
+    if (data[0] == 0x7F && data[1] == 'E' && data[2] == 'L' && data[3] == 'F' && size >= 16) {
         uint8_t elf_class = data[4];
-        if (elf_class == 1 && size >= 52) { /* ELF32 */
-            uint32_t shoff = *(const uint32_t*)&data[32];
-            uint16_t shentsize = *(const uint16_t*)&data[46];
-            uint16_t shnum = *(const uint16_t*)&data[48];
-            uint16_t shstrndx = *(const uint16_t*)&data[50];
+        uint8_t ei_data = data[5];
+        if (ei_data != 1 && ei_data != 2) return;
+        int is_be = (ei_data == 2);
 
-            if (shentsize >= 40 && shstrndx < shnum) {
-                size_t strtab_sec = shoff + (size_t)shstrndx * shentsize;
-                if (strtab_sec + 40 <= size) {
-                    uint32_t strtab_off = *(const uint32_t*)&data[strtab_sec + 16];
-                    uint32_t strtab_sz = *(const uint32_t*)&data[strtab_sec + 20];
-                    if (strtab_off <= size && strtab_sz <= size - strtab_off) {
+        if (elf_class == 1 && size >= 52) { /* ELF32 */
+            uint32_t shoff = is_be ? binpack_load_be32(&data[32]) : binpack_load_le32(&data[32]);
+            uint16_t shentsize = is_be ? binpack_load_be16(&data[46]) : binpack_load_le16(&data[46]);
+            uint16_t shnum = is_be ? binpack_load_be16(&data[48]) : binpack_load_le16(&data[48]);
+            uint16_t shstrndx = is_be ? binpack_load_be16(&data[50]) : binpack_load_le16(&data[50]);
+
+            if (shentsize >= 40 && shstrndx < shnum && (size_t)shoff <= size) {
+                size_t strtab_sec = (size_t)shoff + (size_t)shstrndx * shentsize;
+                if (strtab_sec <= size && strtab_sec + 40 <= size) {
+                    uint32_t strtab_off = is_be ? binpack_load_be32(&data[strtab_sec + 16]) : binpack_load_le32(&data[strtab_sec + 16]);
+                    uint32_t strtab_sz = is_be ? binpack_load_be32(&data[strtab_sec + 20]) : binpack_load_le32(&data[strtab_sec + 20]);
+                    if ((size_t)strtab_off <= size && (size_t)strtab_sz <= size - (size_t)strtab_off) {
                         for (uint16_t i = 0; i < shnum; i++) {
-                            size_t cur = shoff + (size_t)i * shentsize;
-                            if (cur + 40 > size) break;
-                            uint32_t name_idx = *(const uint32_t*)&data[cur];
-                            if (name_idx + 6 <= strtab_sz &&
-                                memcmp(&data[strtab_off + name_idx], ".text\0", 6) == 0) {
-                                uint32_t sec_off = *(const uint32_t*)&data[cur + 16];
-                                uint32_t sec_sz = *(const uint32_t*)&data[cur + 20];
-                                if (sec_off <= size && sec_sz <= size - sec_off) {
-                                    *out_offset = sec_off;
-                                    *out_length = sec_sz;
+                            size_t cur = (size_t)shoff + (size_t)i * shentsize;
+                            if (cur > size || cur + 40 > size) break;
+                            uint32_t name_idx = is_be ? binpack_load_be32(&data[cur]) : binpack_load_le32(&data[cur]);
+                            if ((size_t)name_idx + 6 <= (size_t)strtab_sz &&
+                                memcmp(&data[(size_t)strtab_off + (size_t)name_idx], ".text\0", 6) == 0) {
+                                uint32_t sec_off = is_be ? binpack_load_be32(&data[cur + 16]) : binpack_load_le32(&data[cur + 16]);
+                                uint32_t sec_sz = is_be ? binpack_load_be32(&data[cur + 20]) : binpack_load_le32(&data[cur + 20]);
+                                if ((size_t)sec_off <= size && (size_t)sec_sz <= size - (size_t)sec_off) {
+                                    *out_offset = (size_t)sec_off;
+                                    *out_length = (size_t)sec_sz;
                                     return;
                                 }
                             }
@@ -218,26 +221,26 @@ void binpack_find_code_bounds(const uint8_t *data, size_t size, size_t *out_offs
                 }
             }
         } else if (elf_class == 2 && size >= 64) { /* ELF64 */
-            uint64_t shoff = *(const uint64_t*)&data[40];
-            uint16_t shentsize = *(const uint16_t*)&data[58];
-            uint16_t shnum = *(const uint16_t*)&data[60];
-            uint16_t shstrndx = *(const uint16_t*)&data[62];
+            uint64_t shoff = is_be ? binpack_load_be64(&data[40]) : binpack_load_le64(&data[40]);
+            uint16_t shentsize = is_be ? binpack_load_be16(&data[58]) : binpack_load_le16(&data[58]);
+            uint16_t shnum = is_be ? binpack_load_be16(&data[60]) : binpack_load_le16(&data[60]);
+            uint16_t shstrndx = is_be ? binpack_load_be16(&data[62]) : binpack_load_le16(&data[62]);
 
-            if (shentsize >= 64 && shstrndx < shnum && shoff < size) {
+            if (shentsize >= 64 && shstrndx < shnum && (size_t)shoff <= size) {
                 size_t strtab_sec = (size_t)shoff + (size_t)shstrndx * shentsize;
-                if (strtab_sec + 64 <= size) {
-                    uint64_t strtab_off = *(const uint64_t*)&data[strtab_sec + 24];
-                    uint64_t strtab_sz = *(const uint64_t*)&data[strtab_sec + 32];
-                    if (strtab_off <= size && strtab_sz <= size - strtab_off) {
+                if (strtab_sec <= size && strtab_sec + 64 <= size) {
+                    uint64_t strtab_off = is_be ? binpack_load_be64(&data[strtab_sec + 24]) : binpack_load_le64(&data[strtab_sec + 24]);
+                    uint64_t strtab_sz = is_be ? binpack_load_be64(&data[strtab_sec + 32]) : binpack_load_le64(&data[strtab_sec + 32]);
+                    if ((size_t)strtab_off <= size && (size_t)strtab_sz <= size - (size_t)strtab_off) {
                         for (uint16_t i = 0; i < shnum; i++) {
                             size_t cur = (size_t)shoff + (size_t)i * shentsize;
-                            if (cur + 64 > size) break;
-                            uint32_t name_idx = *(const uint32_t*)&data[cur];
+                            if (cur > size || cur + 64 > size) break;
+                            uint32_t name_idx = is_be ? binpack_load_be32(&data[cur]) : binpack_load_le32(&data[cur]);
                             if ((uint64_t)name_idx + 6 <= strtab_sz &&
-                                memcmp(&data[strtab_off + name_idx], ".text\0", 6) == 0) {
-                                uint64_t sec_off = *(const uint64_t*)&data[cur + 24];
-                                uint64_t sec_sz = *(const uint64_t*)&data[cur + 32];
-                                if (sec_off <= size && sec_sz <= size - sec_off) {
+                                memcmp(&data[(size_t)strtab_off + (size_t)name_idx], ".text\0", 6) == 0) {
+                                uint64_t sec_off = is_be ? binpack_load_be64(&data[cur + 24]) : binpack_load_le64(&data[cur + 24]);
+                                uint64_t sec_sz = is_be ? binpack_load_be64(&data[cur + 32]) : binpack_load_le64(&data[cur + 32]);
+                                if ((size_t)sec_off <= size && (size_t)sec_sz <= size - (size_t)sec_off) {
                                     *out_offset = (size_t)sec_off;
                                     *out_length = (size_t)sec_sz;
                                     return;
@@ -1142,10 +1145,10 @@ BINPACK_API binpack_filter_t BINPACK_CALL binpack_auto_select_filter(const uint8
     }
 
     if (data[0] == 'M' && data[1] == 'Z') {
-        if (size > 0x3C + 4) {
-            uint32_t pe_off = *(const uint32_t*)&data[0x3C];
-            if (pe_off + 6 < size && data[pe_off] == 'P' && data[pe_off + 1] == 'E') {
-                uint16_t machine = *(const uint16_t*)&data[pe_off + 4];
+        if (size >= 0x3C + 4) {
+            uint32_t pe_off = binpack_load_le32(&data[0x3C]);
+            if ((size_t)pe_off + 6 <= size && data[pe_off] == 'P' && data[pe_off + 1] == 'E') {
+                uint16_t machine = binpack_load_le16(&data[pe_off + 4]);
                 if (machine == 0xAA64) return BINPACK_FILTER_AARCH64;
                 if (machine == 0x01C0 || machine == 0x01C2 || machine == 0x01C4) return BINPACK_FILTER_ARM32;
                 return BINPACK_FILTER_X86_64;
@@ -1155,11 +1158,14 @@ BINPACK_API binpack_filter_t BINPACK_CALL binpack_auto_select_filter(const uint8
     }
 
     if (data[0] == 0x7F && data[1] == 'E' && data[2] == 'L' && data[3] == 'F' && size >= 20) {
-        uint16_t machine = *(const uint16_t*)&data[18];
-        if (machine == 243) return BINPACK_FILTER_RISCV;
-        if (machine == 183) return BINPACK_FILTER_AARCH64;
-        if (machine == 40) return BINPACK_FILTER_ARM32;
-        return BINPACK_FILTER_X86_64;
+        uint8_t ei_data = data[5];
+        if (ei_data == 1 || ei_data == 2) {
+            uint16_t machine = (ei_data == 2) ? binpack_load_be16(&data[18]) : binpack_load_le16(&data[18]);
+            if (machine == 243) return BINPACK_FILTER_RISCV;
+            if (machine == 183) return BINPACK_FILTER_AARCH64;
+            if (machine == 40) return BINPACK_FILTER_ARM32;
+            return BINPACK_FILTER_X86_64;
+        }
     }
 
     /* Fast-Exit Heuristic: Plain Text / ASCII / CSV / UTF-8 Bypass. */

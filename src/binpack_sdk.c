@@ -397,7 +397,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_buffer_ex(
     /* --------------------------------------------------------------------- */
     if (src_sz >= sizeof(binpack_v2_header_t) + sizeof(binpack_chunk_header_t)) {
         const uint8_t *s = (const uint8_t*)src;
-        uint32_t magic = *(const uint32_t*)s;
+        uint32_t magic = binpack_load_le32(s);
         if (magic == BINPACK_MAGIC_V2) {
             const binpack_v2_header_t *v2_hdr = (const binpack_v2_header_t*)s;
             binpack_chunk_header_t *chdr = (binpack_chunk_header_t*)(s + sizeof(binpack_v2_header_t));
@@ -423,7 +423,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_buffer_ex(
                     if (after_payload == src_sz) {
                         is_single_chunk = 1;
                     } else if (after_payload + sizeof(binpack_v2_footer_t) <= src_sz) {
-                        uint32_t next_tag = *(const uint32_t*)(s + after_payload);
+                        uint32_t next_tag = binpack_load_le32(s + after_payload);
                         if (next_tag == BINPACK_MAGIC_FOOTER) {
                             is_single_chunk = 1;
                         }
@@ -626,7 +626,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_into(
     /* Fast-Path: Single-Chunk Zero-Allocation Direct In-Place Decompression into caller's buffer */
     if (src_sz >= sizeof(binpack_v2_header_t) + sizeof(binpack_chunk_header_t)) {
         const uint8_t *s = (const uint8_t*)src;
-        uint32_t magic = *(const uint32_t*)s;
+        uint32_t magic = binpack_load_le32(s);
         if (magic == BINPACK_MAGIC_V2) {
             const binpack_v2_header_t *v2_hdr = (const binpack_v2_header_t*)s;
             const binpack_chunk_header_t *chdr = (const binpack_chunk_header_t*)(s + sizeof(binpack_v2_header_t));
@@ -652,7 +652,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_into(
                     if (after_payload == src_sz) {
                         is_single_chunk = 1;
                     } else if (after_payload + sizeof(binpack_v2_footer_t) <= src_sz) {
-                        uint32_t next_tag = *(const uint32_t*)(s + after_payload);
+                        uint32_t next_tag = binpack_load_le32(s + after_payload);
                         if (next_tag == BINPACK_MAGIC_FOOTER) {
                             is_single_chunk = 1;
                         }
@@ -904,10 +904,10 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_query_file_info(
             return BINPACK_ERR_IO;
         }
         info->version = 1;
-        info->uncompressed_size = *(uint32_t*)&rest_v1[0];
+        info->uncompressed_size = binpack_load_le32(&rest_v1[0]);
         info->compressed_size = file_len;
         info->chunk_count = 1;
-        info->original_crc32 = *(uint32_t*)&rest_v1[8];
+        info->original_crc32 = binpack_load_le32(&rest_v1[8]);
         info->primary_filter = rest_v1[12];
         fclose(f);
         return BINPACK_OK;
