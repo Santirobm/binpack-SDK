@@ -5,10 +5,23 @@
 
 #include "binpack_internal.h"
 
-#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
-#include <immintrin.h>
+#if defined(_WIN32)
+    #ifndef WIN32_LEAN_AND_MEAN
+        #define WIN32_LEAN_AND_MEAN
+    #endif
+    #ifndef NOMINMAX
+        #define NOMINMAX
+    #endif
+    #include <windows.h>
+#else
+    #include <pthread.h>
+#endif
+
+#if defined(__x86_64__) || defined(_M_X64) || \
+    defined(__i386__) || defined(_M_IX86)
+    #include <immintrin.h>
 #elif defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(_M_ARM64)
-#include <arm_neon.h>
+    #include <arm_neon.h>
 #endif
 
 /* ========================================================================= */
@@ -16,35 +29,99 @@
 /* ========================================================================= */
 
 static uint32_t s_crc32_table[8][256];
-static volatile int s_crc32_initialized = 0;
 
-static void binpack_init_crc32_table(void) {
-    if (s_crc32_initialized) return;
+#if defined(_WIN32)
+static INIT_ONCE s_crc32_once = INIT_ONCE_STATIC_INIT;
+#else
+static pthread_once_t s_crc32_once = PTHREAD_ONCE_INIT;
+#endif
+
+static void binpack_init_crc32_table(void)
+{
     for (uint32_t i = 0; i < 256; i++) {
         uint32_t c = i;
+
         for (int j = 0; j < 8; j++) {
-            c = (c & 1) ? (0xEDB88320L ^ (c >> 1)) : (c >> 1);
+            c = (c & 1)
+                ? (0xEDB88320L ^ (c >> 1))
+                : (c >> 1);
         }
+
         s_crc32_table[0][i] = c;
     }
+
     for (uint32_t i = 0; i < 256; i++) {
         for (int j = 1; j < 8; j++) {
-            s_crc32_table[j][i] = (s_crc32_table[j - 1][i] >> 8) ^ s_crc32_table[0][s_crc32_table[j - 1][i] & 0xFF];
+            s_crc32_table[j][i] =
+                (s_crc32_table[j - 1][i] >> 8) ^
+                s_crc32_table[0][s_crc32_table[j - 1][i] & 0xFF];
         }
     }
-#if defined(__GNUC__) || defined(__clang__)
-    __atomic_store_n(&s_crc32_initialized, 1, __ATOMIC_RELEASE);
+}
+
+#if defined(_WIN32)
+
+static BOOL CALLBACK binpack_init_crc32_once_cb(
+    PINIT_ONCE init_once,
+    PVOID parameter,
+    PVOID *context)
+{
+    (void)init_once;
+    (void)parameter;
+    (void)context;
+
+    binpack_init_crc32_table();
+    return TRUE;
+}
+
+static int binpack_ensure_crc32_initialized(void)
+{
+    return InitOnceExecuteOnce(
+        &s_crc32_once,
+        binpack_init_crc32_once_cb,
+        NULL,
+        NULL
+    ) != 0;
+}
+
 #else
-    s_crc32_initialized = 1;
+
+static int binpack_ensure_crc32_initialized(void)
+{
+    return pthread_once(
+        &s_crc32_once,
+        binpack_init_crc32_table
+    ) == 0;
+}
+
 #endif
+
+static uint32_t binpack_crc32_fallback(
+    uint32_t crc,
+    const uint8_t *buf,
+    size_t len)
+{
+    crc ^= 0xFFFFFFFF;
+
+    while (len > 0) {
+        crc ^= *buf++;
+
+        for (int i = 0; i < 8; i++) {
+            crc = (crc & 1)
+                ? ((crc >> 1) ^ 0xEDB88320U)
+                : (crc >> 1);
+        }
+
+        len--;
+    }
+
+    return crc ^ 0xFFFFFFFF;
 }
 
 uint32_t binpack_crc32(uint32_t crc, const uint8_t *buf, size_t len) {
-#if defined(__GNUC__) || defined(__clang__)
-    if (!__atomic_load_n(&s_crc32_initialized, __ATOMIC_ACQUIRE)) binpack_init_crc32_table();
-#else
-    if (!s_crc32_initialized) binpack_init_crc32_table();
-#endif
+    if (!binpack_ensure_crc32_initialized()) {
+        return binpack_crc32_fallback(crc, buf, len);
+    }
     crc = crc ^ 0xFFFFFFFF;
 
     /* Slicing-by-8 parallel table lookups */

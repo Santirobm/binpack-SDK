@@ -43,10 +43,17 @@ set(BINPACK_SOURCES
 # External Zstandard linkage
 find_library(ZSTD_LIBRARY NAMES zstd libzstd_static libzstd PATHS deps/lib)
 
+if(NOT WIN32)
+    find_package(Threads REQUIRED)
+endif()
+
 # Shared Library
 if(BINPACK_BUILD_SHARED)
     add_library(binpack SHARED ${BINPACK_SOURCES})
     target_compile_definitions(binpack PRIVATE BINPACK_BUILD_DLL)
+    if(NOT WIN32)
+        target_link_libraries(binpack PRIVATE Threads::Threads)
+    endif()
     if(ZSTD_LIBRARY)
         target_link_libraries(binpack PRIVATE ${ZSTD_LIBRARY})
     else()
@@ -62,6 +69,9 @@ endif()
 # Static Library
 if(BINPACK_BUILD_STATIC)
     add_library(binpack_static STATIC ${BINPACK_SOURCES})
+    if(NOT WIN32)
+        target_link_libraries(binpack_static PRIVATE Threads::Threads)
+    endif()
     if(ZSTD_LIBRARY)
         target_link_libraries(binpack_static PRIVATE ${ZSTD_LIBRARY})
     else()
