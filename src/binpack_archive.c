@@ -436,12 +436,67 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_archive_get_chunk_info(
     return BINPACK_OK;
 }
 
-/* Internal helper: decompresses a chunk's raw (still prefiltered) bytes, handling rolling prefix chains */
-static binpack_status_t bp_archive_decompress_filtered_raw(
+#define BINPACK_ARCHIVE_MAX_PREFIX_CHAIN 8
+#define BINPACK_ARCHIVE_MAX_PREFIX_MEM_BUDGET (128ULL * 1024ULL * 1024ULL)
+
+#ifdef BINPACK_TESTING
+/* Internal test instrumentation and fault injection hooks (BP-006A) */
+typedef void* (*bp_archive_alloc_fn)(size_t sz);
+static bp_archive_alloc_fn s_test_alloc_hook = NULL;
+static uint32_t s_test_deps_inspected = 0;
+static uint32_t s_test_payload_reads = 0;
+static uint32_t s_test_prefix_buf_alloc_count = 0;
+static uint32_t s_test_cmp_buf_alloc_count = 0;
+
+BINPACK_API void BINPACK_CALL binpack_test_archive_set_alloc_hook(bp_archive_alloc_fn fn) {
+    s_test_alloc_hook = fn;
+}
+
+BINPACK_API void BINPACK_CALL binpack_test_archive_reset_stats(void) {
+    s_test_deps_inspected = 0;
+    s_test_payload_reads = 0;
+    s_test_prefix_buf_alloc_count = 0;
+    s_test_cmp_buf_alloc_count = 0;
+}
+
+BINPACK_API void BINPACK_CALL binpack_test_archive_get_stats(
+    uint32_t *deps_inspected,
+    uint32_t *payload_reads,
+    uint32_t *prefix_buf_alloc_count,
+    uint32_t *total_alloc_count
+) {
+    if (deps_inspected) *deps_inspected = s_test_deps_inspected;
+    if (payload_reads) *payload_reads = s_test_payload_reads;
+    if (prefix_buf_alloc_count) *prefix_buf_alloc_count = s_test_prefix_buf_alloc_count;
+    if (total_alloc_count) *total_alloc_count = (s_test_prefix_buf_alloc_count + s_test_cmp_buf_alloc_count);
+}
+
+static void* bp_archive_alloc(size_t sz) {
+    s_test_prefix_buf_alloc_count++;
+    if (s_test_alloc_hook) {
+        return s_test_alloc_hook(sz);
+    }
+    return malloc(sz);
+}
+
+static void* bp_archive_alloc_cmp(size_t sz) {
+    s_test_cmp_buf_alloc_count++;
+    return malloc(sz);
+}
+#else
+/* Production build: zero global testing state, zero overhead, zero ABI exposure */
+#define bp_archive_alloc(sz) malloc(sz)
+#define bp_archive_alloc_cmp(sz) malloc(sz)
+#endif
+
+/* Internal helper: decompresses a single chunk's raw bytes (optionally using a prefix) */
+static binpack_status_t bp_archive_decompress_single_chunk_raw(
     const binpack_archive_t *archive,
     FILE *fp,
     ZSTD_DCtx *dctx,
     uint32_t chunk_idx,
+    const uint8_t *prefix_buf,
+    size_t prefix_sz,
     uint8_t *dst,
     size_t dst_capacity
 ) {
@@ -454,7 +509,27 @@ static binpack_status_t bp_archive_decompress_filtered_raw(
         return BINPACK_ERR_CORRUPT_DATA;
     }
 
-    uint8_t *cmp_buf = (uint8_t*)malloc(c->compressed_sz);
+    /* Validate algorithm and prefix flag consistency BEFORE allocating memory or reading payload */
+    if (c->filter_flags & BP_CHUNK_FLAG_LZMA) {
+        if ((c->filter_flags & BP_CHUNK_FLAG_PREFIX) || prefix_buf != NULL) {
+            return BINPACK_ERR_CORRUPT_DATA;
+        }
+        if (c->compressed_sz < 5) {
+            return BINPACK_ERR_CORRUPT_DATA;
+        }
+    } else if (c->filter_flags & BP_CHUNK_FLAG_PREFIX) {
+        /* Rolling prefix Zstd chunk: strictly requires non-NULL prefix_buf and prefix_sz > 0 */
+        if (!prefix_buf || prefix_sz == 0) {
+            return BINPACK_ERR_CORRUPT_DATA;
+        }
+    } else {
+        /* Standalone Zstd chunk: strictly requires prefix_buf == NULL */
+        if (prefix_buf != NULL) {
+            return BINPACK_ERR_CORRUPT_DATA;
+        }
+    }
+
+    uint8_t *cmp_buf = (uint8_t*)bp_archive_alloc_cmp(c->compressed_sz);
     if (!cmp_buf) return BINPACK_ERR_OUT_OF_MEMORY;
 
     if (binpack_fseek64(fp, (int64_t)c->file_offset, SEEK_SET) != 0) {
@@ -462,16 +537,15 @@ static binpack_status_t bp_archive_decompress_filtered_raw(
         return BINPACK_ERR_IO;
     }
 
+#ifdef BINPACK_TESTING
+    s_test_payload_reads++;
+#endif
     if (fread(cmp_buf, 1, c->compressed_sz, fp) != c->compressed_sz) {
         free(cmp_buf);
         return BINPACK_ERR_IO;
     }
 
     if (c->filter_flags & BP_CHUNK_FLAG_LZMA) {
-        if (c->compressed_sz < 5) {
-            free(cmp_buf);
-            return BINPACK_ERR_CORRUPT_DATA;
-        }
         size_t lzma_dst = c->uncompressed_sz;
         size_t lzma_src = c->compressed_sz - 5;
         int res = LzmaUncompress(
@@ -484,35 +558,15 @@ static binpack_status_t bp_archive_decompress_filtered_raw(
             return BINPACK_ERR_DECOMPRESSION_FAILED;
         }
     } else if (c->filter_flags & BP_CHUNK_FLAG_PREFIX) {
-        if (chunk_idx == 0) {
-            free(cmp_buf);
-            return BINPACK_ERR_CORRUPT_DATA;
-        }
-        const binpack_chunk_info_t *prev_c = &archive->chunks[chunk_idx - 1];
-        uint8_t *prev_buf = (uint8_t*)malloc(prev_c->uncompressed_sz);
-        if (!prev_buf) {
-            free(cmp_buf);
-            return BINPACK_ERR_OUT_OF_MEMORY;
-        }
-        binpack_status_t st = bp_archive_decompress_filtered_raw(
-            archive, fp, dctx, chunk_idx - 1, prev_buf, prev_c->uncompressed_sz
-        );
-        if (st != BINPACK_OK) {
-            free(prev_buf);
-            free(cmp_buf);
-            return st;
-        }
         size_t zreset = ZSTD_DCtx_reset(dctx, ZSTD_reset_session_only);
         if (ZSTD_isError(zreset)) {
-            free(prev_buf);
             free(cmp_buf);
             return BINPACK_ERR_DECOMPRESSION_FAILED;
         }
-        size_t prefix_sz = prev_c->uncompressed_sz > (16 * 1024 * 1024) ? (16 * 1024 * 1024) : prev_c->uncompressed_sz;
-        const uint8_t *prefix_ptr = prev_buf + (prev_c->uncompressed_sz - prefix_sz);
-        size_t zpref = ZSTD_DCtx_refPrefix(dctx, prefix_ptr, prefix_sz);
+        size_t actual_prefix_sz = prefix_sz > (16 * 1024 * 1024) ? (16 * 1024 * 1024) : prefix_sz;
+        const uint8_t *prefix_ptr = prefix_buf + (prefix_sz - actual_prefix_sz);
+        size_t zpref = ZSTD_DCtx_refPrefix(dctx, prefix_ptr, actual_prefix_sz);
         if (ZSTD_isError(zpref)) {
-            free(prev_buf);
             free(cmp_buf);
             return BINPACK_ERR_DECOMPRESSION_FAILED;
         }
@@ -525,24 +579,20 @@ static binpack_status_t bp_archive_decompress_filtered_raw(
             size_t prev_out = dout.pos;
             zret = ZSTD_decompressStream(dctx, &dout, &din);
             if (ZSTD_isError(zret)) {
-                free(prev_buf);
                 free(cmp_buf);
                 return BINPACK_ERR_DECOMPRESSION_FAILED;
             }
             if (din.pos == prev_in && dout.pos == prev_out) {
                 /* Anti-infinite loop: no progress made on corrupt frame */
-                free(prev_buf);
                 free(cmp_buf);
                 return BINPACK_ERR_CORRUPT_DATA;
             }
             if (zret == 0 && din.pos < din.size) {
                 /* Single frame per chunk contract: frame finished before consuming all chunk payload */
-                free(prev_buf);
                 free(cmp_buf);
                 return BINPACK_ERR_CORRUPT_DATA;
             }
         }
-        free(prev_buf);
         free(cmp_buf);
         if (zret != 0 || dout.pos != c->uncompressed_sz) {
             return BINPACK_ERR_DECOMPRESSION_FAILED;
@@ -567,6 +617,150 @@ static binpack_status_t bp_archive_decompress_filtered_raw(
     }
 
     return BINPACK_OK;
+}
+
+/* Internal helper: decompresses a chunk's raw bytes using bounded iterative prefix resolution (zero recursion) */
+static binpack_status_t bp_archive_decompress_filtered_raw(
+    const binpack_archive_t *archive,
+    FILE *fp,
+    ZSTD_DCtx *dctx,
+    uint32_t chunk_idx,
+    uint8_t *dst,
+    size_t dst_capacity
+) {
+    const binpack_chunk_info_t *target_c = &archive->chunks[chunk_idx];
+    if (dst_capacity < target_c->uncompressed_sz) {
+        return BINPACK_ERR_BUFFER_TOO_SMALL;
+    }
+
+    /* Base case: chunk does not require rolling prefix */
+    if (!(target_c->filter_flags & BP_CHUNK_FLAG_PREFIX)) {
+        return bp_archive_decompress_single_chunk_raw(
+            archive, fp, dctx, chunk_idx, NULL, 0, dst, dst_capacity
+        );
+    }
+
+    /* Target chunk requires prefix: chunk 0 can NEVER have prefix */
+    if (chunk_idx == 0) {
+        return BINPACK_ERR_CORRUPT_DATA;
+    }
+
+    /* ===================================================================== */
+    /* FASE 1: Validación Previa de la Cadena (O(M) tiempo, O(1) memoria)    */
+    /* ===================================================================== */
+    uint32_t chain_depth = 0;
+    uint32_t cur = chunk_idx;
+    uint64_t cumulative_work = target_c->uncompressed_sz;
+
+    if (target_c->uncompressed_sz == 0 ||
+        target_c->uncompressed_sz > (BINPACK_MAX_CHUNK_SIZE * 4ULL) ||
+        target_c->compressed_sz == 0 ||
+        target_c->compressed_sz > (BINPACK_MAX_CHUNK_SIZE * 5ULL)) {
+        return BINPACK_ERR_CORRUPT_DATA;
+    }
+
+    while (cur > 0 && (archive->chunks[cur].filter_flags & BP_CHUNK_FLAG_PREFIX)) {
+#ifdef BINPACK_TESTING
+        s_test_deps_inspected++;
+#endif
+        chain_depth++;
+        if (chain_depth > BINPACK_ARCHIVE_MAX_PREFIX_CHAIN) {
+            /* Early rejection! Exceeds maximum 8 dependencies. ZERO allocations made! */
+            return BINPACK_ERR_CORRUPT_DATA;
+        }
+
+        uint32_t prev_idx = cur - 1;
+        const binpack_chunk_info_t *prev_c = &archive->chunks[prev_idx];
+
+        /* Validate individual chunk bounds */
+        if (prev_c->uncompressed_sz == 0 ||
+            prev_c->uncompressed_sz > (BINPACK_MAX_CHUNK_SIZE * 4ULL) ||
+            prev_c->compressed_sz == 0 ||
+            prev_c->compressed_sz > (BINPACK_MAX_CHUNK_SIZE * 5ULL)) {
+            return BINPACK_ERR_CORRUPT_DATA;
+        }
+
+        /* Check cumulative historical work */
+        if (binpack_safe_add_u64(&cumulative_work, prev_c->uncompressed_sz) != BINPACK_OK ||
+            cumulative_work > BINPACK_ARCHIVE_MAX_PREFIX_MEM_BUDGET) {
+            return BINPACK_ERR_CORRUPT_DATA;
+        }
+
+        /* Check peak transitory memory between consecutive buffers (cur and prev) */
+        uint64_t peak_pair = 0;
+        if (binpack_safe_add_u64(&peak_pair, archive->chunks[cur].uncompressed_sz) != BINPACK_OK ||
+            binpack_safe_add_u64(&peak_pair, prev_c->uncompressed_sz) != BINPACK_OK ||
+            peak_pair > BINPACK_ARCHIVE_MAX_PREFIX_MEM_BUDGET) {
+            return BINPACK_ERR_CORRUPT_DATA;
+        }
+
+        cur = prev_idx;
+    }
+
+    /* If we reached chunk 0 and it still has BP_CHUNK_FLAG_PREFIX, invalid archive */
+    if (archive->chunks[cur].filter_flags & BP_CHUNK_FLAG_PREFIX) {
+        return BINPACK_ERR_CORRUPT_DATA;
+    }
+
+    uint32_t root_idx = cur;
+
+    /* ===================================================================== */
+    /* FASE 2: Pipeline Deslizante Iterativo (Máximo 2 buffers en RAM)        */
+    /* ===================================================================== */
+    uint8_t *prefix_buf = NULL;
+    size_t prefix_sz = 0;
+    binpack_status_t status = BINPACK_OK;
+
+    /* 2a. Descomprimir root chunk en prefix_buf (es independiente, no usa prefijo) */
+    prefix_sz = archive->chunks[root_idx].uncompressed_sz;
+    prefix_buf = (uint8_t*)bp_archive_alloc(prefix_sz);
+    if (!prefix_buf) {
+        return BINPACK_ERR_OUT_OF_MEMORY;
+    }
+
+    status = bp_archive_decompress_single_chunk_raw(
+        archive, fp, dctx, root_idx, NULL, 0, prefix_buf, prefix_sz
+    );
+    if (status != BINPACK_OK) {
+        free(prefix_buf);
+        return status;
+    }
+
+    /* 2b. Descomprimir chunks intermedios: root_idx + 1 hasta chunk_idx - 1 */
+    for (uint32_t i = root_idx + 1; i < chunk_idx; i++) {
+        size_t next_sz = archive->chunks[i].uncompressed_sz;
+        uint8_t *next_buf = (uint8_t*)bp_archive_alloc(next_sz);
+        if (!next_buf) {
+            free(prefix_buf);
+            return BINPACK_ERR_OUT_OF_MEMORY;
+        }
+
+        /* prefix_buf permanece inmutable y válido durante toda la descompresión de chunk i */
+        status = bp_archive_decompress_single_chunk_raw(
+            archive, fp, dctx, i, prefix_buf, prefix_sz, next_buf, next_sz
+        );
+        if (status != BINPACK_OK) {
+            free(prefix_buf);
+            free(next_buf);
+            return status;
+        }
+
+        /* Avanzar ventana deslizante: liberar buffer viejo */
+        free(prefix_buf);
+        prefix_buf = next_buf;
+        prefix_sz = next_sz;
+    }
+
+    /* 2c. Descomprimir chunk final (chunk_idx) usando prefix_buf directamente en dst */
+    status = bp_archive_decompress_single_chunk_raw(
+        archive, fp, dctx, chunk_idx, prefix_buf, prefix_sz, dst, dst_capacity
+    );
+
+    /* Liberar último buffer de prefijo */
+    free(prefix_buf);
+    prefix_buf = NULL;
+
+    return status;
 }
 
 BINPACK_API binpack_status_t BINPACK_CALL binpack_archive_decompress_chunk(
