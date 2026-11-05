@@ -53,23 +53,31 @@ if %ERRORLEVEL% equ 0 (
     zig cc -O3 -march=x86_64 -mno-avx -mno-avx2 %INCLUDES% tests/test_sdk.c binpack.lib %ZSTD_LIB% %LZMA_LIB% -o test_sdk.exe
     if errorlevel 1 goto build_err
 
-    echo [5/5] Compiling CPU Dispatch Test Suite: test_cpu_dispatch.exe
+    echo [5/6] Compiling CPU Dispatch Test Suite: test_cpu_dispatch.exe
     zig cc -O3 -march=x86_64 -mno-avx -mno-avx2 %INCLUDES% tests/test_cpu_dispatch.c binpack.lib %ZSTD_LIB% %LZMA_LIB% -o test_cpu_dispatch.exe
+    if errorlevel 1 goto build_err
+
+    echo [6/6] Compiling Concurrency Test Suite: test_concurrency.exe
+    zig cc -O3 -march=x86_64 -mno-avx -mno-avx2 %INCLUDES% tests/test_concurrency.c binpack.lib %ZSTD_LIB% %LZMA_LIB% -o test_concurrency.exe
     if errorlevel 1 goto build_err
 
     echo.
     echo [SUCCESS] Build completed successfully:
-    echo   - Dynamic Library: binpack.dll
-    echo   - Static Library:  binpack.lib
-    echo   - Enterprise CLI:  binpack-sdk.exe
-    echo   - Test Suite:      test_sdk.exe
-    echo   - Dispatch Suite:  test_cpu_dispatch.exe
+    echo   - Dynamic Library:    binpack.dll
+    echo   - Static Library:     binpack.lib
+    echo   - Enterprise CLI:     binpack-sdk.exe
+    echo   - Regression Suite:   test_sdk.exe
+    echo   - Dispatch Suite:     test_cpu_dispatch.exe
+    echo   - Concurrency Suite:  test_concurrency.exe
     echo.
     echo Running automated test suite:
     test_sdk.exe
     if errorlevel 1 goto build_err
     test_cpu_dispatch.exe
-    exit /b %ERRORLEVEL%
+    if errorlevel 1 goto build_err
+    test_concurrency.exe
+    if errorlevel 1 goto build_err
+    exit /b 0
 )
 
 where cl >nul 2>nul
