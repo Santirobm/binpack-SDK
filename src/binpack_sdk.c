@@ -69,12 +69,32 @@ static size_t mem_read_cb(void *user_data, void *buffer, size_t size) {
 }
 
 static size_t mem_write_cb(void *user_data, const void *buffer, size_t size) {
+    if (size == 0) return 0;
     mem_stream_ctx_t *ctx = (mem_stream_ctx_t*)user_data;
-    if (ctx->dst_size + size > ctx->dst_cap) {
-        size_t new_cap = ctx->dst_cap ? ctx->dst_cap * 2 : 65536;
-        while (new_cap < ctx->dst_size + size) new_cap *= 2;
+    if (!ctx) return 0;
+
+    /* V-01: Proteger suma de tamaño contra desbordamiento de size_t */
+    if (size > SIZE_MAX - ctx->dst_size) {
+        return 0;
+    }
+    size_t required = ctx->dst_size + size;
+
+    if (required > ctx->dst_cap) {
+        size_t new_cap = ctx->dst_cap ? ctx->dst_cap : 65536;
+        /* V-02: Proteger duplicación contra wrap-around y bucle infinito */
+        while (new_cap < required) {
+            if (new_cap > SIZE_MAX / 2) {
+                return 0;
+            }
+            new_cap *= 2;
+        }
+        if (new_cap > SIZE_MAX / sizeof(*ctx->dst)) {
+            return 0;
+        }
         uint8_t *new_data = (uint8_t*)realloc(ctx->dst, new_cap);
-        if (!new_data) return 0;
+        if (!new_data) {
+            return 0; /* Preserva ctx->dst original si realloc falla */
+        }
         ctx->dst = new_data;
         ctx->dst_cap = new_cap;
     }
@@ -401,8 +421,12 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_buffer_ex(
         if (magic == BINPACK_MAGIC_V2) {
             const binpack_v2_header_t *v2_hdr = (const binpack_v2_header_t*)s;
             binpack_chunk_header_t *chdr = (binpack_chunk_header_t*)(s + sizeof(binpack_v2_header_t));
-            if (chdr->chunk_magic == BINPACK_MAGIC_CHUNK &&
-                chdr->uncompressed_sz > 0 && chdr->uncompressed_sz <= (BINPACK_MAX_CHUNK_SIZE * 4ULL)) {
+            if (chdr->chunk_magic == BINPACK_MAGIC_CHUNK) {
+                /* B2: Validación upfront uniforme de límites contra corrupción */
+                if (chdr->uncompressed_sz == 0 || chdr->uncompressed_sz > (BINPACK_MAX_CHUNK_SIZE * 4ULL) ||
+                    chdr->compressed_sz == 0 || chdr->compressed_sz > (BINPACK_MAX_CHUNK_SIZE * 5ULL)) {
+                    return BINPACK_ERR_CORRUPT_DATA;
+                }
                 size_t off = sizeof(binpack_v2_header_t) + sizeof(binpack_chunk_header_t);
                 size_t code_off = 0;
                 size_t code_len = chdr->uncompressed_sz;
@@ -411,7 +435,9 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_buffer_ex(
                         binpack_chunk_bounds_t *b = (binpack_chunk_bounds_t*)(s + off);
                         code_off = b->code_offset;
                         code_len = b->code_length;
-                        if ((uint64_t)code_off + (uint64_t)code_len > (uint64_t)chdr->uncompressed_sz) {
+                        /* V-07: Comprobación sustractiva segura de bounds */
+                        if (code_off > (size_t)chdr->uncompressed_sz ||
+                            code_len > (size_t)chdr->uncompressed_sz - code_off) {
                             return BINPACK_ERR_CORRUPT_DATA;
                         }
                         off += sizeof(binpack_chunk_bounds_t);
@@ -556,8 +582,12 @@ static size_t fixed_mem_read_cb(void *user_data, void *buffer, size_t size) {
 }
 
 static size_t fixed_mem_write_cb(void *user_data, const void *buffer, size_t size) {
+    if (size == 0) return 0;
     fixed_mem_stream_ctx_t *ctx = (fixed_mem_stream_ctx_t*)user_data;
-    if (ctx->dst_size + size > ctx->dst_cap) {
+    if (!ctx) return 0;
+
+    /* V-03: Doble comprobación defensiva sin sumas desbordantes */
+    if (ctx->dst_size > ctx->dst_cap || size > ctx->dst_cap - ctx->dst_size) {
         ctx->overflow = 1;
         return 0;
     }
@@ -630,8 +660,12 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_into(
         if (magic == BINPACK_MAGIC_V2) {
             const binpack_v2_header_t *v2_hdr = (const binpack_v2_header_t*)s;
             const binpack_chunk_header_t *chdr = (const binpack_chunk_header_t*)(s + sizeof(binpack_v2_header_t));
-            if (chdr->chunk_magic == BINPACK_MAGIC_CHUNK &&
-                chdr->uncompressed_sz > 0 && chdr->uncompressed_sz <= (BINPACK_MAX_CHUNK_SIZE * 4ULL)) {
+            if (chdr->chunk_magic == BINPACK_MAGIC_CHUNK) {
+                /* B2: Validación upfront uniforme de límites contra corrupción */
+                if (chdr->uncompressed_sz == 0 || chdr->uncompressed_sz > (BINPACK_MAX_CHUNK_SIZE * 4ULL) ||
+                    chdr->compressed_sz == 0 || chdr->compressed_sz > (BINPACK_MAX_CHUNK_SIZE * 5ULL)) {
+                    return BINPACK_ERR_CORRUPT_DATA;
+                }
                 size_t off = sizeof(binpack_v2_header_t) + sizeof(binpack_chunk_header_t);
                 size_t code_off = 0;
                 size_t code_len = chdr->uncompressed_sz;
@@ -640,7 +674,9 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_decompress_into(
                         const binpack_chunk_bounds_t *b = (const binpack_chunk_bounds_t*)(s + off);
                         code_off = b->code_offset;
                         code_len = b->code_length;
-                        if ((uint64_t)code_off + (uint64_t)code_len > (uint64_t)chdr->uncompressed_sz) {
+                        /* V-07: Comprobación sustractiva segura de bounds */
+                        if (code_off > (size_t)chdr->uncompressed_sz ||
+                            code_len > (size_t)chdr->uncompressed_sz - code_off) {
                             return BINPACK_ERR_CORRUPT_DATA;
                         }
                         off += sizeof(binpack_chunk_bounds_t);

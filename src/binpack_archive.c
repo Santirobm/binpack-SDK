@@ -11,6 +11,29 @@ BINPACK_API binpack_archive_t* BINPACK_CALL binpack_archive_open(const char *fil
     FILE *fp = fopen(filepath, "rb");
     if (!fp) return NULL;
 
+    /* C9: Determinación obligatoria y estricta del tamaño físico del archivo */
+    if (binpack_fseek64(fp, 0, SEEK_END) != 0) {
+        fclose(fp);
+        return NULL;
+    }
+    int64_t file_sz = binpack_ftell64(fp);
+    if (file_sz < 0) {
+        fclose(fp);
+        return NULL;
+    }
+
+    /* C7 & C8: Rechazar archivos vacíos o menores que la cabecera V2 mínima */
+    if (file_sz < (int64_t)sizeof(binpack_v2_header_t)) {
+        fclose(fp);
+        return NULL;
+    }
+
+    /* Reubicar al inicio para leer cabecera V2 */
+    if (binpack_fseek64(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        return NULL;
+    }
+
     binpack_v2_header_t hdr;
     if (fread(&hdr, 1, sizeof(hdr), fp) != sizeof(hdr)) {
         fclose(fp);
@@ -30,39 +53,139 @@ BINPACK_API binpack_archive_t* BINPACK_CALL binpack_archive_open(const char *fil
     arch->fp = fp;
     arch->header = hdr;
     arch->dctx = ZSTD_createDCtx();
+    if (!arch->dctx) {
+        binpack_archive_close(arch);
+        return NULL;
+    }
     strncpy(arch->filepath, filepath, sizeof(arch->filepath) - 1);
     arch->filepath[sizeof(arch->filepath) - 1] = '\0';
 
     /* 1. Try O(1) Footer + Seek Table Index lookup at EOF */
-    if (binpack_fseek64(fp, 0, SEEK_END) == 0) {
-        int64_t file_sz = binpack_ftell64(fp);
-        if (file_sz >= (int64_t)(sizeof(binpack_v2_header_t) + sizeof(binpack_v2_footer_t))) {
-            int64_t footer_pos = file_sz - (int64_t)sizeof(binpack_v2_footer_t);
-            if (binpack_fseek64(fp, footer_pos, SEEK_SET) == 0) {
-                binpack_v2_footer_t footer;
-                if (fread(&footer, 1, sizeof(footer), fp) == sizeof(footer) &&
-                    footer.footer_magic == BINPACK_MAGIC_FOOTER) {
-                    arch->footer = footer;
+    if (file_sz >= (int64_t)(sizeof(binpack_v2_header_t) + sizeof(binpack_v2_footer_t))) {
+        int64_t footer_pos = file_sz - (int64_t)sizeof(binpack_v2_footer_t);
+        if (binpack_fseek64(fp, footer_pos, SEEK_SET) == 0) {
+            binpack_v2_footer_t footer;
+            if (fread(&footer, 1, sizeof(footer), fp) == sizeof(footer) &&
+                footer.footer_magic == BINPACK_MAGIC_FOOTER) {
+                arch->footer = footer;
 
-                    /* Multi-chunk O(1) Seek Table Index right before footer */
-                    if (footer.chunk_count > 1 && footer.chunk_count <= 1000000) {
-                        int64_t table_bytes = (int64_t)footer.chunk_count * (int64_t)sizeof(binpack_chunk_info_t);
-                        int64_t idx_pos = footer_pos - (int64_t)sizeof(binpack_index_header_t) - table_bytes;
-                        if (idx_pos >= (int64_t)sizeof(binpack_v2_header_t) &&
-                            binpack_fseek64(fp, idx_pos, SEEK_SET) == 0) {
-                            binpack_index_header_t idx_hdr;
-                            if (fread(&idx_hdr, 1, sizeof(idx_hdr), fp) == sizeof(idx_hdr) &&
-                                idx_hdr.index_magic == BINPACK_MAGIC_INDEX &&
-                                idx_hdr.entry_count == footer.chunk_count) {
-                                arch->chunks = (binpack_chunk_info_t*)malloc((size_t) table_bytes);
-                                if (!arch->chunks) {
-                                    binpack_archive_close(arch);
-                                    return NULL;
+                /* Multi-chunk O(1) Seek Table Index right before footer */
+                if (footer.chunk_count > 1 && footer.chunk_count <= 1000000 &&
+                    (size_t)footer.chunk_count <= SIZE_MAX / sizeof(binpack_chunk_info_t)) {
+                    int64_t table_bytes = (int64_t)footer.chunk_count * (int64_t)sizeof(binpack_chunk_info_t);
+                    int64_t idx_pos = footer_pos - (int64_t)sizeof(binpack_index_header_t) - table_bytes;
+                    if (idx_pos >= (int64_t)sizeof(binpack_v2_header_t) &&
+                        binpack_fseek64(fp, idx_pos, SEEK_SET) == 0) {
+                        binpack_index_header_t idx_hdr;
+                        if (fread(&idx_hdr, 1, sizeof(idx_hdr), fp) == sizeof(idx_hdr) &&
+                            idx_hdr.index_magic == BINPACK_MAGIC_INDEX &&
+                            idx_hdr.entry_count == footer.chunk_count) {
+                            arch->chunks = (binpack_chunk_info_t*)malloc((size_t) table_bytes);
+                            if (arch->chunks && fread(arch->chunks, 1, (size_t)table_bytes, fp) == (size_t)table_bytes) {
+                                /* C12-C17: Validación integral del Seek Table Index y continuidad estructural */
+                                int valid_table = 1;
+                                int64_t prev_payload_end = (int64_t)sizeof(binpack_v2_header_t);
+                                uint64_t computed_total_uncompressed = 0;
+
+                                for (uint32_t i = 0; i < footer.chunk_count; i++) {
+                                    const binpack_chunk_info_t *c = &arch->chunks[i];
+
+                                    /* Validar índice consecutivo desde cero */
+                                    if (c->chunk_index != i) {
+                                        valid_table = 0;
+                                        break;
+                                    }
+
+                                    /* Límites de tamaño de chunk */
+                                    if (c->uncompressed_sz == 0 || c->uncompressed_sz > (BINPACK_MAX_CHUNK_SIZE * 4ULL) ||
+                                        c->compressed_sz == 0 || c->compressed_sz > (BINPACK_MAX_CHUNK_SIZE * 5ULL)) {
+                                        valid_table = 0;
+                                        break;
+                                    }
+
+                                    /* Acumulación y protección contra overflow de total descomprimido */
+                                    if (binpack_safe_add_u64(&computed_total_uncompressed, c->uncompressed_sz) != BINPACK_OK) {
+                                        valid_table = 0;
+                                        break;
+                                    }
+
+                                    /* Límites de filtrado sustractivos */
+                                    if (c->code_offset > c->uncompressed_sz ||
+                                        c->code_length > c->uncompressed_sz - c->code_offset) {
+                                        valid_table = 0;
+                                        break;
+                                    }
+
+                                    /* Cabecera CHNK mínima requerida antes del payload */
+                                    size_t min_hdr_sz = sizeof(binpack_chunk_header_t);
+                                    if (c->filter_flags & BP_CHUNK_FLAG_BOUNDS) {
+                                        min_hdr_sz += sizeof(binpack_chunk_bounds_t);
+                                    }
+
+                                    /* Continuidad estructural estricta: cada cabecera debe comenzar exactamente donde terminó el payload anterior */
+                                    if (c->file_offset < min_hdr_sz) {
+                                        valid_table = 0;
+                                        break;
+                                    }
+                                    uint64_t chunk_hdr_offset = c->file_offset - min_hdr_sz;
+                                    if (chunk_hdr_offset != (uint64_t)prev_payload_end) {
+                                        valid_table = 0;
+                                        break;
+                                    }
+
+                                    /* Payload íntegramente dentro del archivo y antes del índice */
+                                    if (c->file_offset > (uint64_t)file_sz ||
+                                        (uint64_t)c->compressed_sz > (uint64_t)file_sz - c->file_offset ||
+                                        (int64_t)c->file_offset + (int64_t)c->compressed_sz > idx_pos) {
+                                        valid_table = 0;
+                                        break;
+                                    }
+
+                                    /* Verificación cruzada exhaustiva con cabecera CHNK y bounds en disco */
+                                    if (binpack_fseek64(fp, (int64_t)chunk_hdr_offset, SEEK_SET) != 0) {
+                                        valid_table = 0;
+                                        break;
+                                    }
+                                    binpack_chunk_header_t on_disk_chdr;
+                                    if (fread(&on_disk_chdr, 1, sizeof(on_disk_chdr), fp) != sizeof(on_disk_chdr)) {
+                                        valid_table = 0;
+                                        break;
+                                    }
+                                    if (on_disk_chdr.chunk_magic != BINPACK_MAGIC_CHUNK ||
+                                        on_disk_chdr.uncompressed_sz != c->uncompressed_sz ||
+                                        on_disk_chdr.compressed_sz != c->compressed_sz ||
+                                        on_disk_chdr.chunk_crc32 != c->chunk_crc32 ||
+                                        on_disk_chdr.filter_id != c->filter_id ||
+                                        on_disk_chdr.filter_flags != c->filter_flags ||
+                                        on_disk_chdr.filter_param != c->filter_param) {
+                                        valid_table = 0;
+                                        break;
+                                    }
+
+                                    /* Si el chunk tiene bounds físicos, verificar coincidencia exacta */
+                                    if (c->filter_flags & BP_CHUNK_FLAG_BOUNDS) {
+                                        binpack_chunk_bounds_t on_disk_bounds;
+                                        if (fread(&on_disk_bounds, 1, sizeof(on_disk_bounds), fp) != sizeof(on_disk_bounds)) {
+                                            valid_table = 0;
+                                            break;
+                                        }
+                                        if (on_disk_bounds.code_offset != c->code_offset ||
+                                            on_disk_bounds.code_length != c->code_length) {
+                                            valid_table = 0;
+                                            break;
+                                        }
+                                    }
+
+                                    prev_payload_end = (int64_t)c->file_offset + (int64_t)c->compressed_sz;
                                 }
-                                if (fread(arch->chunks, 1, (size_t)table_bytes, fp) == (size_t)table_bytes) {
+
+                                /* Comprobar que no haya gaps entre el último chunk y el índice, y que total_uncompressed coincida */
+                                if (valid_table && prev_payload_end == idx_pos && computed_total_uncompressed == footer.total_uncompressed) {
                                     arch->chunk_count = footer.chunk_count;
                                     return arch;
                                 }
+                            }
+                            if (arch->chunks) {
                                 free(arch->chunks);
                                 arch->chunks = NULL;
                             }
@@ -73,7 +196,7 @@ BINPACK_API binpack_archive_t* BINPACK_CALL binpack_archive_open(const char *fil
         }
     }
 
-    /* 2. Fallback: 64-bit sequential chunk header scan (also O(1) for 1-chunk archives) */
+    /* 2. Fallback: 64-bit sequential chunk header scan (fail-closed ante cualquier truncamiento) */
     if (binpack_fseek64(fp, (int64_t)sizeof(binpack_v2_header_t), SEEK_SET) != 0) {
         binpack_archive_close(arch);
         return NULL;
@@ -87,53 +210,158 @@ BINPACK_API binpack_archive_t* BINPACK_CALL binpack_archive_open(const char *fil
     }
 
     uint32_t chunk_idx = 0;
+    int saw_index = 0;
+    int saw_footer = 0;
+    uint64_t computed_total_uncompressed = 0;
+
     while (1) {
         int64_t cur_pos = binpack_ftell64(fp);
-        if (cur_pos < 0) break;
+        if (cur_pos < 0) {
+            binpack_archive_close(arch);
+            return NULL;
+        }
+
+        /* Si llegamos exactamente al final del archivo */
+        if (cur_pos == file_sz) {
+            break;
+        }
+
+        /* Si quedan menos de 4 bytes, hay datos truncados */
+        if (cur_pos > file_sz - 4) {
+            binpack_archive_close(arch);
+            return NULL;
+        }
 
         uint32_t tag = 0;
-        if (fread(&tag, 1, 4, fp) != 4) break;
+        if (fread(&tag, 1, 4, fp) != 4) {
+            binpack_archive_close(arch);
+            return NULL;
+        }
 
         if (tag == BINPACK_MAGIC_INDEX) {
+            /* Regla 1: Como máximo un único bloque INDEX en todo el contenedor */
+            /* Regla 2: Debe aparecer estrictamente después de haber escaneado todos los chunks */
+            if (saw_index || chunk_idx == 0) {
+                binpack_archive_close(arch);
+                return NULL;
+            }
             uint32_t entry_count = 0;
-            if (fread(&entry_count, 1, 4, fp) != 4) break;
+            if (fread(&entry_count, 1, 4, fp) != 4) {
+                binpack_archive_close(arch);
+                return NULL;
+            }
+            /* Regla 3: entry_count == chunk_idx */
+            if (entry_count != chunk_idx || entry_count > 1000000 || (size_t)entry_count > SIZE_MAX / sizeof(binpack_chunk_info_t)) {
+                binpack_archive_close(arch);
+                return NULL;
+            }
             int64_t skip = (int64_t)entry_count * (int64_t)sizeof(binpack_chunk_info_t);
-            if (binpack_fseek64(fp, skip, SEEK_CUR) != 0) break;
+            int64_t after_tag_pos = binpack_ftell64(fp);
+            if (after_tag_pos < 0 || skip > file_sz - after_tag_pos) {
+                binpack_archive_close(arch);
+                return NULL;
+            }
+            if (binpack_fseek64(fp, skip, SEEK_CUR) != 0) {
+                binpack_archive_close(arch);
+                return NULL;
+            }
+            saw_index = 1;
             continue;
         }
 
         if (tag == BINPACK_MAGIC_FOOTER) {
-            binpack_fseek64(fp, cur_pos, SEEK_SET);
-            fread(&arch->footer, 1, sizeof(binpack_v2_footer_t), fp);
+            if (binpack_fseek64(fp, cur_pos, SEEK_SET) != 0) {
+                binpack_archive_close(arch);
+                return NULL;
+            }
+            if (fread(&arch->footer, 1, sizeof(binpack_v2_footer_t), fp) != sizeof(binpack_v2_footer_t)) {
+                binpack_archive_close(arch);
+                return NULL;
+            }
+            int64_t footer_end = binpack_ftell64(fp);
+            if (footer_end < 0 || footer_end != file_sz) {
+                binpack_archive_close(arch);
+                return NULL;
+            }
+            saw_footer = 1;
             break;
         }
 
-        if (tag != BINPACK_MAGIC_CHUNK) {
-            break;
+        /* Regla 4: Tras saltar el bloque INDEX, el siguiente bloque debe ser obligatoriamente FOOTER;
+         * cualquier chunk u otro tag posterior es una violación estructural */
+        if (saw_index || tag != BINPACK_MAGIC_CHUNK) {
+            /* Corrupción estructural o datos truncados: rechazo total */
+            binpack_archive_close(arch);
+            return NULL;
         }
 
-        binpack_fseek64(fp, cur_pos, SEEK_SET);
+        if (binpack_fseek64(fp, cur_pos, SEEK_SET) != 0) {
+            binpack_archive_close(arch);
+            return NULL;
+        }
         binpack_chunk_header_t chdr;
-        if (fread(&chdr, 1, sizeof(chdr), fp) != sizeof(chdr)) break;
+        if (fread(&chdr, 1, sizeof(chdr), fp) != sizeof(chdr)) {
+            binpack_archive_close(arch);
+            return NULL;
+        }
+
+        /* Anti-corruption / zip-bomb limit check */
+        if (chdr.uncompressed_sz == 0 || chdr.uncompressed_sz > (BINPACK_MAX_CHUNK_SIZE * 4ULL) ||
+            chdr.compressed_sz == 0 || chdr.compressed_sz > (BINPACK_MAX_CHUNK_SIZE * 5ULL)) {
+            binpack_archive_close(arch);
+            return NULL;
+        }
+
+        /* Acumular total descomprimido con protección contra overflow */
+        if (binpack_safe_add_u64(&computed_total_uncompressed, chdr.uncompressed_sz) != BINPACK_OK) {
+            binpack_archive_close(arch);
+            return NULL;
+        }
 
         binpack_chunk_bounds_t bounds;
         bounds.code_offset = 0;
         bounds.code_length = chdr.uncompressed_sz;
         if (chdr.filter_flags & BP_CHUNK_FLAG_BOUNDS) {
-            if (fread(&bounds, 1, sizeof(bounds), fp) != sizeof(bounds)) break;
+            if (fread(&bounds, 1, sizeof(bounds), fp) != sizeof(bounds)) {
+                binpack_archive_close(arch);
+                return NULL;
+            }
+        }
+
+        /* V-07: Comprobación sustractiva de límites */
+        if (bounds.code_offset > chdr.uncompressed_sz ||
+            bounds.code_length > chdr.uncompressed_sz - bounds.code_offset) {
+            binpack_archive_close(arch);
+            return NULL;
         }
 
         int64_t payload_offset = binpack_ftell64(fp);
-        if (payload_offset < 0) break;
+        if (payload_offset < 0) {
+            binpack_archive_close(arch);
+            return NULL;
+        }
 
+        /* V-10, C10, C11: Verificación de payload completo dentro del archivo (fail-closed) */
+        if ((uint64_t)payload_offset > (uint64_t)file_sz ||
+            (uint64_t)chdr.compressed_sz > (uint64_t)file_sz - (uint64_t)payload_offset) {
+            binpack_archive_close(arch);
+            return NULL;
+        }
+
+        /* V-04: Crecimiento seguro de capacidad con protección contra overflow */
         if (chunk_idx >= capacity) {
-            capacity *= 2;
-            binpack_chunk_info_t *new_chunks = (binpack_chunk_info_t*)realloc(arch->chunks, capacity * sizeof(binpack_chunk_info_t));
+            if (capacity > SIZE_MAX / (2 * sizeof(binpack_chunk_info_t))) {
+                binpack_archive_close(arch);
+                return NULL;
+            }
+            size_t new_cap = capacity * 2;
+            binpack_chunk_info_t *new_chunks = (binpack_chunk_info_t*)realloc(arch->chunks, new_cap * sizeof(binpack_chunk_info_t));
             if (!new_chunks) {
                 binpack_archive_close(arch);
                 return NULL;
             }
             arch->chunks = new_chunks;
+            capacity = new_cap;
         }
 
         binpack_chunk_info_t *info = &arch->chunks[chunk_idx];
@@ -148,10 +376,32 @@ BINPACK_API binpack_archive_t* BINPACK_CALL binpack_archive_open(const char *fil
         info->code_length = bounds.code_length;
         info->chunk_crc32 = chdr.chunk_crc32;
 
+        /* V-04: Protección contra overflow del contador de chunks */
+        if (chunk_idx == UINT32_MAX) {
+            binpack_archive_close(arch);
+            return NULL;
+        }
         chunk_idx++;
 
         /* Skip compressed payload to next chunk using 64-bit seek */
-        if (binpack_fseek64(fp, payload_offset + (int64_t)chdr.compressed_sz, SEEK_SET) != 0) break;
+        if (binpack_fseek64(fp, payload_offset + (int64_t)chdr.compressed_sz, SEEK_SET) != 0) {
+            binpack_archive_close(arch);
+            return NULL;
+        }
+    }
+
+    /* Rechazo de archivos sin chunks válidos, sin footer o con discrepancias */
+    if (chunk_idx == 0 || !saw_footer) {
+        binpack_archive_close(arch);
+        return NULL;
+    }
+    if (arch->footer.chunk_count != chunk_idx) {
+        binpack_archive_close(arch);
+        return NULL;
+    }
+    if (arch->footer.total_uncompressed != computed_total_uncompressed) {
+        binpack_archive_close(arch);
+        return NULL;
     }
 
     arch->chunk_count = chunk_idx;
@@ -252,28 +502,63 @@ static binpack_status_t bp_archive_decompress_filtered_raw(
             free(cmp_buf);
             return st;
         }
-        ZSTD_DCtx_reset(dctx, ZSTD_reset_session_only);
+        size_t zreset = ZSTD_DCtx_reset(dctx, ZSTD_reset_session_only);
+        if (ZSTD_isError(zreset)) {
+            free(prev_buf);
+            free(cmp_buf);
+            return BINPACK_ERR_DECOMPRESSION_FAILED;
+        }
         size_t prefix_sz = prev_c->uncompressed_sz > (16 * 1024 * 1024) ? (16 * 1024 * 1024) : prev_c->uncompressed_sz;
         const uint8_t *prefix_ptr = prev_buf + (prev_c->uncompressed_sz - prefix_sz);
-        ZSTD_DCtx_refPrefix(dctx, prefix_ptr, prefix_sz);
+        size_t zpref = ZSTD_DCtx_refPrefix(dctx, prefix_ptr, prefix_sz);
+        if (ZSTD_isError(zpref)) {
+            free(prev_buf);
+            free(cmp_buf);
+            return BINPACK_ERR_DECOMPRESSION_FAILED;
+        }
 
         ZSTD_inBuffer din = { cmp_buf, c->compressed_sz, 0 };
         ZSTD_outBuffer dout = { dst, c->uncompressed_sz, 0 };
+        size_t zret = 0;
         while (din.pos < din.size) {
-            size_t zret = ZSTD_decompressStream(dctx, &dout, &din);
+            size_t prev_in = din.pos;
+            size_t prev_out = dout.pos;
+            zret = ZSTD_decompressStream(dctx, &dout, &din);
             if (ZSTD_isError(zret)) {
                 free(prev_buf);
                 free(cmp_buf);
                 return BINPACK_ERR_DECOMPRESSION_FAILED;
             }
+            if (din.pos == prev_in && dout.pos == prev_out) {
+                /* Anti-infinite loop: no progress made on corrupt frame */
+                free(prev_buf);
+                free(cmp_buf);
+                return BINPACK_ERR_CORRUPT_DATA;
+            }
+            if (zret == 0 && din.pos < din.size) {
+                /* Single frame per chunk contract: frame finished before consuming all chunk payload */
+                free(prev_buf);
+                free(cmp_buf);
+                return BINPACK_ERR_CORRUPT_DATA;
+            }
         }
         free(prev_buf);
         free(cmp_buf);
-        if (dout.pos != c->uncompressed_sz) {
+        if (zret != 0 || dout.pos != c->uncompressed_sz) {
             return BINPACK_ERR_DECOMPRESSION_FAILED;
         }
     } else {
-        ZSTD_DCtx_reset(dctx, ZSTD_reset_session_only);
+        size_t frame_c_sz = ZSTD_findFrameCompressedSize(cmp_buf, c->compressed_sz);
+        if (ZSTD_isError(frame_c_sz) || frame_c_sz != c->compressed_sz) {
+            /* Trailing bytes, concatenated frames or invalid frame size within chunk payload */
+            free(cmp_buf);
+            return BINPACK_ERR_CORRUPT_DATA;
+        }
+        size_t zreset = ZSTD_DCtx_reset(dctx, ZSTD_reset_session_only);
+        if (ZSTD_isError(zreset)) {
+            free(cmp_buf);
+            return BINPACK_ERR_DECOMPRESSION_FAILED;
+        }
         size_t d_sz = ZSTD_decompressDCtx(dctx, dst, c->uncompressed_sz, cmp_buf, c->compressed_sz);
         free(cmp_buf);
         if (ZSTD_isError(d_sz) || d_sz != c->uncompressed_sz) {
@@ -332,7 +617,7 @@ BINPACK_API binpack_status_t BINPACK_CALL binpack_archive_decompress_chunk(
         filter == BINPACK_FILTER_AARCH64 || filter == BINPACK_FILTER_RISCV) {
         uint32_t code_off = (c->filter_flags & BP_CHUNK_FLAG_BOUNDS) ? c->code_offset : 0;
         uint32_t code_len = (c->filter_flags & BP_CHUNK_FLAG_BOUNDS) ? c->code_length : c->uncompressed_sz;
-        if ((uint64_t)code_off + (uint64_t)code_len <= (uint64_t)c->uncompressed_sz) {
+        if (code_off <= c->uncompressed_sz && code_len <= c->uncompressed_sz - code_off) {
             uint8_t *target = raw_buf + code_off;
             if (filter == BINPACK_FILTER_X86_64) {
                 binpack_bcj_x86_unfilter(target, code_len);

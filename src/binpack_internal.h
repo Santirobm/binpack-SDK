@@ -121,6 +121,15 @@ static inline void binpack_store_be64(uint8_t *p, uint64_t v) {
     p[7] = (uint8_t)(v & 0xFF);
 }
 
+/* Guarda aritmetica segura sustractiva para acumulaciones de 64 bits */
+static inline binpack_status_t binpack_safe_add_u64(uint64_t *acc, uint64_t delta) {
+    if (delta > UINT64_MAX - *acc) {
+        return BINPACK_ERR_CORRUPT_DATA;
+    }
+    *acc += delta;
+    return BINPACK_OK;
+}
+
 #define BINPACK_MAGIC_CHUNK  0x4B4E4843 /* 'CHNK' */
 #define BINPACK_MAGIC_INDEX  0x58444942 /* 'BIDX' */
 #define BINPACK_MAGIC_FOOTER 0x324B5046 /* 'FPK2' */
