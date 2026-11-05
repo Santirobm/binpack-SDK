@@ -16,15 +16,14 @@ include_directories(include deps/include deps/lzma)
 add_compile_definitions(_7ZIP_ST)
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-    if(MSVC)
-        add_compile_options(/arch:AVX2)
-    else()
-        add_compile_options(-mavx2)
+    if(NOT MSVC)
+        add_compile_options(-march=x86-64 -mno-avx -mno-avx2)
     endif()
 endif()
 
 set(BINPACK_SOURCES
     src/binpack_core.c
+    src/binpack_cpu.c
     src/binpack_eval.c
     src/binpack_stream.c
     src/binpack_sdk.c
@@ -40,13 +39,29 @@ set(BINPACK_SOURCES
     deps/lzma/Bra.c
 )
 
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    list(APPEND BINPACK_SOURCES src/binpack_core_avx2.c)
+    if(MSVC)
+        set_source_files_properties(src/binpack_core_avx2.c PROPERTIES COMPILE_FLAGS "/arch:AVX2")
+    else()
+        set_source_files_properties(src/binpack_core_avx2.c PROPERTIES COMPILE_FLAGS "-mavx2")
+    endif()
+endif()
+
 # External Zstandard linkage
 find_library(ZSTD_LIBRARY NAMES zstd libzstd_static libzstd PATHS deps/lib)
+
+if(NOT WIN32)
+    find_package(Threads REQUIRED)
+endif()
 
 # Shared Library
 if(BINPACK_BUILD_SHARED)
     add_library(binpack SHARED ${BINPACK_SOURCES})
     target_compile_definitions(binpack PRIVATE BINPACK_BUILD_DLL)
+    if(NOT WIN32)
+        target_link_libraries(binpack PRIVATE Threads::Threads)
+    endif()
     if(ZSTD_LIBRARY)
         target_link_libraries(binpack PRIVATE ${ZSTD_LIBRARY})
     else()
@@ -62,6 +77,9 @@ endif()
 # Static Library
 if(BINPACK_BUILD_STATIC)
     add_library(binpack_static STATIC ${BINPACK_SOURCES})
+    if(NOT WIN32)
+        target_link_libraries(binpack_static PRIVATE Threads::Threads)
+    endif()
     if(ZSTD_LIBRARY)
         target_link_libraries(binpack_static PRIVATE ${ZSTD_LIBRARY})
     else()
@@ -92,4 +110,36 @@ if(BINPACK_BUILD_TESTS)
         target_link_libraries(test_sdk PRIVATE binpack ${ZSTD_LIBRARY})
     endif()
     add_test(NAME RegressionTests COMMAND test_sdk)
+
+    add_executable(test_crc32_concurrency tests/test_crc32_concurrency.c)
+    if(BINPACK_BUILD_STATIC)
+        target_link_libraries(test_crc32_concurrency PRIVATE binpack_static ${ZSTD_LIBRARY})
+    elseif(BINPACK_BUILD_SHARED)
+        target_link_libraries(test_crc32_concurrency PRIVATE binpack ${ZSTD_LIBRARY})
+    endif()
+    add_test(NAME ConcurrencyTests COMMAND test_crc32_concurrency)
+
+    add_executable(test_unaligned_access tests/test_unaligned_access.c)
+    if(BINPACK_BUILD_STATIC)
+        target_link_libraries(test_unaligned_access PRIVATE binpack_static ${ZSTD_LIBRARY})
+    elseif(BINPACK_BUILD_SHARED)
+        target_link_libraries(test_unaligned_access PRIVATE binpack ${ZSTD_LIBRARY})
+    endif()
+    add_test(NAME UnalignedAccessTests COMMAND test_unaligned_access)
+
+    add_executable(test_pe_elf_bounds tests/test_pe_elf_bounds.c)
+    if(BINPACK_BUILD_STATIC)
+        target_link_libraries(test_pe_elf_bounds PRIVATE binpack_static ${ZSTD_LIBRARY})
+    elseif(BINPACK_BUILD_SHARED)
+        target_link_libraries(test_pe_elf_bounds PRIVATE binpack ${ZSTD_LIBRARY})
+    endif()
+    add_test(NAME PeElfBoundsTests COMMAND test_pe_elf_bounds)
+
+    add_executable(test_cpu_dispatch tests/test_cpu_dispatch.c)
+    if(BINPACK_BUILD_STATIC)
+        target_link_libraries(test_cpu_dispatch PRIVATE binpack_static ${ZSTD_LIBRARY})
+    elseif(BINPACK_BUILD_SHARED)
+        target_link_libraries(test_cpu_dispatch PRIVATE binpack ${ZSTD_LIBRARY})
+    endif()
+    add_test(NAME CpuDispatchTests COMMAND test_cpu_dispatch)
 endif()

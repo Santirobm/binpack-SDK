@@ -27,6 +27,109 @@
     #define binpack_ftell64 ftello
 #endif
 
+/* ========================================================================= */
+/* Safe Endianness-Aware Memory Loaders (Unaligned-safe & Strict-Aliasing)  */
+/* ========================================================================= */
+
+static inline uint16_t binpack_load_le16(const uint8_t *p) {
+    return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+}
+
+static inline uint32_t binpack_load_le32(const uint8_t *p) {
+    return ((uint32_t)p[0])       |
+           ((uint32_t)p[1] << 8)  |
+           ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+
+static inline uint64_t binpack_load_le64(const uint8_t *p) {
+    return ((uint64_t)p[0])       |
+           ((uint64_t)p[1] << 8)  |
+           ((uint64_t)p[2] << 16) |
+           ((uint64_t)p[3] << 24) |
+           ((uint64_t)p[4] << 32) |
+           ((uint64_t)p[5] << 40) |
+           ((uint64_t)p[6] << 48) |
+           ((uint64_t)p[7] << 56);
+}
+
+static inline uint16_t binpack_load_be16(const uint8_t *p) {
+    return (uint16_t)(((uint16_t)p[0] << 8) | (uint16_t)p[1]);
+}
+
+static inline uint32_t binpack_load_be32(const uint8_t *p) {
+    return ((uint32_t)p[0] << 24) |
+           ((uint32_t)p[1] << 16) |
+           ((uint32_t)p[2] << 8)  |
+           ((uint32_t)p[3]);
+}
+
+static inline uint64_t binpack_load_be64(const uint8_t *p) {
+    return ((uint64_t)p[0] << 56) |
+           ((uint64_t)p[1] << 48) |
+           ((uint64_t)p[2] << 40) |
+           ((uint64_t)p[3] << 32) |
+           ((uint64_t)p[4] << 24) |
+           ((uint64_t)p[5] << 16) |
+           ((uint64_t)p[6] << 8)  |
+           ((uint64_t)p[7]);
+}
+
+static inline void binpack_store_le16(uint8_t *p, uint16_t v) {
+    p[0] = (uint8_t)(v & 0xFF);
+    p[1] = (uint8_t)((v >> 8) & 0xFF);
+}
+
+static inline void binpack_store_le32(uint8_t *p, uint32_t v) {
+    p[0] = (uint8_t)(v & 0xFF);
+    p[1] = (uint8_t)((v >> 8) & 0xFF);
+    p[2] = (uint8_t)((v >> 16) & 0xFF);
+    p[3] = (uint8_t)((v >> 24) & 0xFF);
+}
+
+static inline void binpack_store_le64(uint8_t *p, uint64_t v) {
+    p[0] = (uint8_t)(v & 0xFF);
+    p[1] = (uint8_t)((v >> 8) & 0xFF);
+    p[2] = (uint8_t)((v >> 16) & 0xFF);
+    p[3] = (uint8_t)((v >> 24) & 0xFF);
+    p[4] = (uint8_t)((v >> 32) & 0xFF);
+    p[5] = (uint8_t)((v >> 40) & 0xFF);
+    p[6] = (uint8_t)((v >> 48) & 0xFF);
+    p[7] = (uint8_t)((v >> 56) & 0xFF);
+}
+
+static inline void binpack_store_be16(uint8_t *p, uint16_t v) {
+    p[0] = (uint8_t)((v >> 8) & 0xFF);
+    p[1] = (uint8_t)(v & 0xFF);
+}
+
+static inline void binpack_store_be32(uint8_t *p, uint32_t v) {
+    p[0] = (uint8_t)((v >> 24) & 0xFF);
+    p[1] = (uint8_t)((v >> 16) & 0xFF);
+    p[2] = (uint8_t)((v >> 8) & 0xFF);
+    p[3] = (uint8_t)(v & 0xFF);
+}
+
+static inline void binpack_store_be64(uint8_t *p, uint64_t v) {
+    p[0] = (uint8_t)((v >> 56) & 0xFF);
+    p[1] = (uint8_t)((v >> 48) & 0xFF);
+    p[2] = (uint8_t)((v >> 40) & 0xFF);
+    p[3] = (uint8_t)((v >> 32) & 0xFF);
+    p[4] = (uint8_t)((v >> 24) & 0xFF);
+    p[5] = (uint8_t)((v >> 16) & 0xFF);
+    p[6] = (uint8_t)((v >> 8) & 0xFF);
+    p[7] = (uint8_t)(v & 0xFF);
+}
+
+/* Guarda aritmetica segura sustractiva para acumulaciones de 64 bits */
+static inline binpack_status_t binpack_safe_add_u64(uint64_t *acc, uint64_t delta) {
+    if (delta > UINT64_MAX - *acc) {
+        return BINPACK_ERR_CORRUPT_DATA;
+    }
+    *acc += delta;
+    return BINPACK_OK;
+}
+
 #define BINPACK_MAGIC_CHUNK  0x4B4E4843 /* 'CHNK' */
 #define BINPACK_MAGIC_INDEX  0x58444942 /* 'BIDX' */
 #define BINPACK_MAGIC_FOOTER 0x324B5046 /* 'FPK2' */
@@ -166,5 +269,64 @@ int binpack_texture_bcn_unfilter(uint8_t *data, size_t size, uint16_t stride);
 binpack_filter_t binpack_auto_select_filter(const uint8_t *data, size_t size, uint16_t *out_param);
 
 int binpack_get_cpu_cores(void);
+
+/* ========================================================================= */
+/* Architecture SIMD Dispatch Engine & Kernel Contracts                      */
+/* ========================================================================= */
+
+#define BINPACK_BACKEND_SCALAR 0
+#define BINPACK_BACKEND_AVX2   1
+
+typedef void (*bp_bcj_fn)(uint8_t *data, size_t size);
+typedef int  (*bp_bitshuffle_fn)(uint8_t *data, size_t size, uint16_t stride);
+
+typedef struct {
+    bp_bcj_fn        bcj_aarch64_filter;
+    bp_bcj_fn        bcj_aarch64_unfilter;
+    bp_bcj_fn        bcj_riscv_filter;
+    bp_bcj_fn        bcj_riscv_unfilter;
+    bp_bitshuffle_fn bitshuffle_filter;
+    bp_bitshuffle_fn bitshuffle_unfilter;
+    int              backend_id;
+} binpack_dispatch_table_t;
+
+extern binpack_dispatch_table_t g_bp_dispatch;
+
+void bp_ensure_cpu_dispatch_initialized(void);
+int  bp_cpu_dispatch_get_active_backend(void);
+
+/* Portable Baseline / Scalar Kernels */
+void bp_bcj_aarch64_filter_scalar(uint8_t *data, size_t size);
+void bp_bcj_aarch64_unfilter_scalar(uint8_t *data, size_t size);
+void bp_bcj_riscv_filter_scalar(uint8_t *data, size_t size);
+void bp_bcj_riscv_unfilter_scalar(uint8_t *data, size_t size);
+int  bp_bitshuffle_filter_scalar(uint8_t *data, size_t size, uint16_t stride);
+int  bp_bitshuffle_unfilter_scalar(uint8_t *data, size_t size, uint16_t stride);
+
+/* AVX2 Accelerated Kernels (binpack_core_avx2.c) */
+void bp_bcj_aarch64_filter_avx2(uint8_t *data, size_t size);
+void bp_bcj_aarch64_unfilter_avx2(uint8_t *data, size_t size);
+void bp_bcj_riscv_filter_avx2(uint8_t *data, size_t size);
+void bp_bcj_riscv_unfilter_avx2(uint8_t *data, size_t size);
+int  bp_bitshuffle_filter_avx2(uint8_t *data, size_t size, uint16_t stride);
+int  bp_bitshuffle_unfilter_avx2(uint8_t *data, size_t size, uint16_t stride);
+
+/* Core Scratch Buffer Management (Thread-Local Pool) */
+uint8_t* bp_acquire_core_scratch(size_t size, int *out_must_free);
+void     bp_release_core_scratch(uint8_t *ptr, int must_free);
+
+void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride);
+void bp_interleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride);
+
+static inline uint64_t bp_transpose_8x8_bits(uint64_t x) {
+    uint64_t t;
+    t = (x ^ (x >> 7)) & 0x00AA00AA00AA00AAULL;
+    x = x ^ t ^ (t << 7);
+    t = (x ^ (x >> 14)) & 0x0000CCCC0000CCCCULL;
+    x = x ^ t ^ (t << 14);
+    t = (x ^ (x >> 28)) & 0x00000000F0F0F0F0ULL;
+    x = x ^ t ^ (t << 28);
+    return x;
+}
 
 #endif /* BINPACK_INTERNAL_H */

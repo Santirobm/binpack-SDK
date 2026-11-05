@@ -5,10 +5,23 @@
 
 #include "binpack_internal.h"
 
-#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
-#include <immintrin.h>
+#if defined(_WIN32)
+    #ifndef WIN32_LEAN_AND_MEAN
+        #define WIN32_LEAN_AND_MEAN
+    #endif
+    #ifndef NOMINMAX
+        #define NOMINMAX
+    #endif
+    #include <windows.h>
+#else
+    #include <pthread.h>
+#endif
+
+#if defined(__x86_64__) || defined(_M_X64) || \
+    defined(__i386__) || defined(_M_IX86)
+    #include <immintrin.h>
 #elif defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(_M_ARM64)
-#include <arm_neon.h>
+    #include <arm_neon.h>
 #endif
 
 /* ========================================================================= */
@@ -16,41 +29,105 @@
 /* ========================================================================= */
 
 static uint32_t s_crc32_table[8][256];
-static volatile int s_crc32_initialized = 0;
 
-static void binpack_init_crc32_table(void) {
-    if (s_crc32_initialized) return;
+#if defined(_WIN32)
+static INIT_ONCE s_crc32_once = INIT_ONCE_STATIC_INIT;
+#else
+static pthread_once_t s_crc32_once = PTHREAD_ONCE_INIT;
+#endif
+
+static void binpack_init_crc32_table(void)
+{
     for (uint32_t i = 0; i < 256; i++) {
         uint32_t c = i;
+
         for (int j = 0; j < 8; j++) {
-            c = (c & 1) ? (0xEDB88320L ^ (c >> 1)) : (c >> 1);
+            c = (c & 1)
+                ? (0xEDB88320L ^ (c >> 1))
+                : (c >> 1);
         }
+
         s_crc32_table[0][i] = c;
     }
+
     for (uint32_t i = 0; i < 256; i++) {
         for (int j = 1; j < 8; j++) {
-            s_crc32_table[j][i] = (s_crc32_table[j - 1][i] >> 8) ^ s_crc32_table[0][s_crc32_table[j - 1][i] & 0xFF];
+            s_crc32_table[j][i] =
+                (s_crc32_table[j - 1][i] >> 8) ^
+                s_crc32_table[0][s_crc32_table[j - 1][i] & 0xFF];
         }
     }
-#if defined(__GNUC__) || defined(__clang__)
-    __atomic_store_n(&s_crc32_initialized, 1, __ATOMIC_RELEASE);
+}
+
+#if defined(_WIN32)
+
+static BOOL CALLBACK binpack_init_crc32_once_cb(
+    PINIT_ONCE init_once,
+    PVOID parameter,
+    PVOID *context)
+{
+    (void)init_once;
+    (void)parameter;
+    (void)context;
+
+    binpack_init_crc32_table();
+    return TRUE;
+}
+
+static int binpack_ensure_crc32_initialized(void)
+{
+    return InitOnceExecuteOnce(
+        &s_crc32_once,
+        binpack_init_crc32_once_cb,
+        NULL,
+        NULL
+    ) != 0;
+}
+
 #else
-    s_crc32_initialized = 1;
+
+static int binpack_ensure_crc32_initialized(void)
+{
+    return pthread_once(
+        &s_crc32_once,
+        binpack_init_crc32_table
+    ) == 0;
+}
+
 #endif
+
+static uint32_t binpack_crc32_fallback(
+    uint32_t crc,
+    const uint8_t *buf,
+    size_t len)
+{
+    crc ^= 0xFFFFFFFF;
+
+    while (len > 0) {
+        crc ^= *buf++;
+
+        for (int i = 0; i < 8; i++) {
+            crc = (crc & 1)
+                ? ((crc >> 1) ^ 0xEDB88320U)
+                : (crc >> 1);
+        }
+
+        len--;
+    }
+
+    return crc ^ 0xFFFFFFFF;
 }
 
 uint32_t binpack_crc32(uint32_t crc, const uint8_t *buf, size_t len) {
-#if defined(__GNUC__) || defined(__clang__)
-    if (!__atomic_load_n(&s_crc32_initialized, __ATOMIC_ACQUIRE)) binpack_init_crc32_table();
-#else
-    if (!s_crc32_initialized) binpack_init_crc32_table();
-#endif
+    if (!binpack_ensure_crc32_initialized()) {
+        return binpack_crc32_fallback(crc, buf, len);
+    }
     crc = crc ^ 0xFFFFFFFF;
 
     /* Slicing-by-8 parallel table lookups */
     while (len >= 8) {
-        uint32_t one = *(const uint32_t*)buf ^ crc;
-        uint32_t two = *(const uint32_t*)(buf + 4);
+        uint32_t one = binpack_load_le32(buf) ^ crc;
+        uint32_t two = binpack_load_le32(buf + 4);
         crc = s_crc32_table[7][one & 0xFF] ^
               s_crc32_table[6][(one >> 8) & 0xFF] ^
               s_crc32_table[5][(one >> 16) & 0xFF] ^
@@ -81,24 +158,23 @@ void binpack_find_code_bounds(const uint8_t *data, size_t size, size_t *out_offs
 
     /* 1. Portable Executable (PE32 / PE32+) Detection */
     if (data[0] == 'M' && data[1] == 'Z') {
-        if (size > 0x3C + 4) {
-            uint32_t pe_off = (uint32_t)data[0x3C] | ((uint32_t)data[0x3D] << 8) |
-                              ((uint32_t)data[0x3E] << 16) | ((uint32_t)data[0x3F] << 24);
-            if (pe_off + 24 < size && data[pe_off] == 'P' && data[pe_off + 1] == 'E' &&
+        if (size >= 0x3C + 4) {
+            uint32_t pe_off = binpack_load_le32(&data[0x3C]);
+            if ((size_t)pe_off + 24 <= size && data[pe_off] == 'P' && data[pe_off + 1] == 'E' &&
                 data[pe_off + 2] == 0 && data[pe_off + 3] == 0) {
-                uint16_t num_sections = (uint16_t)data[pe_off + 6] | ((uint16_t)data[pe_off + 7] << 8);
-                uint16_t opt_hdr_sz = (uint16_t)data[pe_off + 20] | ((uint16_t)data[pe_off + 21] << 8);
-                size_t sec_table_off = pe_off + 24 + opt_hdr_sz;
+                uint16_t num_sections = binpack_load_le16(&data[pe_off + 6]);
+                uint16_t opt_hdr_sz = binpack_load_le16(&data[pe_off + 20]);
+                size_t sec_table_off = (size_t)pe_off + 24 + (size_t)opt_hdr_sz;
 
                 for (uint16_t i = 0; i < num_sections; i++) {
                     size_t cur = sec_table_off + (size_t)i * 40;
-                    if (cur + 40 > size) break;
+                    if (cur > size || cur + 40 > size) break;
                     if (memcmp(&data[cur], ".text", 5) == 0) {
-                        uint32_t raw_sz = *(const uint32_t*)&data[cur + 16];
-                        uint32_t raw_ptr = *(const uint32_t*)&data[cur + 20];
-                        if (raw_ptr < size && raw_sz > 0 && (size_t)raw_ptr + raw_sz <= size) {
-                            *out_offset = raw_ptr;
-                            *out_length = raw_sz;
+                        uint32_t raw_sz = binpack_load_le32(&data[cur + 16]);
+                        uint32_t raw_ptr = binpack_load_le32(&data[cur + 20]);
+                        if ((size_t)raw_ptr <= size && (size_t)raw_sz > 0 && (size_t)raw_ptr + (size_t)raw_sz <= size) {
+                            *out_offset = (size_t)raw_ptr;
+                            *out_length = (size_t)raw_sz;
                             return;
                         }
                     }
@@ -108,31 +184,35 @@ void binpack_find_code_bounds(const uint8_t *data, size_t size, size_t *out_offs
     }
 
     /* 2. Executable and Linkable Format (ELF32 / ELF64) Detection */
-    if (data[0] == 0x7F && data[1] == 'E' && data[2] == 'L' && data[3] == 'F') {
+    if (data[0] == 0x7F && data[1] == 'E' && data[2] == 'L' && data[3] == 'F' && size >= 16) {
         uint8_t elf_class = data[4];
-        if (elf_class == 1 && size >= 52) { /* ELF32 */
-            uint32_t shoff = *(const uint32_t*)&data[32];
-            uint16_t shentsize = *(const uint16_t*)&data[46];
-            uint16_t shnum = *(const uint16_t*)&data[48];
-            uint16_t shstrndx = *(const uint16_t*)&data[50];
+        uint8_t ei_data = data[5];
+        if (ei_data != 1 && ei_data != 2) return;
+        int is_be = (ei_data == 2);
 
-            if (shentsize >= 40 && shstrndx < shnum) {
-                size_t strtab_sec = shoff + (size_t)shstrndx * shentsize;
-                if (strtab_sec + 40 <= size) {
-                    uint32_t strtab_off = *(const uint32_t*)&data[strtab_sec + 16];
-                    uint32_t strtab_sz = *(const uint32_t*)&data[strtab_sec + 20];
-                    if (strtab_off <= size && strtab_sz <= size - strtab_off) {
+        if (elf_class == 1 && size >= 52) { /* ELF32 */
+            uint32_t shoff = is_be ? binpack_load_be32(&data[32]) : binpack_load_le32(&data[32]);
+            uint16_t shentsize = is_be ? binpack_load_be16(&data[46]) : binpack_load_le16(&data[46]);
+            uint16_t shnum = is_be ? binpack_load_be16(&data[48]) : binpack_load_le16(&data[48]);
+            uint16_t shstrndx = is_be ? binpack_load_be16(&data[50]) : binpack_load_le16(&data[50]);
+
+            if (shentsize >= 40 && shstrndx < shnum && (size_t)shoff <= size) {
+                size_t strtab_sec = (size_t)shoff + (size_t)shstrndx * shentsize;
+                if (strtab_sec <= size && strtab_sec + 40 <= size) {
+                    uint32_t strtab_off = is_be ? binpack_load_be32(&data[strtab_sec + 16]) : binpack_load_le32(&data[strtab_sec + 16]);
+                    uint32_t strtab_sz = is_be ? binpack_load_be32(&data[strtab_sec + 20]) : binpack_load_le32(&data[strtab_sec + 20]);
+                    if ((size_t)strtab_off <= size && (size_t)strtab_sz <= size - (size_t)strtab_off) {
                         for (uint16_t i = 0; i < shnum; i++) {
-                            size_t cur = shoff + (size_t)i * shentsize;
-                            if (cur + 40 > size) break;
-                            uint32_t name_idx = *(const uint32_t*)&data[cur];
-                            if (name_idx + 6 <= strtab_sz &&
-                                memcmp(&data[strtab_off + name_idx], ".text\0", 6) == 0) {
-                                uint32_t sec_off = *(const uint32_t*)&data[cur + 16];
-                                uint32_t sec_sz = *(const uint32_t*)&data[cur + 20];
-                                if (sec_off <= size && sec_sz <= size - sec_off) {
-                                    *out_offset = sec_off;
-                                    *out_length = sec_sz;
+                            size_t cur = (size_t)shoff + (size_t)i * shentsize;
+                            if (cur > size || cur + 40 > size) break;
+                            uint32_t name_idx = is_be ? binpack_load_be32(&data[cur]) : binpack_load_le32(&data[cur]);
+                            if ((size_t)name_idx + 6 <= (size_t)strtab_sz &&
+                                memcmp(&data[(size_t)strtab_off + (size_t)name_idx], ".text\0", 6) == 0) {
+                                uint32_t sec_off = is_be ? binpack_load_be32(&data[cur + 16]) : binpack_load_le32(&data[cur + 16]);
+                                uint32_t sec_sz = is_be ? binpack_load_be32(&data[cur + 20]) : binpack_load_le32(&data[cur + 20]);
+                                if ((size_t)sec_off <= size && (size_t)sec_sz <= size - (size_t)sec_off) {
+                                    *out_offset = (size_t)sec_off;
+                                    *out_length = (size_t)sec_sz;
                                     return;
                                 }
                             }
@@ -141,26 +221,26 @@ void binpack_find_code_bounds(const uint8_t *data, size_t size, size_t *out_offs
                 }
             }
         } else if (elf_class == 2 && size >= 64) { /* ELF64 */
-            uint64_t shoff = *(const uint64_t*)&data[40];
-            uint16_t shentsize = *(const uint16_t*)&data[58];
-            uint16_t shnum = *(const uint16_t*)&data[60];
-            uint16_t shstrndx = *(const uint16_t*)&data[62];
+            uint64_t shoff = is_be ? binpack_load_be64(&data[40]) : binpack_load_le64(&data[40]);
+            uint16_t shentsize = is_be ? binpack_load_be16(&data[58]) : binpack_load_le16(&data[58]);
+            uint16_t shnum = is_be ? binpack_load_be16(&data[60]) : binpack_load_le16(&data[60]);
+            uint16_t shstrndx = is_be ? binpack_load_be16(&data[62]) : binpack_load_le16(&data[62]);
 
-            if (shentsize >= 64 && shstrndx < shnum && shoff < size) {
+            if (shentsize >= 64 && shstrndx < shnum && (size_t)shoff <= size) {
                 size_t strtab_sec = (size_t)shoff + (size_t)shstrndx * shentsize;
-                if (strtab_sec + 64 <= size) {
-                    uint64_t strtab_off = *(const uint64_t*)&data[strtab_sec + 24];
-                    uint64_t strtab_sz = *(const uint64_t*)&data[strtab_sec + 32];
-                    if (strtab_off <= size && strtab_sz <= size - strtab_off) {
+                if (strtab_sec <= size && strtab_sec + 64 <= size) {
+                    uint64_t strtab_off = is_be ? binpack_load_be64(&data[strtab_sec + 24]) : binpack_load_le64(&data[strtab_sec + 24]);
+                    uint64_t strtab_sz = is_be ? binpack_load_be64(&data[strtab_sec + 32]) : binpack_load_le64(&data[strtab_sec + 32]);
+                    if ((size_t)strtab_off <= size && (size_t)strtab_sz <= size - (size_t)strtab_off) {
                         for (uint16_t i = 0; i < shnum; i++) {
                             size_t cur = (size_t)shoff + (size_t)i * shentsize;
-                            if (cur + 64 > size) break;
-                            uint32_t name_idx = *(const uint32_t*)&data[cur];
+                            if (cur > size || cur + 64 > size) break;
+                            uint32_t name_idx = is_be ? binpack_load_be32(&data[cur]) : binpack_load_le32(&data[cur]);
                             if ((uint64_t)name_idx + 6 <= strtab_sz &&
-                                memcmp(&data[strtab_off + name_idx], ".text\0", 6) == 0) {
-                                uint64_t sec_off = *(const uint64_t*)&data[cur + 24];
-                                uint64_t sec_sz = *(const uint64_t*)&data[cur + 32];
-                                if (sec_off <= size && sec_sz <= size - sec_off) {
+                                memcmp(&data[(size_t)strtab_off + (size_t)name_idx], ".text\0", 6) == 0) {
+                                uint64_t sec_off = is_be ? binpack_load_be64(&data[cur + 24]) : binpack_load_le64(&data[cur + 24]);
+                                uint64_t sec_sz = is_be ? binpack_load_be64(&data[cur + 32]) : binpack_load_le64(&data[cur + 32]);
+                                if ((size_t)sec_off <= size && (size_t)sec_sz <= size - (size_t)sec_off) {
                                     *out_offset = (size_t)sec_off;
                                     *out_length = (size_t)sec_sz;
                                     return;
@@ -221,39 +301,12 @@ BINPACK_API void BINPACK_CALL binpack_bcj_arm32_unfilter(uint8_t *data, size_t s
 }
 
 /* ========================================================================= */
-/* BCJ AArch64 (ARM64) Branch Normalization (Vectorized AVX2 Fast-Path)      */
+/* BCJ AArch64 (ARM64) Branch Normalization - Portable Scalar Baseline       */
 /* ========================================================================= */
 
-void binpack_bcj_aarch64_filter(uint8_t *data, size_t size) {
+void bp_bcj_aarch64_filter_scalar(uint8_t *data, size_t size) {
     if (!data || size < 4) return;
-    size_t i = 0;
-#if defined(__AVX2__)
-    for (; i + 32 <= size; i += 32) {
-        __m256i instrs = _mm256_loadu_si256((const __m256i*)(data + i));
-        __m256i ops = _mm256_srli_epi32(instrs, 26);
-        __m256i m_bl = _mm256_cmpeq_epi32(ops, _mm256_set1_epi32(0x25));
-        __m256i m_b  = _mm256_cmpeq_epi32(ops, _mm256_set1_epi32(0x05));
-        __m256i m_any = _mm256_or_si256(m_bl, m_b);
-        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(m_any));
-        if (mask == 0) continue;
-
-        for (size_t k = 0; k < 8; k++) {
-            if ((mask >> k) & 1) {
-                size_t pos = i + k * 4;
-                uint32_t instr = (uint32_t)data[pos] | ((uint32_t)data[pos+1] << 8) |
-                                 ((uint32_t)data[pos+2] << 16) | ((uint32_t)data[pos+3] << 24);
-                uint32_t src = instr & 0x03FFFFFF;
-                uint32_t dest = src + (uint32_t)(pos >> 2);
-                instr = (instr & 0xFC000000) | (dest & 0x03FFFFFF);
-                data[pos]   = (uint8_t)(instr);
-                data[pos+1] = (uint8_t)(instr >> 8);
-                data[pos+2] = (uint8_t)(instr >> 16);
-                data[pos+3] = (uint8_t)(instr >> 24);
-            }
-        }
-    }
-#endif
-    for (; i + 4 <= size; i += 4) {
+    for (size_t i = 0; i + 4 <= size; i += 4) {
         uint32_t instr = (uint32_t)data[i] | ((uint32_t)data[i+1] << 8) |
                          ((uint32_t)data[i+2] << 16) | ((uint32_t)data[i+3] << 24);
         uint32_t op = instr >> 26;
@@ -269,36 +322,9 @@ void binpack_bcj_aarch64_filter(uint8_t *data, size_t size) {
     }
 }
 
-void binpack_bcj_aarch64_unfilter(uint8_t *data, size_t size) {
+void bp_bcj_aarch64_unfilter_scalar(uint8_t *data, size_t size) {
     if (!data || size < 4) return;
-    size_t i = 0;
-#if defined(__AVX2__)
-    for (; i + 32 <= size; i += 32) {
-        __m256i instrs = _mm256_loadu_si256((const __m256i*)(data + i));
-        __m256i ops = _mm256_srli_epi32(instrs, 26);
-        __m256i m_bl = _mm256_cmpeq_epi32(ops, _mm256_set1_epi32(0x25));
-        __m256i m_b  = _mm256_cmpeq_epi32(ops, _mm256_set1_epi32(0x05));
-        __m256i m_any = _mm256_or_si256(m_bl, m_b);
-        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(m_any));
-        if (mask == 0) continue;
-
-        for (size_t k = 0; k < 8; k++) {
-            if ((mask >> k) & 1) {
-                size_t pos = i + k * 4;
-                uint32_t instr = (uint32_t)data[pos] | ((uint32_t)data[pos+1] << 8) |
-                                 ((uint32_t)data[pos+2] << 16) | ((uint32_t)data[pos+3] << 24);
-                uint32_t src = instr & 0x03FFFFFF;
-                uint32_t dest = src - (uint32_t)(pos >> 2);
-                instr = (instr & 0xFC000000) | (dest & 0x03FFFFFF);
-                data[pos]   = (uint8_t)(instr);
-                data[pos+1] = (uint8_t)(instr >> 8);
-                data[pos+2] = (uint8_t)(instr >> 16);
-                data[pos+3] = (uint8_t)(instr >> 24);
-            }
-        }
-    }
-#endif
-    for (; i + 4 <= size; i += 4) {
+    for (size_t i = 0; i + 4 <= size; i += 4) {
         uint32_t instr = (uint32_t)data[i] | ((uint32_t)data[i+1] << 8) |
                          ((uint32_t)data[i+2] << 16) | ((uint32_t)data[i+3] << 24);
         uint32_t op = instr >> 26;
@@ -314,45 +340,23 @@ void binpack_bcj_aarch64_unfilter(uint8_t *data, size_t size) {
     }
 }
 
+void binpack_bcj_aarch64_filter(uint8_t *data, size_t size) {
+    bp_ensure_cpu_dispatch_initialized();
+    g_bp_dispatch.bcj_aarch64_filter(data, size);
+}
+
+void binpack_bcj_aarch64_unfilter(uint8_t *data, size_t size) {
+    bp_ensure_cpu_dispatch_initialized();
+    g_bp_dispatch.bcj_aarch64_unfilter(data, size);
+}
+
 /* ========================================================================= */
-/* BCJ RISC-V (RV32I / RV64I JAL) Branch Normalization (Vectorized AVX2)     */
+/* BCJ RISC-V (RV32I / RV64I JAL) Branch Normalization - Portable Scalar     */
 /* ========================================================================= */
 
-void binpack_bcj_riscv_filter(uint8_t *data, size_t size) {
+void bp_bcj_riscv_filter_scalar(uint8_t *data, size_t size) {
     if (!data || size < 4) return;
-    size_t i = 0;
-#if defined(__AVX2__)
-    for (; i + 32 <= size; i += 32) {
-        __m256i instrs = _mm256_loadu_si256((const __m256i*)(data + i));
-        __m256i ops = _mm256_and_si256(instrs, _mm256_set1_epi32(0x7F));
-        __m256i m_jal = _mm256_cmpeq_epi32(ops, _mm256_set1_epi32(0x6F));
-        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(m_jal));
-        if (mask == 0) continue;
-
-        for (size_t k = 0; k < 8; k++) {
-            if ((mask >> k) & 1) {
-                size_t pos = i + k * 4;
-                uint32_t instr = (uint32_t)data[pos] | ((uint32_t)data[pos+1] << 8) |
-                                 ((uint32_t)data[pos+2] << 16) | ((uint32_t)data[pos+3] << 24);
-                uint32_t offset20 = (((instr >> 31) & 1) << 19) |
-                                    (((instr >> 12) & 0xFF) << 11) |
-                                    (((instr >> 20) & 1) << 10) |
-                                    ((instr >> 21) & 0x3FF);
-                uint32_t dest = (offset20 + (uint32_t)(pos >> 1)) & 0xFFFFF;
-                instr = (instr & 0x00000FFF) |
-                        (((dest >> 19) & 1) << 31) |
-                        ((dest & 0x3FF) << 21) |
-                        (((dest >> 10) & 1) << 20) |
-                        (((dest >> 11) & 0xFF) << 12);
-                data[pos]   = (uint8_t)(instr);
-                data[pos+1] = (uint8_t)(instr >> 8);
-                data[pos+2] = (uint8_t)(instr >> 16);
-                data[pos+3] = (uint8_t)(instr >> 24);
-            }
-        }
-    }
-#endif
-    for (; i + 4 <= size; i += 4) {
+    for (size_t i = 0; i + 4 <= size; i += 4) {
         uint32_t instr = (uint32_t)data[i] | ((uint32_t)data[i+1] << 8) |
                          ((uint32_t)data[i+2] << 16) | ((uint32_t)data[i+3] << 24);
         if ((instr & 0x7F) == 0x6F) { /* JAL instruction */
@@ -374,41 +378,9 @@ void binpack_bcj_riscv_filter(uint8_t *data, size_t size) {
     }
 }
 
-void binpack_bcj_riscv_unfilter(uint8_t *data, size_t size) {
+void bp_bcj_riscv_unfilter_scalar(uint8_t *data, size_t size) {
     if (!data || size < 4) return;
-    size_t i = 0;
-#if defined(__AVX2__)
-    for (; i + 32 <= size; i += 32) {
-        __m256i instrs = _mm256_loadu_si256((const __m256i*)(data + i));
-        __m256i ops = _mm256_and_si256(instrs, _mm256_set1_epi32(0x7F));
-        __m256i m_jal = _mm256_cmpeq_epi32(ops, _mm256_set1_epi32(0x6F));
-        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(m_jal));
-        if (mask == 0) continue;
-
-        for (size_t k = 0; k < 8; k++) {
-            if ((mask >> k) & 1) {
-                size_t pos = i + k * 4;
-                uint32_t instr = (uint32_t)data[pos] | ((uint32_t)data[pos+1] << 8) |
-                                 ((uint32_t)data[pos+2] << 16) | ((uint32_t)data[pos+3] << 24);
-                uint32_t offset20 = (((instr >> 31) & 1) << 19) |
-                                    (((instr >> 12) & 0xFF) << 11) |
-                                    (((instr >> 20) & 1) << 10) |
-                                    ((instr >> 21) & 0x3FF);
-                uint32_t dest = (offset20 - (uint32_t)(pos >> 1)) & 0xFFFFF;
-                instr = (instr & 0x00000FFF) |
-                        (((dest >> 19) & 1) << 31) |
-                        ((dest & 0x3FF) << 21) |
-                        (((dest >> 10) & 1) << 20) |
-                        (((dest >> 11) & 0xFF) << 12);
-                data[pos]   = (uint8_t)(instr);
-                data[pos+1] = (uint8_t)(instr >> 8);
-                data[pos+2] = (uint8_t)(instr >> 16);
-                data[pos+3] = (uint8_t)(instr >> 24);
-            }
-        }
-    }
-#endif
-    for (; i + 4 <= size; i += 4) {
+    for (size_t i = 0; i + 4 <= size; i += 4) {
         uint32_t instr = (uint32_t)data[i] | ((uint32_t)data[i+1] << 8) |
                          ((uint32_t)data[i+2] << 16) | ((uint32_t)data[i+3] << 24);
         if ((instr & 0x7F) == 0x6F) { /* JAL instruction */
@@ -430,6 +402,16 @@ void binpack_bcj_riscv_unfilter(uint8_t *data, size_t size) {
     }
 }
 
+void binpack_bcj_riscv_filter(uint8_t *data, size_t size) {
+    bp_ensure_cpu_dispatch_initialized();
+    g_bp_dispatch.bcj_riscv_filter(data, size);
+}
+
+void binpack_bcj_riscv_unfilter(uint8_t *data, size_t size) {
+    bp_ensure_cpu_dispatch_initialized();
+    g_bp_dispatch.bcj_riscv_unfilter(data, size);
+}
+
 /* ========================================================================= */
 /* Cascaded Stride-N Transpose + Delta Prefilter (SIMD & Fused Single-Pass)  */
 /* ========================================================================= */
@@ -442,7 +424,7 @@ void binpack_bcj_riscv_unfilter(uint8_t *data, size_t size) {
     static __thread size_t   s_core_scratch_cap = 0;
 #endif
 
-static uint8_t* bp_acquire_core_scratch(size_t size, int *out_must_free) {
+uint8_t* bp_acquire_core_scratch(size_t size, int *out_must_free) {
     /* Reuse thread-local buffer up to 64 MB to eliminate OS VirtualAlloc/VirtualFree page faults */
     if (size <= (64ULL * 1024 * 1024)) {
         if (s_core_scratch_cap < size) {
@@ -458,29 +440,15 @@ static uint8_t* bp_acquire_core_scratch(size_t size, int *out_must_free) {
     return (uint8_t*)malloc(size);
 }
 
-static inline void bp_release_core_scratch(uint8_t *ptr, int must_free) {
+void bp_release_core_scratch(uint8_t *ptr, int must_free) {
     if (must_free && ptr) free(ptr);
 }
 
-static void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride) {
+void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride) {
     if (stride == 2) {
         uint8_t *d0 = dst;
         uint8_t *d1 = dst + num_elements;
-        size_t i = 0;
-#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
-        __m128i mask = _mm_setr_epi8(0, 2, 4, 6, 8, 10, 12, 14, 1, 3, 5, 7, 9, 11, 13, 15);
-        for (; i + 16 <= num_elements; i += 16) {
-            __m128i v0 = _mm_loadu_si128((const __m128i*)(src + 2 * i));
-            __m128i v1 = _mm_loadu_si128((const __m128i*)(src + 2 * i + 16));
-            __m128i s0 = _mm_shuffle_epi8(v0, mask);
-            __m128i s1 = _mm_shuffle_epi8(v1, mask);
-            __m128i r0 = _mm_unpacklo_epi64(s0, s1);
-            __m128i r1 = _mm_unpackhi_epi64(s0, s1);
-            _mm_storeu_si128((__m128i*)(d0 + i), r0);
-            _mm_storeu_si128((__m128i*)(d1 + i), r1);
-        }
-#endif
-        for (; i < num_elements; i++) {
+        for (size_t i = 0; i < num_elements; i++) {
             d0[i] = src[2 * i];
             d1[i] = src[2 * i + 1];
         }
@@ -489,32 +457,7 @@ static void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t nu
         uint8_t *d1 = dst + num_elements;
         uint8_t *d2 = dst + 2 * num_elements;
         uint8_t *d3 = dst + 3 * num_elements;
-        size_t i = 0;
-#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
-        __m128i mask = _mm_setr_epi8(0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15);
-        for (; i + 16 <= num_elements; i += 16) {
-            __m128i v0 = _mm_loadu_si128((const __m128i*)(src + 4 * i));
-            __m128i v1 = _mm_loadu_si128((const __m128i*)(src + 4 * i + 16));
-            __m128i v2 = _mm_loadu_si128((const __m128i*)(src + 4 * i + 32));
-            __m128i v3 = _mm_loadu_si128((const __m128i*)(src + 4 * i + 48));
-
-            __m128i s0 = _mm_shuffle_epi8(v0, mask);
-            __m128i s1 = _mm_shuffle_epi8(v1, mask);
-            __m128i s2 = _mm_shuffle_epi8(v2, mask);
-            __m128i s3 = _mm_shuffle_epi8(v3, mask);
-
-            __m128i r0 = _mm_unpacklo_epi32(s0, s1);
-            __m128i r1 = _mm_unpackhi_epi32(s0, s1);
-            __m128i r2 = _mm_unpacklo_epi32(s2, s3);
-            __m128i r3 = _mm_unpackhi_epi32(s2, s3);
-
-            _mm_storeu_si128((__m128i*)(d0 + i), _mm_unpacklo_epi64(r0, r2));
-            _mm_storeu_si128((__m128i*)(d1 + i), _mm_unpackhi_epi64(r0, r2));
-            _mm_storeu_si128((__m128i*)(d2 + i), _mm_unpacklo_epi64(r1, r3));
-            _mm_storeu_si128((__m128i*)(d3 + i), _mm_unpackhi_epi64(r1, r3));
-        }
-#endif
-        for (; i < num_elements; i++) {
+        for (size_t i = 0; i < num_elements; i++) {
             d0[i] = src[4 * i];
             d1[i] = src[4 * i + 1];
             d2[i] = src[4 * i + 2];
@@ -529,41 +472,7 @@ static void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t nu
         uint8_t *d5 = dst + 5 * num_elements;
         uint8_t *d6 = dst + 6 * num_elements;
         uint8_t *d7 = dst + 7 * num_elements;
-        size_t i = 0;
-#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
-        __m128i mask = _mm_setr_epi8(0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15);
-        for (; i + 8 <= num_elements; i += 8) {
-            __m128i v0 = _mm_loadu_si128((const __m128i*)(src + 8 * i));
-            __m128i v1 = _mm_loadu_si128((const __m128i*)(src + 8 * i + 16));
-            __m128i v2 = _mm_loadu_si128((const __m128i*)(src + 8 * i + 32));
-            __m128i v3 = _mm_loadu_si128((const __m128i*)(src + 8 * i + 48));
-
-            __m128i s0 = _mm_shuffle_epi8(v0, mask);
-            __m128i s1 = _mm_shuffle_epi8(v1, mask);
-            __m128i s2 = _mm_shuffle_epi8(v2, mask);
-            __m128i s3 = _mm_shuffle_epi8(v3, mask);
-
-            __m128i p0 = _mm_unpacklo_epi16(s0, s1);
-            __m128i p1 = _mm_unpackhi_epi16(s0, s1);
-            __m128i p2 = _mm_unpacklo_epi16(s2, s3);
-            __m128i p3 = _mm_unpackhi_epi16(s2, s3);
-
-            __m128i q0 = _mm_unpacklo_epi32(p0, p2);
-            __m128i q1 = _mm_unpackhi_epi32(p0, p2);
-            __m128i q2 = _mm_unpacklo_epi32(p1, p3);
-            __m128i q3 = _mm_unpackhi_epi32(p1, p3);
-
-            _mm_storel_epi64((__m128i*)(d0 + i), q0);
-            _mm_storel_epi64((__m128i*)(d1 + i), _mm_unpackhi_epi64(q0, q0));
-            _mm_storel_epi64((__m128i*)(d2 + i), q1);
-            _mm_storel_epi64((__m128i*)(d3 + i), _mm_unpackhi_epi64(q1, q1));
-            _mm_storel_epi64((__m128i*)(d4 + i), q2);
-            _mm_storel_epi64((__m128i*)(d5 + i), _mm_unpackhi_epi64(q2, q2));
-            _mm_storel_epi64((__m128i*)(d6 + i), q3);
-            _mm_storel_epi64((__m128i*)(d7 + i), _mm_unpackhi_epi64(q3, q3));
-        }
-#endif
-        for (; i < num_elements; i++) {
+        for (size_t i = 0; i < num_elements; i++) {
             const uint8_t *elem = src + 8 * i;
             d0[i] = elem[0]; d1[i] = elem[1]; d2[i] = elem[2]; d3[i] = elem[3];
             d4[i] = elem[4]; d5[i] = elem[5]; d6[i] = elem[6]; d7[i] = elem[7];
@@ -578,7 +487,7 @@ static void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t nu
     }
 }
 
-static void bp_interleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride) {
+void bp_interleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride) {
     if (stride == 2) {
         const uint8_t *s0 = src;
         const uint8_t *s1 = src + num_elements;
@@ -689,23 +598,11 @@ int binpack_transpose_delta_filter_into(const uint8_t *src, uint8_t *dst, size_t
         memcpy(dst + aligned_sz, src + aligned_sz, size - aligned_sz);
     }
 
-    /* 2. In-place SIMD delta encode on L1/L2-warm dst channels */
+    /* 2. In-place delta encode on L1/L2-warm dst channels */
     for (size_t s = 0; s < stride; s++) {
         size_t base = s * num_elements;
         uint8_t prev = 0;
-        size_t i = 0;
-#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
-        __m128i prev_v = _mm_setzero_si128();
-        for (; i + 16 <= num_elements; i += 16) {
-            __m128i cur_v = _mm_loadu_si128((const __m128i*)(dst + base + i));
-            prev = dst[base + i + 15];
-            __m128i shifted = _mm_alignr_epi8(cur_v, prev_v, 15);
-            __m128i diff = _mm_sub_epi8(cur_v, shifted);
-            _mm_storeu_si128((__m128i*)(dst + base + i), diff);
-            prev_v = cur_v;
-        }
-#endif
-        for (; i < num_elements; i++) {
+        for (size_t i = 0; i < num_elements; i++) {
             uint8_t cur = dst[base + i];
             dst[base + i] = cur - prev;
             prev = cur;
@@ -728,19 +625,7 @@ BINPACK_API int BINPACK_CALL binpack_transpose_delta_filter(uint8_t *data, size_
     for (size_t s = 0; s < stride; s++) {
         size_t base = s * num_elements;
         uint8_t prev = 0;
-        size_t i = 0;
-#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
-        __m128i prev_v = _mm_set1_epi8(0);
-        for (; i + 16 <= num_elements; i += 16) {
-            __m128i cur_v = _mm_loadu_si128((const __m128i*)(temp + base + i));
-            __m128i shifted = _mm_alignr_epi8(cur_v, prev_v, 15);
-            __m128i diff = _mm_sub_epi8(cur_v, shifted);
-            _mm_storeu_si128((__m128i*)(data + base + i), diff);
-            prev_v = cur_v;
-            prev = (uint8_t)temp[base + i + 15];
-        }
-#endif
-        for (; i < num_elements; i++) {
+        for (size_t i = 0; i < num_elements; i++) {
             uint8_t cur = temp[base + i];
             data[base + i] = cur - prev;
             prev = cur;
@@ -759,33 +644,17 @@ BINPACK_API int BINPACK_CALL binpack_transpose_delta_unfilter(uint8_t *data, siz
 
     size_t num_elements = size / stride;
 
-    /* Vectorized SIMD Parallel Prefix-Sum decode from data into temp */
+    /* Decode from data into temp */
     for (size_t s = 0; s < stride; s++) {
         size_t base = s * num_elements;
         uint8_t acc = 0;
-        size_t i = 0;
-#if defined(__SSSE3__) || defined(__AVX2__) || defined(_M_X64)
-        __m128i carry = _mm_setzero_si128();
-        __m128i bcast15 = _mm_set1_epi8(15);
-        for (; i + 16 <= num_elements; i += 16) {
-            __m128i x = _mm_loadu_si128((const __m128i*)(data + base + i));
-            x = _mm_add_epi8(x, _mm_slli_si128(x, 1));
-            x = _mm_add_epi8(x, _mm_slli_si128(x, 2));
-            x = _mm_add_epi8(x, _mm_slli_si128(x, 4));
-            x = _mm_add_epi8(x, _mm_slli_si128(x, 8));
-            x = _mm_add_epi8(x, carry);
-            _mm_storeu_si128((__m128i*)(temp + base + i), x);
-            carry = _mm_shuffle_epi8(x, bcast15);
-        }
-        if (i > 0) acc = temp[base + i - 1];
-#endif
-        for (; i < num_elements; i++) {
+        for (size_t i = 0; i < num_elements; i++) {
             acc = (uint8_t)(acc + data[base + i]);
             temp[base + i] = acc;
         }
     }
 
-    /* SIMD-accelerated interleave directly from temp back into data */
+    /* Interleave directly from temp back into data */
     bp_interleave_channels(temp, data, num_elements, stride);
 
     bp_release_core_scratch(temp, must_free);
@@ -793,41 +662,10 @@ BINPACK_API int BINPACK_CALL binpack_transpose_delta_unfilter(uint8_t *data, siz
 }
 
 /* ========================================================================= */
-/* Bitshuffle: Bit-Level Matrix Transposition (SIMD / SWAR Accelerated)      */
+/* Bitshuffle: Bit-Level Matrix Transposition - Portable Scalar Baseline    */
 /* ========================================================================= */
 
-static inline uint64_t bp_transpose_8x8_bits(uint64_t x) {
-    uint64_t t;
-    t = (x ^ (x >> 7)) & 0x00AA00AA00AA00AAULL;
-    x = x ^ t ^ (t << 7);
-    t = (x ^ (x >> 14)) & 0x0000CCCC0000CCCCULL;
-    x = x ^ t ^ (t << 14);
-    t = (x ^ (x >> 28)) & 0x00000000F0F0F0F0ULL;
-    x = x ^ t ^ (t << 28);
-    return x;
-}
-
-#if defined(__AVX2__)
-static inline void bp_transpose_32x8_bits_avx2(uint8_t *data) {
-    __m256i x = _mm256_loadu_si256((const __m256i*)data);
-    __m256i m1 = _mm256_set1_epi64x(0x00AA00AA00AA00AAULL);
-    __m256i m2 = _mm256_set1_epi64x(0x0000CCCC0000CCCCULL);
-    __m256i m3 = _mm256_set1_epi64x(0x00000000F0F0F0F0ULL);
-
-    __m256i t = _mm256_and_si256(_mm256_xor_si256(x, _mm256_srli_epi64(x, 7)), m1);
-    x = _mm256_xor_si256(_mm256_xor_si256(x, t), _mm256_slli_epi64(t, 7));
-
-    t = _mm256_and_si256(_mm256_xor_si256(x, _mm256_srli_epi64(x, 14)), m2);
-    x = _mm256_xor_si256(_mm256_xor_si256(x, t), _mm256_slli_epi64(t, 14));
-
-    t = _mm256_and_si256(_mm256_xor_si256(x, _mm256_srli_epi64(x, 28)), m3);
-    x = _mm256_xor_si256(_mm256_xor_si256(x, t), _mm256_slli_epi64(t, 28));
-
-    _mm256_storeu_si256((__m256i*)data, x);
-}
-#endif
-
-int binpack_bitshuffle_filter(uint8_t *data, size_t size, uint16_t stride) {
+int bp_bitshuffle_filter_scalar(uint8_t *data, size_t size, uint16_t stride) {
     if (!data || size < 8 || stride < 1 || stride > 256) return -1;
     int must_free = 0;
     uint8_t *temp = bp_acquire_core_scratch(size, &must_free);
@@ -847,17 +685,7 @@ int binpack_bitshuffle_filter(uint8_t *data, size_t size, uint16_t stride) {
         size_t full_blocks = num_elements / 8;
         size_t b = 0;
         uint8_t prev = 0;
-#if defined(__AVX2__)
-        for (; b + 4 <= full_blocks; b += 4) {
-            size_t off = base + (b * 8);
-            bp_transpose_32x8_bits_avx2(temp + off);
-            for (size_t k = 0; k < 32; k++) {
-                uint8_t cur = temp[off + k];
-                data[off + k] = cur - prev;
-                prev = cur;
-            }
-        }
-#endif
+
         for (; b < full_blocks; b++) {
             size_t off = base + (b * 8);
             uint64_t val;
@@ -881,7 +709,7 @@ int binpack_bitshuffle_filter(uint8_t *data, size_t size, uint16_t stride) {
     return 0;
 }
 
-int binpack_bitshuffle_unfilter(uint8_t *data, size_t size, uint16_t stride) {
+int bp_bitshuffle_unfilter_scalar(uint8_t *data, size_t size, uint16_t stride) {
     if (!data || size < 8 || stride < 1 || stride > 256) return -1;
     int must_free = 0;
     uint8_t *temp = bp_acquire_core_scratch(size, &must_free);
@@ -889,22 +717,13 @@ int binpack_bitshuffle_unfilter(uint8_t *data, size_t size, uint16_t stride) {
 
     size_t num_elements = size / stride;
 
-    /* Fused Single-Pass Delta-Accumulate + AVX2 Bit-Transpose from data -> temp */
+    /* Fused Single-Pass Delta-Accumulate + Bit-Transpose from data -> temp */
     for (size_t s = 0; s < stride; s++) {
         size_t base = s * num_elements;
         size_t full_blocks = num_elements / 8;
         size_t b = 0;
         uint8_t acc = 0;
-#if defined(__AVX2__)
-        for (; b + 4 <= full_blocks; b += 4) {
-            size_t off = base + (b * 8);
-            for (size_t k = 0; k < 32; k++) {
-                acc = (uint8_t)(acc + data[off + k]);
-                temp[off + k] = acc;
-            }
-            bp_transpose_32x8_bits_avx2(temp + off);
-        }
-#endif
+
         for (; b < full_blocks; b++) {
             size_t off = base + (b * 8);
             for (size_t k = 0; k < 8; k++) {
@@ -925,11 +744,21 @@ int binpack_bitshuffle_unfilter(uint8_t *data, size_t size, uint16_t stride) {
     if (stride > 1) {
         bp_interleave_channels(temp, data, num_elements, stride);
     } else {
-        memcpy(data, temp, num_elements);
+        memcpy(data, temp, size);
     }
 
     bp_release_core_scratch(temp, must_free);
     return 0;
+}
+
+int binpack_bitshuffle_filter(uint8_t *data, size_t size, uint16_t stride) {
+    bp_ensure_cpu_dispatch_initialized();
+    return g_bp_dispatch.bitshuffle_filter(data, size, stride);
+}
+
+int binpack_bitshuffle_unfilter(uint8_t *data, size_t size, uint16_t stride) {
+    bp_ensure_cpu_dispatch_initialized();
+    return g_bp_dispatch.bitshuffle_unfilter(data, size, stride);
 }
 
 /* ========================================================================= */
@@ -1065,10 +894,10 @@ BINPACK_API binpack_filter_t BINPACK_CALL binpack_auto_select_filter(const uint8
     }
 
     if (data[0] == 'M' && data[1] == 'Z') {
-        if (size > 0x3C + 4) {
-            uint32_t pe_off = *(const uint32_t*)&data[0x3C];
-            if (pe_off + 6 < size && data[pe_off] == 'P' && data[pe_off + 1] == 'E') {
-                uint16_t machine = *(const uint16_t*)&data[pe_off + 4];
+        if (size >= 0x3C + 4) {
+            uint32_t pe_off = binpack_load_le32(&data[0x3C]);
+            if ((size_t)pe_off + 6 <= size && data[pe_off] == 'P' && data[pe_off + 1] == 'E') {
+                uint16_t machine = binpack_load_le16(&data[pe_off + 4]);
                 if (machine == 0xAA64) return BINPACK_FILTER_AARCH64;
                 if (machine == 0x01C0 || machine == 0x01C2 || machine == 0x01C4) return BINPACK_FILTER_ARM32;
                 return BINPACK_FILTER_X86_64;
@@ -1078,11 +907,14 @@ BINPACK_API binpack_filter_t BINPACK_CALL binpack_auto_select_filter(const uint8
     }
 
     if (data[0] == 0x7F && data[1] == 'E' && data[2] == 'L' && data[3] == 'F' && size >= 20) {
-        uint16_t machine = *(const uint16_t*)&data[18];
-        if (machine == 243) return BINPACK_FILTER_RISCV;
-        if (machine == 183) return BINPACK_FILTER_AARCH64;
-        if (machine == 40) return BINPACK_FILTER_ARM32;
-        return BINPACK_FILTER_X86_64;
+        uint8_t ei_data = data[5];
+        if (ei_data == 1 || ei_data == 2) {
+            uint16_t machine = (ei_data == 2) ? binpack_load_be16(&data[18]) : binpack_load_le16(&data[18]);
+            if (machine == 243) return BINPACK_FILTER_RISCV;
+            if (machine == 183) return BINPACK_FILTER_AARCH64;
+            if (machine == 40) return BINPACK_FILTER_ARM32;
+            return BINPACK_FILTER_X86_64;
+        }
     }
 
     /* Fast-Exit Heuristic: Plain Text / ASCII / CSV / UTF-8 Bypass. */
