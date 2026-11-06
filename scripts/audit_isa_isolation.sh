@@ -8,7 +8,7 @@
 # explicit vectorization is confined strictly to binpack_core_avx2.o.
 # ==============================================================================
 
-set -euo pipefail
+set -u
 
 REPORT="docs/audit/isa_verification_report.log"
 mkdir -p "$(dirname "$REPORT")"
@@ -85,7 +85,8 @@ for obj_name in "${MANDATORY_PORTABLE_OBJS[@]}"; do
     fi
     
     SHA=$(sha256sum "$OBJ_PATH" | awk '{print $1}')
-    if ! echo "$SHA" | grep -qE '^[0-9a-fA-F]{64}$'; then
+    SHA_VALID=$(echo "$SHA" | grep -E '^[0-9a-fA-F]{64}$' || true)
+    if [[ -z "$SHA_VALID" ]]; then
         echo "[FALLO CRITICO] Hash SHA-256 inválido para $obj_name: '$SHA' (debe ser exactamente 64 hex)" >> "$REPORT"
         OVERALL_PASS=0
         continue
@@ -95,7 +96,8 @@ for obj_name in "${MANDATORY_PORTABLE_OBJS[@]}"; do
     DISASM=$($DISASSEMBLER -d "$OBJ_PATH" 2>/dev/null || true)
     
     # Validación estricta de presencia de bytes crudos en la salida
-    if ! echo "$DISASM" | grep -qE "^[[:space:]]*[0-9a-f]+:[[:space:]]+[0-9a-f]{2}"; then
+    HAS_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+[0-9a-f]{2}" | head -n 1 || true)
+    if [[ -z "$HAS_BYTES" ]]; then
         echo "[FALLO CRITICO] El desensamblador $DISASSEMBLER no emitió bytes crudos de instrucción para $obj_name." >> "$REPORT"
         echo "[FALLO CRITICO] Inspección binaria abortada para prevenir falsos negativos de opcodes." >> "$REPORT"
         OVERALL_PASS=0
@@ -104,19 +106,23 @@ for obj_name in "${MANDATORY_PORTABLE_OBJS[@]}"; do
     
     # Capa 1: Inspección de Mnemónicos vectoriales (prefijo 'v' en mnemónico)
     VEX_MNEM=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+([0-9a-f]{2}[[:space:]]+)+[[:space:]]*v[a-z0-9]+" || true)
-    VEX_MNEM_COUNT=$(echo -n "$VEX_MNEM" | grep -c . || true)
+    VEX_MNEM_COUNT=0
+    [[ -n "$VEX_MNEM" ]] && VEX_MNEM_COUNT=$(echo "$VEX_MNEM" | wc -l)
     
     # Capa 2: Inspección de Opcodes binarios x86-64 para prefijos VEX (C5, C4 en 64 bits son VEX puros)
     VEX_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+(c4|c5)[[:space:]]+" || true)
-    VEX_BYTES_COUNT=$(echo -n "$VEX_BYTES" | grep -c . || true)
+    VEX_BYTES_COUNT=0
+    [[ -n "$VEX_BYTES" ]] && VEX_BYTES_COUNT=$(echo "$VEX_BYTES" | wc -l)
     
     # Capa 3: Inspección de Mnemónicos y decoradores EVEX (AVX-512: zmm, opmasks, broadcast)
     EVEX_MNEM=$(echo "$DISASM" | grep -E "(zmm[0-9]+|%k[0-7]|\{k[0-7]\}|\{1to[0-9]+\}|\{z\})" || true)
-    EVEX_MNEM_COUNT=$(echo -n "$EVEX_MNEM" | grep -c . || true)
+    EVEX_MNEM_COUNT=0
+    [[ -n "$EVEX_MNEM" ]] && EVEX_MNEM_COUNT=$(echo "$EVEX_MNEM" | wc -l)
     
     # Capa 4: Inspección de Opcodes binarios para prefijo EVEX (62 en 64 bits es EVEX puro)
     EVEX_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+62[[:space:]]+" || true)
-    EVEX_BYTES_COUNT=$(echo -n "$EVEX_BYTES" | grep -c . || true)
+    EVEX_BYTES_COUNT=0
+    [[ -n "$EVEX_BYTES" ]] && EVEX_BYTES_COUNT=$(echo "$EVEX_BYTES" | wc -l)
     
     TOTAL_VEX=$(( VEX_MNEM_COUNT > VEX_BYTES_COUNT ? VEX_MNEM_COUNT : VEX_BYTES_COUNT ))
     TOTAL_EVEX=$(( EVEX_MNEM_COUNT > EVEX_BYTES_COUNT ? EVEX_MNEM_COUNT : EVEX_BYTES_COUNT ))
@@ -142,34 +148,40 @@ if [[ -z "$OBJ_PATH" ]]; then
     OVERALL_PASS=0
 else
     SHA=$(sha256sum "$OBJ_PATH" | awk '{print $1}')
-    if ! echo "$SHA" | grep -qE '^[0-9a-fA-F]{64}$'; then
+    SHA_VALID=$(echo "$SHA" | grep -E '^[0-9a-fA-F]{64}$' || true)
+    if [[ -z "$SHA_VALID" ]]; then
         echo "[FALLO CRITICO] Hash SHA-256 inválido para $AVX2_OBJ: '$SHA' (debe ser exactamente 64 hex)" >> "$REPORT"
         OVERALL_PASS=0
     else
         DISASM=$($DISASSEMBLER -d "$OBJ_PATH" 2>/dev/null || true)
         
         # Validación estricta de presencia de bytes crudos en la salida
-        if ! echo "$DISASM" | grep -qE "^[[:space:]]*[0-9a-f]+:[[:space:]]+[0-9a-f]{2}"; then
+        HAS_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+[0-9a-f]{2}" | head -n 1 || true)
+        if [[ -z "$HAS_BYTES" ]]; then
             echo "[FALLO CRITICO] El desensamblador $DISASSEMBLER no emitió bytes crudos de instrucción para $AVX2_OBJ." >> "$REPORT"
             echo "[FALLO CRITICO] Inspección binaria abortada para prevenir falsos negativos de opcodes." >> "$REPORT"
             OVERALL_PASS=0
         else
             # Capa 1: Inspección de Mnemónicos vectoriales AVX2
             VEX_MNEM=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+([0-9a-f]{2}[[:space:]]+)+[[:space:]]*v[a-z0-9]+" || true)
-            VEX_MNEM_COUNT=$(echo -n "$VEX_MNEM" | grep -c . || true)
+            VEX_MNEM_COUNT=0
+            [[ -n "$VEX_MNEM" ]] && VEX_MNEM_COUNT=$(echo "$VEX_MNEM" | wc -l)
             
             # Capa 2: Inspección de Opcodes binarios x86-64 para prefijos VEX (C4/C5)
             VEX_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+(c4|c5)[[:space:]]+" || true)
-            VEX_BYTES_COUNT=$(echo -n "$VEX_BYTES" | grep -c . || true)
+            VEX_BYTES_COUNT=0
+            [[ -n "$VEX_BYTES" ]] && VEX_BYTES_COUNT=$(echo "$VEX_BYTES" | wc -l)
             TOTAL_VEX=$(( VEX_MNEM_COUNT > VEX_BYTES_COUNT ? VEX_MNEM_COUNT : VEX_BYTES_COUNT ))
 
             # Capa 3: Inspección de Mnemónicos y decoradores EVEX (AVX-512)
             EVEX_MNEM=$(echo "$DISASM" | grep -E "(zmm[0-9]+|%k[0-7]|\{k[0-7]\}|\{1to[0-9]+\}|\{z\})" || true)
-            EVEX_MNEM_COUNT=$(echo -n "$EVEX_MNEM" | grep -c . || true)
+            EVEX_MNEM_COUNT=0
+            [[ -n "$EVEX_MNEM" ]] && EVEX_MNEM_COUNT=$(echo "$EVEX_MNEM" | wc -l)
             
             # Capa 4: Inspección de Opcodes binarios para prefijo EVEX (0x62)
             EVEX_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+62[[:space:]]+" || true)
-            EVEX_BYTES_COUNT=$(echo -n "$EVEX_BYTES" | grep -c . || true)
+            EVEX_BYTES_COUNT=0
+            [[ -n "$EVEX_BYTES" ]] && EVEX_BYTES_COUNT=$(echo "$EVEX_BYTES" | wc -l)
             TOTAL_EVEX=$(( EVEX_MNEM_COUNT > EVEX_BYTES_COUNT ? EVEX_MNEM_COUNT : EVEX_BYTES_COUNT ))
 
             if [[ "$TOTAL_VEX" -gt 0 && "$TOTAL_EVEX" -eq 0 ]]; then
