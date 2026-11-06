@@ -412,9 +412,11 @@ static inline uint32_t rng_next(rng_t *rng) {
 /* Lemire's nearly divisionless unbiased bounded integer reduction.
  * ACM Transactions on Mathematical Software, 2019.
  * Uses 64-bit multiplication: (uint64_t)x * bound, taking upper 32 bits (m >> 32).
- * Rejection sampling eliminates modulo bias on the residual interval: t = (-bound) % bound.
- * Crucially, because LCG low bits suffer from short periodicities and parity cycles,
- * extracting the upper 32 bits via (m >> 32) isolates the high-entropy state bits.
+ * Rejection sampling on the residual interval t = (-bound) % bound eliminates modulo bias.
+ * Note on LCG properties: while the 32-bit state possesses a full period of 2^32 (Hull-Dobell),
+ * individual low bits have shorter periodicities (bit k has period at most 2^(k+1)).
+ * Extracting the upper 32 bits of the product (m >> 32) avoids the strict low-order parity alternation,
+ * while Lemire's algorithm ensures each index in [0, bound-1] has equal preimage count.
  */
 static inline int rng_next_unbiased_lemire(rng_t *rng, int bound) {
     if (bound <= 1) return 0;
@@ -881,6 +883,7 @@ static int run_binpack_fast_zerocrc(const uint8_t *src, size_t src_sz, bench_res
 
     binpack_options_t opt;
     binpack_default_options(&opt);
+    opt.nb_workers = 1;
     opt.mode = BINPACK_MODE_RUNTIME;
     opt.clevel = 1;
 
@@ -944,6 +947,7 @@ static int run_binpack_strict_crc32(const uint8_t *src, size_t src_sz, bench_res
 
     binpack_options_t opt;
     binpack_default_options(&opt);
+    opt.nb_workers = 1;
     opt.mode = BINPACK_MODE_RUNTIME;
     opt.clevel = 1;
 
@@ -992,6 +996,7 @@ static int run_binpack_convenience_api(const uint8_t *src, size_t src_sz, bench_
 
     binpack_options_t opt;
     binpack_default_options(&opt);
+    opt.nb_workers = 1;
     opt.mode = BINPACK_MODE_RUNTIME;
     opt.clevel = 1;
 
@@ -1121,6 +1126,7 @@ static int run_binpack_default_l19(const uint8_t *src, size_t src_sz, bench_resu
 
     binpack_options_t opt;
     binpack_default_options(&opt);
+    opt.nb_workers = 1;
     opt.mode = BINPACK_MODE_DEFAULT;
     opt.clevel = 19;
 
@@ -1316,6 +1322,7 @@ static int run_tier3_ruta_c(const uint8_t *src, size_t src_sz, bench_result_t *r
 
     binpack_options_t opt;
     binpack_default_options(&opt);
+    opt.nb_workers = 1;
     opt.mode = BINPACK_MODE_ARCHIVAL;
     opt.clevel = 19;
 
@@ -1476,6 +1483,7 @@ static int run_binpack_transpose_f32(const uint8_t *src, size_t src_sz, bench_re
 
     binpack_options_t opt;
     binpack_default_options(&opt);
+    opt.nb_workers = 1;
     opt.mode = BINPACK_MODE_DEFAULT;
     opt.filter = BINPACK_FILTER_TRANSPOSE_DELTA;
     opt.transpose_stride = 4;
@@ -1622,6 +1630,47 @@ static int run_engine_isolated(
 /* ========================================================================= */
 
 static FILE *g_csv_file = NULL;
+static char g_csv_path[512] = {0};
+
+static FILE* open_safe_csv_r5(char *out_path, size_t out_path_sz) {
+    const char *base_paths[] = {
+        "docs/audit/decisive_benchmark_raw_r5.csv",
+        "decisive_benchmark_raw_r5.csv"
+    };
+    for (int b = 0; b < 2; b++) {
+        const char *bp = base_paths[b];
+        FILE *check = fopen(bp, "rb");
+        if (!check) {
+            FILE *f = fopen(bp, "w");
+            if (f) {
+                if (out_path) snprintf(out_path, out_path_sz, "%s", bp);
+                return f;
+            }
+        } else {
+            fclose(check);
+            /* Target file already exists: do not truncate! Find next available run filename */
+            for (int run = 1; run < 1000; run++) {
+                char candidate[512];
+                if (b == 0) {
+                    snprintf(candidate, sizeof(candidate), "docs/audit/decisive_benchmark_raw_r5_run%d.csv", run);
+                } else {
+                    snprintf(candidate, sizeof(candidate), "decisive_benchmark_raw_r5_run%d.csv", run);
+                }
+                FILE *c_check = fopen(candidate, "rb");
+                if (!c_check) {
+                    FILE *f = fopen(candidate, "w");
+                    if (f) {
+                        if (out_path) snprintf(out_path, out_path_sz, "%s", candidate);
+                        return f;
+                    }
+                } else {
+                    fclose(c_check);
+                }
+            }
+        }
+    }
+    return NULL;
+}
 
 static void log_csv_record_r5(
     const char *tier, const char *dataset, const char *engine,
@@ -1713,6 +1762,11 @@ int main(int argc, char **argv) {
            LZ4_versionString(), LZ4_versionNumber(),
            binpack_version_string());
     printf("Protocol: 1 Warm-up + 20 Timed Iterations | Tukey Outlier Rule | Decimal MB/s (10^6 B/s) Directly from Samples\n");
+    printf("Zstd Memory Budgets (Official Estimator): L19 CCtx = %.2f MB (CStream = %.2f MB) | Runtime L4 CCtx = %.2f MB (CStream = %.2f MB)\n",
+           (double)ZSTD_estimateCCtxSize(19) / (1024.0 * 1024.0),
+           (double)ZSTD_estimateCStreamSize(19) / (1024.0 * 1024.0),
+           (double)ZSTD_estimateCCtxSize(4) / (1024.0 * 1024.0),
+           (double)ZSTD_estimateCStreamSize(4) / (1024.0 * 1024.0));
     printf("==================================================================================================================================\n\n");
     fflush(stdout);
 
@@ -1726,11 +1780,9 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    g_csv_file = fopen("docs/audit/decisive_benchmark_raw_r5.csv", "w");
-    if (!g_csv_file) {
-        g_csv_file = fopen("decisive_benchmark_raw_r5.csv", "w");
-    }
+    g_csv_file = open_safe_csv_r5(g_csv_path, sizeof(g_csv_path));
     if (g_csv_file) {
+        printf("Output CSV Target: '%s' (Safe non-truncating exclusive creation)\n", g_csv_path);
         fprintf(g_csv_file,
                 "Tier,Dataset,Engine,OriginalSize,CompressedSize,RatioPct,"
                 "Comp_Raw_MBs,Comp_Filt_MBs,Comp_IQR_MBs,Comp_Outliers,"
@@ -2033,7 +2085,8 @@ int main(int argc, char **argv) {
     }
 
     printf("\n==================================================================================================================================\n");
-    printf("[COMPLETE] Benchmark execution finished cleanly. Raw sample data exported to 'decisive_benchmark_raw_r5.csv'.\n");
+    printf("[COMPLETE] Benchmark execution finished cleanly. Raw sample data exported to '%s'.\n",
+           g_csv_path[0] ? g_csv_path : "decisive_benchmark_raw_r5.csv");
     printf("==================================================================================================================================\n");
     fflush(stdout);
 

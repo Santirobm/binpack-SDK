@@ -2,9 +2,9 @@ name: Multi-Platform Native Build & Unity UPM Packager
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, "audit/**" ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, "audit/**" ]
   workflow_dispatch:
 
 jobs:
@@ -56,6 +56,11 @@ jobs:
             tests/test_sdk.c -L. -lbinpack liblzma_local.a -lzstd -Wl,-rpath,. -o test_sdk
           LD_LIBRARY_PATH=. ./test_sdk
           LD_LIBRARY_PATH=. BINPACK_DISABLE_AVX2=1 ./test_sdk
+
+      - name: Verify Strict ISA Isolation (VEX / EVEX Audit)
+        run: |
+          chmod +x scripts/audit_isa_isolation.sh
+          bash scripts/audit_isa_isolation.sh
 
       - name: Upload Linux Native Plugin
         uses: actions/upload-artifact@v4
