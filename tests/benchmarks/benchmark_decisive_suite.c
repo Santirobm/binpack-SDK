@@ -32,15 +32,18 @@
 
 typedef struct {
     int logical_id;
-    int core_id;
-    int is_pcore;
+    int core_id;                   /* -1 if unknown / unavailable */
+    int physical_core_verified;    /* 1 only if native CPUID Leaf 0x1A returns 0x40 */
+    int topology_gate_passed;      /* 1 if affinity pinned and execution gate passed */
     char description[128];
 } cpu_affinity_info_t;
 
 static int detect_and_set_pcore_affinity(cpu_affinity_info_t *info) {
     memset(info, 0, sizeof(*info));
     info->logical_id = 2; /* Target Core 1 / Logical Core 2 */
-    info->core_id = 1;
+    info->core_id = -1;
+    info->physical_core_verified = 0;
+    info->topology_gate_passed = 0;
 
 #if defined(__linux__)
     /* 1. Fijar primero la afinidad al CPU logico 2 */
@@ -68,13 +71,13 @@ static int detect_and_set_pcore_affinity(cpu_affinity_info_t *info) {
     /* Forzar migracion efectiva al nucleo asignado */
     sched_yield();
 
-    /* Leer topologia fisica sysfs */
+    /* Leer topologia fisica sysfs (si esta disponible; dejar -1 si no se obtiene) */
     char path[128];
     snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/topology/core_id", info->logical_id);
     FILE *f = fopen(path, "r");
     if (f) {
         if (fscanf(f, "%d", &info->core_id) != 1) {
-            info->core_id = 1;
+            info->core_id = -1;
         }
         fclose(f);
     }
@@ -84,12 +87,19 @@ static int detect_and_set_pcore_affinity(cpu_affinity_info_t *info) {
     __cpuid_count(0x1a, 0, eax, ebx, ecx, edx);
     unsigned int core_type = (eax >> 24) & 0xff;
 
-    /* 4. Comprobar que el tipo informado sea efectivamente 0x40 (P-Core) */
+    /* 4. Comprobar que el tipo informado sea efectivamente 0x40 (P-Core nativo en silicio) */
     if (core_type == 0x40) {
-        info->is_pcore = 1;
-        snprintf(info->description, sizeof(info->description),
-                 "Intel P-Core (Raptor Cove, Native CPUID 0x1A Core Type 0x40, SMT Logical %d)",
-                 info->logical_id);
+        info->physical_core_verified = 1;
+        info->topology_gate_passed = 1;
+        if (info->core_id >= 0) {
+            snprintf(info->description, sizeof(info->description),
+                     "Intel P-Core (Raptor Cove, Native CPUID 0x1A Core Type 0x40, SMT Logical %d, Core ID %d)",
+                     info->logical_id, info->core_id);
+        } else {
+            snprintf(info->description, sizeof(info->description),
+                     "Intel P-Core (Raptor Cove, Native CPUID 0x1A Core Type 0x40, SMT Logical %d, Core ID Unknown)",
+                     info->logical_id);
+        }
         return 0;
     } else if (core_type == 0x20) {
         fprintf(stderr, "[FATAL] Target CPU %d is an Intel E-Core (CPUID 0x1A: 0x20). Benchmark requires P-Core.\n",
@@ -97,29 +107,51 @@ static int detect_and_set_pcore_affinity(cpu_affinity_info_t *info) {
         return -1;
     }
 
-    /* 5. Tratamiento en entornos virtualizados (WSL2 / Hyper-V / KVM):
-     * Una sonda de host Windows externa no demuestra la correspondencia fisica entre el vCPU 2 del
-     * kernel invitado y el CPU logico 2 del host, dado que el hipervisor abstrae y planifica
-     * dinamicamente los procesadores virtuales.
-     * En Linux, verificamos la presencia del hipervisor mediante la bandera estandar CPUID.1:ECX[31].
-     * Si esta activo, se audita y declara explicitamente la frontera de virtualizacion del kernel
-     * invitado sin recurrir a suposiciones de correspondencia. */
+    /* 5. Tratamiento en entornos virtualizados (Hyper-V / WSL2 / KVM):
+     * Comprobar la presencia de hipervisor mediante CPUID.1:ECX[31].
+     * Si esta activo, interrogar la hoja de hypervisor 0x40000000 para identificar el vendor
+     * o registrar como hipervisor generico si no coincide con firmas conocidas.
+     * En este caso, no se asume correspondencia con silicio fisico (physical_core_verified = 0),
+     * pero se aprueba la afinidad logica del kernel invitado (topology_gate_passed = 1). */
     unsigned int h_eax = 0, h_ebx = 0, h_ecx = 0, h_edx = 0;
     __cpuid(1, h_eax, h_ebx, h_ecx, h_edx);
     int is_hypervisor = (h_ecx >> 31) & 1;
 
     if (is_hypervisor) {
-        info->is_pcore = 1;
-        snprintf(info->description, sizeof(info->description),
-                 "WSL2/Hyper-V Virtual Guest (vCPU %d, Sysfs Core ID %d, Hypervisor Topology Abstraction)",
-                 info->logical_id, info->core_id);
+        info->physical_core_verified = 0;
+        info->topology_gate_passed = 1;
+
+        char hv_sig[13];
+        memset(hv_sig, 0, sizeof(hv_sig));
+        __cpuid(0x40000000, h_eax, h_ebx, h_ecx, h_edx);
+        memcpy(hv_sig + 0, &h_ebx, 4);
+        memcpy(hv_sig + 4, &h_ecx, 4);
+        memcpy(hv_sig + 8, &h_edx, 4);
+
+        const char *hv_vendor = "Generic Virtual Guest / Hypervisor";
+        if (memcmp(hv_sig, "Microsoft Hv", 12) == 0) {
+            hv_vendor = "Microsoft Hyper-V Virtual Guest (WSL2/Hyper-V)";
+        } else if (memcmp(hv_sig, "KVMKVMKVM\0\0\0", 12) == 0 || memcmp(hv_sig, "KVMKVMKVM", 9) == 0) {
+            hv_vendor = "KVM Virtual Guest";
+        } else if (memcmp(hv_sig, "VMwareVMware", 12) == 0) {
+            hv_vendor = "VMware Virtual Guest";
+        }
+
+        if (info->core_id >= 0) {
+            snprintf(info->description, sizeof(info->description),
+                     "%s (vCPU %d, Sysfs Core ID %d, Hypervisor Topology Abstraction)",
+                     hv_vendor, info->logical_id, info->core_id);
+        } else {
+            snprintf(info->description, sizeof(info->description),
+                     "%s (vCPU %d, Sysfs Core ID Unknown, Hypervisor Topology Abstraction)",
+                     hv_vendor, info->logical_id);
+        }
         return 0;
     }
 
     fprintf(stderr, "[FATAL] Core %d could not be verified as an Intel P-Core on bare-metal (CPUID 0x1A returned 0x%02X, expected 0x40). Aborting.\n",
             info->logical_id, core_type);
     return -1;
-    return 0;
 #elif defined(_WIN32)
     DWORD_PTR mask = ((DWORD_PTR)1 << info->logical_id);
     if (!SetProcessAffinityMask(GetCurrentProcess(), mask)) {
@@ -144,7 +176,8 @@ static int detect_and_set_pcore_affinity(cpu_affinity_info_t *info) {
         return -1;
     }
 
-    info->is_pcore = 1;
+    info->physical_core_verified = 1;
+    info->topology_gate_passed = 1;
     snprintf(info->description, sizeof(info->description),
              "Win32 Performance Core (Logical %d, CPUID 0x1A Core Type 0x40, Mask 0x%llX)",
              info->logical_id, (unsigned long long)mask);
@@ -1413,9 +1446,9 @@ static int run_engine_isolated(
         }
         sched_yield();
 
-        /* Verify that child process execution is locked to verified P-Core */
-        if (!aff->is_pcore) {
-            fprintf(stderr, "[CHILD ERROR] Child running on unverified non-P-Core topology\n");
+        /* Verify that child process execution has passed topology/affinity gate */
+        if (!aff->topology_gate_passed) {
+            fprintf(stderr, "[CHILD ERROR] Child running without verified topology gate\n");
             _exit(4);
         }
 
@@ -1544,9 +1577,18 @@ int main(int argc, char **argv) {
     }
 
     printf("==================================================================================================================================\n");
-    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008C-R4)\n");
-    printf("Hardware Topology: Logical Core %d (Core ID %d) | %s\n",
-           aff.logical_id, aff.core_id, aff.description);
+    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008C-R5)\n");
+    if (aff.core_id >= 0) {
+        printf("Hardware Topology: Logical Core %d (Core ID %d) | %s [Physical Verified: %s | Topology Gate: %s]\n",
+               aff.logical_id, aff.core_id, aff.description,
+               aff.physical_core_verified ? "YES" : "NO (Virtualized/Abstracted)",
+               aff.topology_gate_passed ? "PASS" : "FAIL");
+    } else {
+        printf("Hardware Topology: Logical Core %d (Core ID Unknown) | %s [Physical Verified: %s | Topology Gate: %s]\n",
+               aff.logical_id, aff.description,
+               aff.physical_core_verified ? "YES" : "NO (Virtualized/Abstracted)",
+               aff.topology_gate_passed ? "PASS" : "FAIL");
+    }
     printf("Execution Seed: %u (Fisher-Yates Randomized Suite) | Isolated Memory per Subprocess (fork/wait4)\n", seed);
     printf("Runtime Linked Versions: Zstd %s (Num: %u) | LZ4 %s (Num: %u) | BinPack %s\n",
            ZSTD_versionString(), ZSTD_versionNumber(),
