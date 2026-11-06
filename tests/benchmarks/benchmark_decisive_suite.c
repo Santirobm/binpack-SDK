@@ -41,9 +41,34 @@ static int detect_and_set_pcore_affinity(cpu_affinity_info_t *info) {
     memset(info, 0, sizeof(*info));
     info->logical_id = 2; /* Target Core 1 / Logical Core 2 */
     info->core_id = 1;
-    info->is_pcore = 1;
 
 #if defined(__linux__)
+    /* 1. Fijar primero la afinidad al CPU logico 2 */
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(info->logical_id, &cpuset);
+    if (sched_setaffinity(0, sizeof(cpu_set_t), &cpuset) != 0) {
+        fprintf(stderr, "[FATAL] sched_setaffinity failed on logical CPU %d: %s\n",
+                info->logical_id, strerror(errno));
+        return -1;
+    }
+
+    /* 2. Verificar que la mascara efectiva sea la esperada */
+    cpu_set_t verify_set;
+    CPU_ZERO(&verify_set);
+    if (sched_getaffinity(0, sizeof(cpu_set_t), &verify_set) != 0) {
+        fprintf(stderr, "[FATAL] sched_getaffinity failed: %s\n", strerror(errno));
+        return -1;
+    }
+    if (!CPU_ISSET(info->logical_id, &verify_set) || CPU_COUNT(&verify_set) != 1) {
+        fprintf(stderr, "[FATAL] Affinity verification failed: CPU %d not strictly isolated in mask\n", info->logical_id);
+        return -1;
+    }
+
+    /* Forzar migracion efectiva al nucleo asignado */
+    sched_yield();
+
+    /* Leer topologia fisica sysfs */
     char path[128];
     snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/topology/core_id", info->logical_id);
     FILE *f = fopen(path, "r");
@@ -54,47 +79,63 @@ static int detect_and_set_pcore_affinity(cpu_affinity_info_t *info) {
         fclose(f);
     }
 
+    /* 3. Ejecutar CPUID Leaf 0x1A despues de fijar la afinidad */
     unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
     __cpuid_count(0x1a, 0, eax, ebx, ecx, edx);
     unsigned int core_type = (eax >> 24) & 0xff;
+
+    /* 4. Comprobar que el tipo informado sea efectivamente 0x40 (P-Core) */
     if (core_type == 0x40) {
         info->is_pcore = 1;
         snprintf(info->description, sizeof(info->description),
-                 "Intel P-Core (Raptor Cove, Native CPUID Core Type 0x40)");
-    } else if (core_type == 0x20) {
-        info->is_pcore = 0;
-        snprintf(info->description, sizeof(info->description),
-                 "Intel E-Core (Gracemont, Native CPUID Core Type 0x20)");
-    } else {
-        if (info->logical_id < 12) {
-            info->is_pcore = 1;
-            snprintf(info->description, sizeof(info->description),
-                     "Intel Core i5-13500 Performance Core (SMT Core %d, Logical %d)",
-                     info->core_id, info->logical_id);
-        } else {
-            info->is_pcore = 0;
-            snprintf(info->description, sizeof(info->description),
-                     "Intel Core i5-13500 Efficient Core (Logical %d)", info->logical_id);
+                 "Intel P-Core (Raptor Cove, Native CPUID 0x1A Core Type 0x40, SMT Logical %d)",
+                 info->logical_id);
+        return 0;
+    }
+
+    /* En entornos virtualizados (como WSL2 bajo Hyper-V), las hojas basicas > 0x15
+     * son enmascaradas por el hipervisor (devolviendo core_type = 0x00).
+     * En este caso, se ejecuta una sonda efimera nativa compilada al vuelo con MinGW
+     * para interrogar la hoja 0x1A del procesador fisico en el hilo vinculado a CPU 2. */
+    int verified_host_pcore = 0;
+    if (core_type == 0x00 && access("/proc/sys/fs/binfmt_misc/WSLInterop", F_OK) == 0) {
+        FILE *fprobe = fopen("/tmp/pcore_probe.c", "w");
+        if (fprobe) {
+            fprintf(fprobe,
+                "#define _GNU_SOURCE\n"
+                "#include <windows.h>\n"
+                "#include <cpuid.h>\n"
+                "#include <stdlib.h>\n"
+                "int main(int argc, char **argv) {\n"
+                "    int c = (argc > 1) ? atoi(argv[1]) : 2;\n"
+                "    SetProcessAffinityMask(GetCurrentProcess(), (DWORD_PTR)1 << c);\n"
+                "    Sleep(10);\n"
+                "    unsigned int a=0, b=0, cc=0, d=0;\n"
+                "    __cpuid_count(0x1a, 0, a, b, cc, d);\n"
+                "    return (((a >> 24) & 0xff) == 0x40) ? 0 : 2;\n"
+                "}\n");
+            fclose(fprobe);
+            int build_ret = system("x86_64-w64-mingw32-gcc -O2 /tmp/pcore_probe.c -o /tmp/pcore_probe.exe >/dev/null 2>&1");
+            if (build_ret == 0) {
+                char run_cmd[128];
+                snprintf(run_cmd, sizeof(run_cmd), "/tmp/pcore_probe.exe %d >/dev/null 2>&1", info->logical_id);
+                int run_ret = system(run_cmd);
+                system("rm -f /tmp/pcore_probe.c /tmp/pcore_probe.exe");
+                if (WIFEXITED(run_ret) && WEXITSTATUS(run_ret) == 0) {
+                    verified_host_pcore = 1;
+                    info->is_pcore = 1;
+                    snprintf(info->description, sizeof(info->description),
+                             "Intel Core i5-13500 Performance Core (Host Silicon CPUID 0x1A Core Type 0x40, SMT Logical %d)",
+                             info->logical_id);
+                    return 0;
+                }
+            }
         }
     }
 
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(info->logical_id, &cpuset);
-    if (sched_setaffinity(0, sizeof(cpu_set_t), &cpuset) != 0) {
-        fprintf(stderr, "[FATAL] sched_setaffinity failed on logical CPU %d: %s\n",
-                info->logical_id, strerror(errno));
-        return -1;
-    }
-
-    cpu_set_t verify_set;
-    CPU_ZERO(&verify_set);
-    if (sched_getaffinity(0, sizeof(cpu_set_t), &verify_set) != 0) {
-        fprintf(stderr, "[FATAL] sched_getaffinity failed: %s\n", strerror(errno));
-        return -1;
-    }
-    if (!CPU_ISSET(info->logical_id, &verify_set)) {
-        fprintf(stderr, "[FATAL] Affinity verification failed: CPU %d not set\n", info->logical_id);
+    if (!verified_host_pcore) {
+        fprintf(stderr, "[FATAL] Core %d could not be verified as an Intel P-Core (CPUID 0x1A returned 0x%02X, expected 0x40). Aborting.\n",
+                info->logical_id, core_type);
         return -1;
     }
     return 0;
@@ -105,8 +146,26 @@ static int detect_and_set_pcore_affinity(cpu_affinity_info_t *info) {
                 info->logical_id, GetLastError());
         return -1;
     }
+    DWORD_PTR proc_mask = 0, sys_mask = 0;
+    if (!GetProcessAffinityMask(GetCurrentProcess(), &proc_mask, &sys_mask) || proc_mask != mask) {
+        fprintf(stderr, "[FATAL] Affinity verification failed: Mask 0x%llX != expected 0x%llX\n",
+                (unsigned long long)proc_mask, (unsigned long long)mask);
+        return -1;
+    }
+    Sleep(10);
+
+    unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
+    __cpuid_count(0x1a, 0, eax, ebx, ecx, edx);
+    unsigned int core_type = (eax >> 24) & 0xff;
+    if (core_type != 0x40) {
+        fprintf(stderr, "[FATAL] Win32 CPU %d CPUID 0x1A returned 0x%02X (expected 0x40 P-Core)\n",
+                info->logical_id, core_type);
+        return -1;
+    }
+
+    info->is_pcore = 1;
     snprintf(info->description, sizeof(info->description),
-             "Win32 Performance Core (Logical %d, Mask 0x%llX)",
+             "Win32 Performance Core (Logical %d, CPUID 0x1A Core Type 0x40, Mask 0x%llX)",
              info->logical_id, (unsigned long long)mask);
     return 0;
 #endif
@@ -587,8 +646,12 @@ static int run_lz4_fast(const uint8_t *src, size_t src_sz, bench_result_t *res) 
     calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
     calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
-    measure_latencies_generic(src, src_sz, 4096, 0, 0, 0, NULL, &res->lat_4k_comp_us, &res->lat_4k_decomp_us);
-    measure_latencies_generic(src, src_sz, 65536, 0, 0, 0, NULL, &res->lat_64k_comp_us, &res->lat_64k_decomp_us);
+    int lat_ret1 = measure_latencies_generic(src, src_sz, 4096, 0, 0, 0, NULL, &res->lat_4k_comp_us, &res->lat_4k_decomp_us);
+    int lat_ret2 = measure_latencies_generic(src, src_sz, 65536, 0, 0, 0, NULL, &res->lat_64k_comp_us, &res->lat_64k_decomp_us);
+    if (lat_ret1 != 0 || lat_ret2 != 0) {
+        all_pass = 0;
+    }
+    res->integrity_all_pass = all_pass;
 
     free(comp_buf); free(decomp_buf);
     return all_pass ? 0 : -1;
@@ -645,8 +708,12 @@ static int run_zstd_l1(const uint8_t *src, size_t src_sz, bench_result_t *res) {
     calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
     calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
-    measure_latencies_generic(src, src_sz, 4096, 1, 1, 0, NULL, &res->lat_4k_comp_us, &res->lat_4k_decomp_us);
-    measure_latencies_generic(src, src_sz, 65536, 1, 1, 0, NULL, &res->lat_64k_comp_us, &res->lat_64k_decomp_us);
+    int lat_ret1 = measure_latencies_generic(src, src_sz, 4096, 1, 1, 0, NULL, &res->lat_4k_comp_us, &res->lat_4k_decomp_us);
+    int lat_ret2 = measure_latencies_generic(src, src_sz, 65536, 1, 1, 0, NULL, &res->lat_64k_comp_us, &res->lat_64k_decomp_us);
+    if (lat_ret1 != 0 || lat_ret2 != 0) {
+        all_pass = 0;
+    }
+    res->integrity_all_pass = all_pass;
 
     ZSTD_freeCCtx(cctx); ZSTD_freeDCtx(dctx);
     free(comp_buf); free(decomp_buf);
@@ -705,8 +772,12 @@ static int run_binpack_fast_zerocrc(const uint8_t *src, size_t src_sz, bench_res
     calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
     calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
-    measure_latencies_generic(src, src_sz, 4096, 0, 0, 1, &opt, &res->lat_4k_comp_us, &res->lat_4k_decomp_us);
-    measure_latencies_generic(src, src_sz, 65536, 0, 0, 1, &opt, &res->lat_64k_comp_us, &res->lat_64k_decomp_us);
+    int lat_ret1 = measure_latencies_generic(src, src_sz, 4096, 0, 0, 1, &opt, &res->lat_4k_comp_us, &res->lat_4k_decomp_us);
+    int lat_ret2 = measure_latencies_generic(src, src_sz, 65536, 0, 0, 1, &opt, &res->lat_64k_comp_us, &res->lat_64k_decomp_us);
+    if (lat_ret1 != 0 || lat_ret2 != 0) {
+        all_pass = 0;
+    }
+    res->integrity_all_pass = all_pass;
 
     free(comp_buf); free(decomp_buf);
     return all_pass ? 0 : -1;
@@ -1330,9 +1401,18 @@ static int run_engine_isolated(
         }
         cpu_set_t verify_set;
         CPU_ZERO(&verify_set);
-        if (sched_getaffinity(0, sizeof(cpu_set_t), &verify_set) != 0 || !CPU_ISSET(aff->logical_id, &verify_set)) {
+        if (sched_getaffinity(0, sizeof(cpu_set_t), &verify_set) != 0 ||
+            !CPU_ISSET(aff->logical_id, &verify_set) ||
+            CPU_COUNT(&verify_set) != 1) {
             fprintf(stderr, "[CHILD ERROR] sched_getaffinity verification failed in child\n");
             _exit(3);
+        }
+        sched_yield();
+
+        /* Verify that child process execution is locked to verified P-Core */
+        if (!aff->is_pcore) {
+            fprintf(stderr, "[CHILD ERROR] Child running on unverified non-P-Core topology\n");
+            _exit(4);
         }
 
         /* Execute benchmark function and propagate exit code */
@@ -1383,12 +1463,12 @@ static int run_engine_isolated(
 }
 
 /* ========================================================================= */
-/* Registro en Archivo CSV Crudo (BP-008C-R2)                                */
+/* Registro en Archivo CSV Crudo (BP-008C-R3)                                */
 /* ========================================================================= */
 
 static FILE *g_csv_file = NULL;
 
-static void log_csv_record_r2(
+static void log_csv_record_r3(
     const char *tier, const char *dataset, const char *engine,
     const bench_result_t *res, uint32_t seed
 ) {
@@ -1441,7 +1521,7 @@ static void log_csv_record_r2(
 }
 
 /* ========================================================================= */
-/* Punto de Entrada Principal (BP-008C-R2)                                   */
+/* Punto de Entrada Principal (BP-008C-R3)                                   */
 /* ========================================================================= */
 
 int main(int argc, char **argv) {
@@ -1460,7 +1540,7 @@ int main(int argc, char **argv) {
     }
 
     printf("==================================================================================================================================\n");
-    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008C-R2)\n");
+    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008C-R3)\n");
     printf("Hardware Topology: Logical Core %d (Core ID %d) | %s\n",
            aff.logical_id, aff.core_id, aff.description);
     printf("Execution Seed: %u (Fisher-Yates Randomized Suite) | Isolated Memory per Subprocess (fork/wait4)\n", seed);
@@ -1477,9 +1557,9 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    g_csv_file = fopen("docs/audit/decisive_benchmark_raw_r2.csv", "w");
+    g_csv_file = fopen("docs/audit/decisive_benchmark_raw_r3.csv", "w");
     if (!g_csv_file) {
-        g_csv_file = fopen("decisive_benchmark_raw_r2.csv", "w");
+        g_csv_file = fopen("decisive_benchmark_raw_r3.csv", "w");
     }
     if (g_csv_file) {
         fprintf(g_csv_file,
@@ -1589,7 +1669,7 @@ int main(int argc, char **argv) {
                    lat_str, res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r2(cur_e->tier, "busybox_armv7l", cur_e->engine_id, &res, seed);
+            log_csv_record_r3(cur_e->tier, "busybox_armv7l", cur_e->engine_id, &res, seed);
         }
     }
 
@@ -1628,7 +1708,7 @@ int main(int argc, char **argv) {
                    "—", res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r2(cur_e->tier, "nasa_turbofan_f32", cur_e->engine_id, &res, seed);
+            log_csv_record_r3(cur_e->tier, "nasa_turbofan_f32", cur_e->engine_id, &res, seed);
         }
 
         /* B. Single De-interleaved Channel 0 (Fair evaluation for 1D time-series codecs) */
@@ -1653,7 +1733,7 @@ int main(int argc, char **argv) {
                    "—", res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r2(cur_e->tier, "nasa_turbofan_ch0", cur_e->engine_id, &res, seed);
+            log_csv_record_r3(cur_e->tier, "nasa_turbofan_ch0", cur_e->engine_id, &res, seed);
         }
 
         printf("  [TIER 4B AUDIT NOTICE]: Sprintz I16 excluded from production claims (Mathematical UB quarantine).\n");
@@ -1718,7 +1798,7 @@ int main(int argc, char **argv) {
                    lat_str, res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r2(cur_e->tier, "silesia_mozilla", cur_e->engine_id, &res, seed);
+            log_csv_record_r3(cur_e->tier, "silesia_mozilla", cur_e->engine_id, &res, seed);
         }
     }
 
@@ -1780,12 +1860,12 @@ int main(int argc, char **argv) {
                    lat_str, res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r2(cur_e->tier, "silesia_samba", cur_e->engine_id, &res, seed);
+            log_csv_record_r3(cur_e->tier, "silesia_samba", cur_e->engine_id, &res, seed);
         }
     }
 
     printf("\n==================================================================================================================================\n");
-    printf("[COMPLETE] Benchmark execution finished cleanly. Raw sample data exported to 'decisive_benchmark_raw_r2.csv'.\n");
+    printf("[COMPLETE] Benchmark execution finished cleanly. Raw sample data exported to 'decisive_benchmark_raw_r3.csv'.\n");
     printf("==================================================================================================================================\n");
     fflush(stdout);
 
