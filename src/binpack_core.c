@@ -413,35 +413,184 @@ void binpack_bcj_riscv_unfilter(uint8_t *data, size_t size) {
 }
 
 /* ========================================================================= */
-/* Cascaded Stride-N Transpose + Delta Prefilter (SIMD & Fused Single-Pass)  */
+/* Thread-Local Context Lifecycle & Multiplatform Auto-Cleanup (Core Scratch) */
 /* ========================================================================= */
 
-#if defined(_MSC_VER)
-    static __declspec(thread) uint8_t *s_core_scratch = NULL;
-    static __declspec(thread) size_t   s_core_scratch_cap = 0;
+typedef struct bp_core_tls_s {
+    uint8_t *scratch;
+    size_t   scratch_cap;
+} bp_core_tls_t;
+
+#if defined(BINPACK_TESTING)
+#include <stdatomic.h>
+atomic_size_t g_dbg_core_tls_created = 0;
+atomic_size_t g_dbg_core_tls_destroyed = 0;
+atomic_size_t g_dbg_core_scratch_allocs = 0;
+atomic_size_t g_dbg_core_scratch_frees = 0;
+#endif
+
+static void bp_core_tls_free_contents(bp_core_tls_t *tls) {
+    if (!tls) return;
+    if (tls->scratch) {
+        free(tls->scratch);
+        tls->scratch = NULL;
+        tls->scratch_cap = 0;
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_core_scratch_frees, 1, memory_order_relaxed);
+#endif
+    }
+}
+
+#if !defined(_WIN32)
+
+static pthread_key_t  s_core_tls_key;
+static pthread_once_t s_core_tls_once = PTHREAD_ONCE_INIT;
+static int            s_core_tls_key_valid = 0;
+
+static void bp_core_posix_destructor(void *arg) {
+    bp_core_tls_t *tls = (bp_core_tls_t*)arg;
+    if (tls) {
+        bp_core_tls_free_contents(tls);
+        free(tls);
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_core_tls_destroyed, 1, memory_order_relaxed);
+#endif
+    }
+}
+
+static void bp_core_posix_key_init(void) {
+    if (pthread_key_create(&s_core_tls_key, bp_core_posix_destructor) == 0) {
+        s_core_tls_key_valid = 1;
+    }
+}
+
+static bp_core_tls_t* bp_get_core_tls(void) {
+    if (pthread_once(&s_core_tls_once, bp_core_posix_key_init) != 0 || !s_core_tls_key_valid) {
+        return NULL;
+    }
+    bp_core_tls_t *tls = (bp_core_tls_t*)pthread_getspecific(s_core_tls_key);
+    if (!tls) {
+        tls = (bp_core_tls_t*)calloc(1, sizeof(bp_core_tls_t));
+        if (!tls) return NULL;
+        if (pthread_setspecific(s_core_tls_key, tls) != 0) {
+            free(tls);
+            return NULL;
+        }
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_core_tls_created, 1, memory_order_relaxed);
+#endif
+    }
+    return tls;
+}
+
+#else /* _WIN32 */
+
+static DWORD s_core_fls_idx = FLS_OUT_OF_INDEXES;
+static INIT_ONCE s_core_fls_once = INIT_ONCE_STATIC_INIT;
+
+static void NTAPI bp_core_fls_destructor(PVOID ptr) {
+    bp_core_tls_t *tls = (bp_core_tls_t*)ptr;
+    if (tls) {
+        bp_core_tls_free_contents(tls);
+        free(tls);
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_core_tls_destroyed, 1, memory_order_relaxed);
+#endif
+    }
+}
+
+static BOOL WINAPI bp_core_init_fls_once(PINIT_ONCE once, PVOID param, PVOID *context) {
+    (void)once; (void)param; (void)context;
+    s_core_fls_idx = FlsAlloc(bp_core_fls_destructor);
+    return (s_core_fls_idx != FLS_OUT_OF_INDEXES) ? TRUE : FALSE;
+}
+
+static bp_core_tls_t* bp_get_core_tls(void) {
+    if (!InitOnceExecuteOnce(&s_core_fls_once, bp_core_init_fls_once, NULL, NULL)) {
+        return NULL;
+    }
+    if (s_core_fls_idx == FLS_OUT_OF_INDEXES) {
+        return NULL;
+    }
+    bp_core_tls_t *tls = (bp_core_tls_t*)FlsGetValue(s_core_fls_idx);
+    if (!tls) {
+        tls = (bp_core_tls_t*)calloc(1, sizeof(bp_core_tls_t));
+        if (!tls) return NULL;
+        if (!FlsSetValue(s_core_fls_idx, tls)) {
+            free(tls);
+            return NULL;
+        }
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_core_tls_created, 1, memory_order_relaxed);
+#endif
+    }
+    return tls;
+}
+
+#endif /* _WIN32 */
+
+#if defined(BINPACK_TESTING)
+void bp_core_cleanup_current_thread(void) {
+#if !defined(_WIN32)
+    if (!s_core_tls_key_valid) return;
+    bp_core_tls_t *tls = (bp_core_tls_t*)pthread_getspecific(s_core_tls_key);
+    if (tls) {
+        if (pthread_setspecific(s_core_tls_key, NULL) == 0) {
+            bp_core_posix_destructor(tls);
+        }
+    }
 #else
-    static __thread uint8_t *s_core_scratch = NULL;
-    static __thread size_t   s_core_scratch_cap = 0;
+    if (s_core_fls_idx != FLS_OUT_OF_INDEXES) {
+        bp_core_tls_t *tls = (bp_core_tls_t*)FlsGetValue(s_core_fls_idx);
+        if (tls) {
+            if (FlsSetValue(s_core_fls_idx, NULL)) {
+                bp_core_fls_destructor(tls);
+            }
+        }
+    }
+#endif
+}
 #endif
 
 uint8_t* bp_acquire_core_scratch(size_t size, int *out_must_free) {
     /* Reuse thread-local buffer up to 64 MB to eliminate OS VirtualAlloc/VirtualFree page faults */
     if (size <= (64ULL * 1024 * 1024)) {
-        if (s_core_scratch_cap < size) {
-            uint8_t *new_buf = (uint8_t*)realloc(s_core_scratch, size);
-            if (!new_buf) return NULL;
-            s_core_scratch = new_buf;
-            s_core_scratch_cap = size;
+        bp_core_tls_t *tls = bp_get_core_tls();
+        if (tls) {
+            if (tls->scratch_cap < size) {
+                int had_prev = (tls->scratch != NULL);
+                uint8_t *new_buf = (uint8_t*)realloc(tls->scratch, size);
+                if (!new_buf) return NULL;
+                tls->scratch = new_buf;
+                tls->scratch_cap = size;
+#if defined(BINPACK_TESTING)
+                if (had_prev) {
+                    atomic_fetch_add_explicit(&g_dbg_core_scratch_frees, 1, memory_order_relaxed);
+                }
+                atomic_fetch_add_explicit(&g_dbg_core_scratch_allocs, 1, memory_order_relaxed);
+#endif
+            }
+            *out_must_free = 0;
+            return tls->scratch;
         }
-        *out_must_free = 0;
-        return s_core_scratch;
     }
     *out_must_free = 1;
-    return (uint8_t*)malloc(size);
+    uint8_t *heap_buf = (uint8_t*)malloc(size);
+#if defined(BINPACK_TESTING)
+    if (heap_buf) {
+        atomic_fetch_add_explicit(&g_dbg_core_scratch_allocs, 1, memory_order_relaxed);
+    }
+#endif
+    return heap_buf;
 }
 
 void bp_release_core_scratch(uint8_t *ptr, int must_free) {
-    if (must_free && ptr) free(ptr);
+    if (must_free && ptr) {
+        free(ptr);
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_core_scratch_frees, 1, memory_order_relaxed);
+#endif
+    }
 }
 
 void bp_deinterleave_channels(const uint8_t *src, uint8_t *dst, size_t num_elements, uint16_t stride) {

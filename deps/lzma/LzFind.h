@@ -88,11 +88,19 @@ Conditions:
   Mf_GetPointerToCurrentPos_Func's result must be used only before any other function
 */
 
+#ifdef _7ZIP_ST
+typedef void (*Mf_Init_Func)(CMatchFinder *object);
+typedef UInt32 (*Mf_GetNumAvailableBytes_Func)(CMatchFinder *object);
+typedef Byte * (*Mf_GetPointerToCurrentPos_Func)(CMatchFinder *object);
+typedef UInt32 (*Mf_GetMatches_Func)(CMatchFinder *object, UInt32 *distances);
+typedef void (*Mf_Skip_Func)(CMatchFinder *object, UInt32);
+#else
 typedef void (*Mf_Init_Func)(void *object);
 typedef UInt32 (*Mf_GetNumAvailableBytes_Func)(void *object);
 typedef const Byte * (*Mf_GetPointerToCurrentPos_Func)(void *object);
 typedef UInt32 (*Mf_GetMatches_Func)(void *object, UInt32 *distances);
 typedef void (*Mf_Skip_Func)(void *object, UInt32);
+#endif
 
 typedef struct _IMatchFinder
 {

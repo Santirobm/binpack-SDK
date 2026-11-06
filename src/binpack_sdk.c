@@ -5,6 +5,18 @@
 
 #include "binpack_internal.h"
 
+#if defined(_WIN32)
+    #ifndef WIN32_LEAN_AND_MEAN
+        #define WIN32_LEAN_AND_MEAN
+    #endif
+    #ifndef NOMINMAX
+        #define NOMINMAX
+    #endif
+    #include <windows.h>
+#else
+    #include <pthread.h>
+#endif
+
 /* ========================================================================= */
 /* Options & Utility Helpers                                                 */
 /* ========================================================================= */
@@ -103,33 +115,195 @@ static size_t mem_write_cb(void *user_data, const void *buffer, size_t size) {
     return size;
 }
 
-#if defined(_MSC_VER)
-    static __declspec(thread) ZSTD_CCtx *s_fast_cctx = NULL;
-    static __declspec(thread) uint8_t   *s_sdk_scratch = NULL;
-    static __declspec(thread) size_t     s_sdk_scratch_cap = 0;
+/* ========================================================================= */
+/* Thread-Local Context Lifecycle & Multiplatform Auto-Cleanup (SDK Context)  */
+/* ========================================================================= */
+
+typedef struct bp_sdk_tls_s {
+    ZSTD_CCtx *fast_cctx;
+    uint8_t   *sdk_scratch;
+    size_t     sdk_scratch_cap;
+} bp_sdk_tls_t;
+
+#if defined(BINPACK_TESTING)
+#include <stdatomic.h>
+atomic_size_t g_dbg_sdk_tls_created = 0;
+atomic_size_t g_dbg_sdk_tls_destroyed = 0;
+atomic_size_t g_dbg_sdk_cctx_created = 0;
+atomic_size_t g_dbg_sdk_cctx_reused = 0;
+atomic_size_t g_dbg_sdk_cctx_destroyed = 0;
+atomic_size_t g_dbg_sdk_scratch_allocs = 0;
+atomic_size_t g_dbg_sdk_scratch_frees = 0;
+#endif
+
+static void bp_sdk_tls_free_contents(bp_sdk_tls_t *tls) {
+    if (!tls) return;
+    if (tls->fast_cctx) {
+        ZSTD_freeCCtx(tls->fast_cctx);
+        tls->fast_cctx = NULL;
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_sdk_cctx_destroyed, 1, memory_order_relaxed);
+#endif
+    }
+    if (tls->sdk_scratch) {
+        free(tls->sdk_scratch);
+        tls->sdk_scratch = NULL;
+        tls->sdk_scratch_cap = 0;
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_sdk_scratch_frees, 1, memory_order_relaxed);
+#endif
+    }
+}
+
+#if !defined(_WIN32)
+
+static pthread_key_t  s_sdk_tls_key;
+static pthread_once_t s_sdk_tls_once = PTHREAD_ONCE_INIT;
+static int            s_sdk_tls_key_valid = 0;
+
+static void bp_sdk_posix_destructor(void *arg) {
+    bp_sdk_tls_t *tls = (bp_sdk_tls_t*)arg;
+    if (tls) {
+        bp_sdk_tls_free_contents(tls);
+        free(tls);
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_sdk_tls_destroyed, 1, memory_order_relaxed);
+#endif
+    }
+}
+
+static void bp_sdk_posix_key_init(void) {
+    if (pthread_key_create(&s_sdk_tls_key, bp_sdk_posix_destructor) == 0) {
+        s_sdk_tls_key_valid = 1;
+    }
+}
+
+static bp_sdk_tls_t* bp_get_sdk_tls(void) {
+    if (pthread_once(&s_sdk_tls_once, bp_sdk_posix_key_init) != 0 || !s_sdk_tls_key_valid) {
+        return NULL;
+    }
+    bp_sdk_tls_t *tls = (bp_sdk_tls_t*)pthread_getspecific(s_sdk_tls_key);
+    if (!tls) {
+        tls = (bp_sdk_tls_t*)calloc(1, sizeof(bp_sdk_tls_t));
+        if (!tls) return NULL;
+        if (pthread_setspecific(s_sdk_tls_key, tls) != 0) {
+            free(tls);
+            return NULL;
+        }
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_sdk_tls_created, 1, memory_order_relaxed);
+#endif
+    }
+    return tls;
+}
+
+#else /* _WIN32 */
+
+static DWORD s_sdk_fls_idx = FLS_OUT_OF_INDEXES;
+static INIT_ONCE s_sdk_fls_once = INIT_ONCE_STATIC_INIT;
+
+static void NTAPI bp_sdk_fls_destructor(PVOID ptr) {
+    bp_sdk_tls_t *tls = (bp_sdk_tls_t*)ptr;
+    if (tls) {
+        bp_sdk_tls_free_contents(tls);
+        free(tls);
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_sdk_tls_destroyed, 1, memory_order_relaxed);
+#endif
+    }
+}
+
+static BOOL WINAPI bp_sdk_init_fls_once(PINIT_ONCE once, PVOID param, PVOID *context) {
+    (void)once; (void)param; (void)context;
+    s_sdk_fls_idx = FlsAlloc(bp_sdk_fls_destructor);
+    return (s_sdk_fls_idx != FLS_OUT_OF_INDEXES) ? TRUE : FALSE;
+}
+
+static bp_sdk_tls_t* bp_get_sdk_tls(void) {
+    if (!InitOnceExecuteOnce(&s_sdk_fls_once, bp_sdk_init_fls_once, NULL, NULL)) {
+        return NULL;
+    }
+    if (s_sdk_fls_idx == FLS_OUT_OF_INDEXES) {
+        return NULL;
+    }
+    bp_sdk_tls_t *tls = (bp_sdk_tls_t*)FlsGetValue(s_sdk_fls_idx);
+    if (!tls) {
+        tls = (bp_sdk_tls_t*)calloc(1, sizeof(bp_sdk_tls_t));
+        if (!tls) return NULL;
+        if (!FlsSetValue(s_sdk_fls_idx, tls)) {
+            free(tls);
+            return NULL;
+        }
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_sdk_tls_created, 1, memory_order_relaxed);
+#endif
+    }
+    return tls;
+}
+
+#endif /* _WIN32 */
+
+#if defined(BINPACK_TESTING)
+void bp_sdk_cleanup_current_thread(void) {
+#if !defined(_WIN32)
+    if (!s_sdk_tls_key_valid) return;
+    bp_sdk_tls_t *tls = (bp_sdk_tls_t*)pthread_getspecific(s_sdk_tls_key);
+    if (tls) {
+        if (pthread_setspecific(s_sdk_tls_key, NULL) == 0) {
+            bp_sdk_posix_destructor(tls);
+        }
+    }
 #else
-    static __thread ZSTD_CCtx *s_fast_cctx = NULL;
-    static __thread uint8_t   *s_sdk_scratch = NULL;
-    static __thread size_t     s_sdk_scratch_cap = 0;
+    if (s_sdk_fls_idx != FLS_OUT_OF_INDEXES) {
+        bp_sdk_tls_t *tls = (bp_sdk_tls_t*)FlsGetValue(s_sdk_fls_idx);
+        if (tls) {
+            if (FlsSetValue(s_sdk_fls_idx, NULL)) {
+                bp_sdk_fls_destructor(tls);
+            }
+        }
+    }
+#endif
+}
 #endif
 
 static uint8_t* bp_acquire_sdk_scratch(size_t size, int *out_must_free) {
     if (size <= (64ULL * 1024 * 1024)) {
-        if (s_sdk_scratch_cap < size) {
-            uint8_t *new_buf = (uint8_t*)realloc(s_sdk_scratch, size);
-            if (!new_buf) return NULL;
-            s_sdk_scratch = new_buf;
-            s_sdk_scratch_cap = size;
+        bp_sdk_tls_t *tls = bp_get_sdk_tls();
+        if (tls) {
+            if (tls->sdk_scratch_cap < size) {
+                int had_prev = (tls->sdk_scratch != NULL);
+                uint8_t *new_buf = (uint8_t*)realloc(tls->sdk_scratch, size);
+                if (!new_buf) return NULL;
+                tls->sdk_scratch = new_buf;
+                tls->sdk_scratch_cap = size;
+#if defined(BINPACK_TESTING)
+                if (had_prev) {
+                    atomic_fetch_add_explicit(&g_dbg_sdk_scratch_frees, 1, memory_order_relaxed);
+                }
+                atomic_fetch_add_explicit(&g_dbg_sdk_scratch_allocs, 1, memory_order_relaxed);
+#endif
+            }
+            *out_must_free = 0;
+            return tls->sdk_scratch;
         }
-        *out_must_free = 0;
-        return s_sdk_scratch;
     }
     *out_must_free = 1;
-    return (uint8_t*)malloc(size);
+    uint8_t *heap_buf = (uint8_t*)malloc(size);
+#if defined(BINPACK_TESTING)
+    if (heap_buf) {
+        atomic_fetch_add_explicit(&g_dbg_sdk_scratch_allocs, 1, memory_order_relaxed);
+    }
+#endif
+    return heap_buf;
 }
 
 static inline void bp_release_sdk_scratch(uint8_t *ptr, int must_free) {
-    if (must_free && ptr) free(ptr);
+    if (must_free && ptr) {
+        free(ptr);
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_sdk_scratch_frees, 1, memory_order_relaxed);
+#endif
+    }
 }
 
 static binpack_status_t binpack_compress_into_fast(
@@ -226,24 +400,39 @@ static binpack_status_t binpack_compress_into_fast(
     uint8_t *out = (uint8_t*)dst;
 
     /* Lazy-init persistent thread-local compression context */
-    if (!s_fast_cctx) {
-        s_fast_cctx = ZSTD_createCCtx();
-        if (!s_fast_cctx) {
+    bp_sdk_tls_t *tls = bp_get_sdk_tls();
+    if (!tls) {
+        bp_release_sdk_scratch(scratch, scratch_must_free);
+        return BINPACK_ERR_OUT_OF_MEMORY;
+    }
+
+    if (!tls->fast_cctx) {
+        tls->fast_cctx = ZSTD_createCCtx();
+        if (!tls->fast_cctx) {
             bp_release_sdk_scratch(scratch, scratch_must_free);
             return BINPACK_ERR_OUT_OF_MEMORY;
         }
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_sdk_cctx_created, 1, memory_order_relaxed);
+#endif
+    } else {
+#if defined(BINPACK_TESTING)
+        atomic_fetch_add_explicit(&g_dbg_sdk_cctx_reused, 1, memory_order_relaxed);
+#endif
     }
 
-    ZSTD_CCtx_reset(s_fast_cctx, ZSTD_reset_session_only);
+    ZSTD_CCtx *fast_cctx = tls->fast_cctx;
+
+    ZSTD_CCtx_reset(fast_cctx, ZSTD_reset_session_only);
 
     int clevel = opt->clevel > 0 ? opt->clevel : 19;
     if (opt->mode == BINPACK_MODE_RUNTIME) {
         if (clevel > 3) clevel = 3;
-        ZSTD_CCtx_setParameter(s_fast_cctx, ZSTD_c_compressionLevel, clevel);
+        ZSTD_CCtx_setParameter(fast_cctx, ZSTD_c_compressionLevel, clevel);
     } else {
         if (clevel > 19) clevel = 19;
-        ZSTD_CCtx_setParameter(s_fast_cctx, ZSTD_c_compressionLevel, clevel);
-        ZSTD_CCtx_setParameter(s_fast_cctx, ZSTD_c_strategy, ZSTD_btultra);
+        ZSTD_CCtx_setParameter(fast_cctx, ZSTD_c_compressionLevel, clevel);
+        ZSTD_CCtx_setParameter(fast_cctx, ZSTD_c_strategy, ZSTD_btultra);
     }
 
     /* For large buffers (>= 8 MB) or explicit worker request, activate multi-threading */
@@ -253,13 +442,13 @@ static binpack_status_t binpack_compress_into_fast(
     }
     if (num_workers > 1) {
         if (num_workers > 32) num_workers = 32;
-        ZSTD_CCtx_setParameter(s_fast_cctx, ZSTD_c_nbWorkers, num_workers);
-        ZSTD_CCtx_setParameter(s_fast_cctx, ZSTD_c_overlapLog, 6);
+        ZSTD_CCtx_setParameter(fast_cctx, ZSTD_c_nbWorkers, num_workers);
+        ZSTD_CCtx_setParameter(fast_cctx, ZSTD_c_overlapLog, 6);
         size_t job_sz = (size_t)(src_sz / num_workers);
         if (job_sz < 524288) job_sz = 524288;
-        ZSTD_CCtx_setParameter(s_fast_cctx, ZSTD_c_jobSize, (int)job_sz);
+        ZSTD_CCtx_setParameter(fast_cctx, ZSTD_c_jobSize, (int)job_sz);
     } else {
-        ZSTD_CCtx_setParameter(s_fast_cctx, ZSTD_c_nbWorkers, 0);
+        ZSTD_CCtx_setParameter(fast_cctx, ZSTD_c_nbWorkers, 0);
     }
 
     size_t avail_dst = dst_capacity - payload_offset - ftr_sz;
@@ -268,7 +457,7 @@ static binpack_status_t binpack_compress_into_fast(
     if (num_workers > 1) {
         ZSTD_inBuffer in = { data_to_compress, src_sz, 0 };
         ZSTD_outBuffer out_buf = { out + payload_offset, avail_dst, 0 };
-        size_t rem = ZSTD_compressStream2(s_fast_cctx, &out_buf, &in, ZSTD_e_end);
+        size_t rem = ZSTD_compressStream2(fast_cctx, &out_buf, &in, ZSTD_e_end);
         if (ZSTD_isError(rem)) {
             bp_release_sdk_scratch(scratch, scratch_must_free);
             return BINPACK_ERR_COMPRESSION_FAILED;
@@ -276,7 +465,7 @@ static binpack_status_t binpack_compress_into_fast(
         c_size = out_buf.pos;
     } else {
         c_size = ZSTD_compressCCtx(
-            s_fast_cctx,
+            fast_cctx,
             out + payload_offset, avail_dst,
             data_to_compress, src_sz,
             clevel
