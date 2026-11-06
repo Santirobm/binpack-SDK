@@ -62,6 +62,12 @@ jobs:
           chmod +x scripts/audit_isa_isolation.sh
           bash scripts/audit_isa_isolation.sh
 
+      - name: Upload ISA Verification Audit Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: isa-verification-report
+          path: docs/audit/isa_verification_report.log
+
       - name: Upload Linux Native Plugin
         uses: actions/upload-artifact@v4
         with:

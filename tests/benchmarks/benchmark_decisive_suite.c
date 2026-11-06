@@ -417,11 +417,17 @@ static inline uint32_t rng_next(rng_t *rng) {
 /* Lemire's nearly divisionless unbiased bounded integer reduction.
  * ACM Transactions on Mathematical Software, 2019.
  * Uses 64-bit multiplication: (uint64_t)x * bound, taking upper 32 bits (m >> 32).
- * Rejection sampling on the residual interval t = (-bound) % bound eliminates modulo bias.
- * Note on LCG properties: while the 32-bit state possesses a full period of 2^32 (Hull-Dobell),
- * individual low bits have shorter periodicities (bit k has period at most 2^(k+1)).
- * Extracting the upper 32 bits of the product (m >> 32) avoids the strict low-order parity alternation,
- * while Lemire's algorithm ensures each index in [0, bound-1] has equal preimage count.
+ * Rejection sampling on the residual interval t = (-bound) % bound eliminates modulo bias,
+ * ensuring each integer in [0, bound-1] has an identical preimage count under uniform input.
+ * Mathematical note on LCG properties:
+ * 1. State Periodicity: The 32-bit state possesses a full period of 2^32 under the Hull-Dobell Theorem,
+ *    meaning any seed (including seed 0) visits all 2^32 states.
+ * 2. Low-bit Periodicity: Individual low bits exhibit short periods (bit k has period at most 2^(k+1)),
+ *    with the LSB alternating strictly with period 2.
+ * 3. Role of Lemire Reduction: By extracting (m >> 32) rather than taking (x % bound), Lemire avoids
+ *    using the LSB directly as the output index and eliminates division modulo bias. However, because
+ *    multiplication propagates low-order bits into high-order bits via carries, Lemire does NOT eliminate
+ *    the underlying statistical correlations of the LCG. Absence of reduction bias != statistical independence.
  */
 static inline int rng_next_unbiased_lemire(rng_t *rng, int bound) {
     if (bound <= 1) return 0;
@@ -1631,25 +1637,77 @@ static int run_engine_isolated(
 }
 
 /* ========================================================================= */
-/* Registro en Archivo CSV Crudo (BP-008D-R5 Campana Decisiva)               */
+/* Registro en Archivo CSV Crudo (BP-008D-R7 Campana Decisiva)               */
 /* ========================================================================= */
 
 static FILE *g_csv_file = NULL;
 static char g_csv_path[512] = {0};
 
+/* Result code for atomic exclusive CSV opening */
+typedef enum {
+    CSV_OPEN_SUCCESS = 0,
+    CSV_OPEN_COLLISION_EEXIST, /* File already exists: safe collision, try next suffix */
+    CSV_OPEN_FATAL_ERROR       /* Permission denied, path not found, fd exhaustion, etc. */
+} csv_open_result_t;
+
 /* Kernel-level atomic exclusive file creation: eliminates TOCTOU race conditions.
  * Uses O_CREAT | O_EXCL (POSIX) and _O_CREAT | _O_EXCL (Windows).
- * Returns NULL with errno == EEXIST if the file already exists, leaving it untouched.
+ * - Returns NULL with CSV_OPEN_COLLISION_EEXIST if the file already exists, leaving it untouched.
+ * - If fdopen/_fdopen fails, the descriptor is closed and the newly created empty file is unlinked.
+ * - Distinguishes EEXIST from other operational errors (EACCES, ENOENT, EMFILE, ENFILE).
  */
-static FILE* open_atomic_exclusive_csv(const char *path) {
+static FILE* open_atomic_exclusive_csv(const char *path, csv_open_result_t *out_res) {
+    int saved_errno = 0;
 #if defined(_WIN32)
     int fd = _open(path, _O_WRONLY | _O_CREAT | _O_EXCL, _S_IREAD | _S_IWRITE);
-    if (fd < 0) return NULL;
-    return _fdopen(fd, "w");
+    if (fd < 0) {
+        saved_errno = errno;
+        if (saved_errno == EEXIST) {
+            if (out_res) *out_res = CSV_OPEN_COLLISION_EEXIST;
+        } else {
+            if (out_res) *out_res = CSV_OPEN_FATAL_ERROR;
+            fprintf(stderr, "[WARN] Atomic CSV create failed on '%s': errno=%d (%s)\n",
+                    path, saved_errno, strerror(saved_errno));
+        }
+        return NULL;
+    }
+    FILE *f = _fdopen(fd, "w");
+    if (!f) {
+        saved_errno = errno;
+        _close(fd);
+        _unlink(path); /* Clean up allocated empty file to prevent dangling remnants */
+        if (out_res) *out_res = CSV_OPEN_FATAL_ERROR;
+        fprintf(stderr, "[ERROR] _fdopen failed on '%s' (fd=%d): errno=%d (%s)\n",
+                path, fd, saved_errno, strerror(saved_errno));
+        return NULL;
+    }
+    if (out_res) *out_res = CSV_OPEN_SUCCESS;
+    return f;
 #else
     int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0644);
-    if (fd < 0) return NULL;
-    return fdopen(fd, "w");
+    if (fd < 0) {
+        saved_errno = errno;
+        if (saved_errno == EEXIST) {
+            if (out_res) *out_res = CSV_OPEN_COLLISION_EEXIST;
+        } else {
+            if (out_res) *out_res = CSV_OPEN_FATAL_ERROR;
+            fprintf(stderr, "[WARN] Atomic CSV create failed on '%s': errno=%d (%s)\n",
+                    path, saved_errno, strerror(saved_errno));
+        }
+        return NULL;
+    }
+    FILE *f = fdopen(fd, "w");
+    if (!f) {
+        saved_errno = errno;
+        close(fd);
+        unlink(path); /* Clean up allocated empty file to prevent dangling remnants */
+        if (out_res) *out_res = CSV_OPEN_FATAL_ERROR;
+        fprintf(stderr, "[ERROR] fdopen failed on '%s' (fd=%d): errno=%d (%s)\n",
+                path, fd, saved_errno, strerror(saved_errno));
+        return NULL;
+    }
+    if (out_res) *out_res = CSV_OPEN_SUCCESS;
+    return f;
 #endif
 }
 
@@ -1657,21 +1715,29 @@ static FILE* open_safe_csv_r5(char *out_path, size_t out_path_sz) {
     const char *base_dirs[] = { "docs/audit", "." };
     for (int d = 0; d < 2; d++) {
         char target[512];
+        csv_open_result_t res = CSV_OPEN_FATAL_ERROR;
         snprintf(target, sizeof(target), "%s/decisive_benchmark_raw_r5.csv", base_dirs[d]);
-        FILE *f = open_atomic_exclusive_csv(target);
+        FILE *f = open_atomic_exclusive_csv(target, &res);
         if (f) {
             if (out_path) snprintf(out_path, out_path_sz, "%s", target);
             return f;
         }
-        /* Base file already exists: atomically acquire the first unallocated run file */
-        for (int run = 1; run < 1000; run++) {
-            snprintf(target, sizeof(target), "%s/decisive_benchmark_raw_r5_run%d.csv", base_dirs[d], run);
-            f = open_atomic_exclusive_csv(target);
-            if (f) {
-                if (out_path) snprintf(out_path, out_path_sz, "%s", target);
-                return f;
+        /* Only probe sequential run suffixes if the failure was a legitimate file existence collision */
+        if (res == CSV_OPEN_COLLISION_EEXIST) {
+            for (int run = 1; run < 1000; run++) {
+                snprintf(target, sizeof(target), "%s/decisive_benchmark_raw_r5_run%d.csv", base_dirs[d], run);
+                f = open_atomic_exclusive_csv(target, &res);
+                if (f) {
+                    if (out_path) snprintf(out_path, out_path_sz, "%s", target);
+                    return f;
+                }
+                if (res != CSV_OPEN_COLLISION_EEXIST) {
+                    /* Non-collision error (permissions, fd exhaustion, etc.): do not iterate further */
+                    break;
+                }
             }
         }
+        /* If directory did not exist (e.g. ENOENT on docs/audit), loop continues to try current directory '.' */
     }
     return NULL;
 }
