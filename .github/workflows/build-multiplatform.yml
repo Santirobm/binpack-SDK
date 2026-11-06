@@ -63,6 +63,7 @@ jobs:
           bash scripts/audit_isa_isolation.sh
 
       - name: Upload ISA Verification Audit Report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: isa-verification-report

@@ -85,7 +85,7 @@ for obj_name in "${MANDATORY_PORTABLE_OBJS[@]}"; do
     fi
     
     SHA=$(sha256sum "$OBJ_PATH" | awk '{print $1}')
-    if [[ ! "$SHA" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    if ! echo "$SHA" | grep -qE '^[0-9a-fA-F]{64}$'; then
         echo "[FALLO CRITICO] Hash SHA-256 inválido para $obj_name: '$SHA' (debe ser exactamente 64 hex)" >> "$REPORT"
         OVERALL_PASS=0
         continue
@@ -142,7 +142,7 @@ if [[ -z "$OBJ_PATH" ]]; then
     OVERALL_PASS=0
 else
     SHA=$(sha256sum "$OBJ_PATH" | awk '{print $1}')
-    if [[ ! "$SHA" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    if ! echo "$SHA" | grep -qE '^[0-9a-fA-F]{64}$'; then
         echo "[FALLO CRITICO] Hash SHA-256 inválido para $AVX2_OBJ: '$SHA' (debe ser exactamente 64 hex)" >> "$REPORT"
         OVERALL_PASS=0
     else
