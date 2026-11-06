@@ -1,7 +1,7 @@
 ================================================================================
 BINPACK ENTERPRISE SDK — AUDITORIA FORMAL DE AISLAMIENTO ISA (VEX / EVEX)
-Expediente: BP-008D-R5 | Verificación Automática de Compilación y Opcodes
-Fecha de Ejecución (UTC): 2026-11-06 18:45:00Z
+Expediente: BP-008D-R6 | Verificación Automática de Compilación y Opcodes
+Fecha de Ejecución (UTC): 2026-11-06 19:15:00Z
 Sistema Host: Linux 6.6.36-linux-kit x86_64
 Herramienta de Desensamblado: LLVM version 18.1.3 (LLVM objdump)
 Target Triplet: x86_64-pc-linux-gnu
@@ -12,18 +12,18 @@ Flags AVX2:      -O3 -mavx2 -mavx -Wall -Wextra -pthread -D_GNU_SOURCE
 
 1. VERIFICACION DE UNIDADES PORTABLES (Exigencia: VEX = 0, EVEX = 0)
 --------------------------------------------------------------------------------
-binpack_core.o             | SHA256: 4a2d8b1e9f0c7a3b... | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
-binpack_cpu.o              | SHA256: 7e1b9c3d5f8a2e4f... | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
-binpack_eval.o             | SHA256: 9c4f2a8e1b7d5e3a... | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
-binpack_stream.o           | SHA256: 3d5e7a1b9f2c4e8a... | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
-binpack_sdk.o              | SHA256: 8b1e4f2a7c9d5e3a... | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
-binpack_dict.o             | SHA256: 2a7e9c1b4f8d5e3a... | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
-binpack_patch.o            | SHA256: 5f8d2a7e1b4c9e3a... | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
-binpack_archive.o          | SHA256: 1b4c7e9d2a8f5e3a... | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
+binpack_core.o         | SHA256: 60636bd0cd9bf6a5bb600c87233304ec0edee15f374e0b6f6faf2a11952419e0 | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
+binpack_cpu.o          | SHA256: 721f03d8fe59676c1e9e73dfd6b621cde2701e545e150811543894101095f38d | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
+binpack_eval.o         | SHA256: bd59d17cfd3021d30b5a36e16dde1bd700279044ee745947e74932d63506b306 | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
+binpack_stream.o       | SHA256: a7d68309932619a12baad97ff692dafd5815e421401e4670aab9e47bbf297304 | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
+binpack_sdk.o          | SHA256: 9e317ec1356b4c298df5fbfdc1264a24107d55d636402434a52d8dcee7c8c284 | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
+binpack_dict.o         | SHA256: b1a7a21b3ba130c96306b765260ca2d7ee408df5090eb5011cace5a2562b8446 | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
+binpack_patch.o        | SHA256: 058e2316a9662dd137ce1674a8242a6bf4feba77f6e9b88c10ce6513b19c975f | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
+binpack_archive.o      | SHA256: b64d3ef3bf9ebb2bb918bcb6688f3b93dc1dd5fc6a8de538c6cdcc0a7eab0491 | VEX:   0 | EVEX:   0 | PASS (Scalar Portable)
 
 2. VERIFICACION DE UNIDAD SIMD AISLADA (Exigencia: VEX > 0, EVEX = 0)
 --------------------------------------------------------------------------------
-binpack_core_avx2.o        | SHA256: e3b0c44298fc1c14... | VEX:  38 | EVEX:   0 | PASS (AVX2 Vectorization Verified, EVEX=0)
+binpack_core_avx2.o    | SHA256: 2e3bd87bbd069c7c22f290a8b8ca2a9e98a9182974f98f9587b3a59e777baa65 | VEX:  38 | EVEX:   0 | PASS (AVX2 Vectorization Verified, EVEX=0)
 
 ================================================================================
 DICTAMEN GLOBAL DE AUDITORIA ISA: PASS (Aislamiento de Silicio Certificado)

@@ -9,6 +9,9 @@
 #if defined(_WIN32)
 #include <windows.h>
 #include <psapi.h>
+#include <fcntl.h>
+#include <io.h>
+#include <sys/stat.h>
 #if defined(__GNUC__) || defined(__clang__)
 #include <cpuid.h>
 #elif defined(_MSC_VER)
@@ -24,6 +27,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <cpuid.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #endif
 
 #include "../../include/binpack_sdk.h"
@@ -1632,40 +1637,39 @@ static int run_engine_isolated(
 static FILE *g_csv_file = NULL;
 static char g_csv_path[512] = {0};
 
+/* Kernel-level atomic exclusive file creation: eliminates TOCTOU race conditions.
+ * Uses O_CREAT | O_EXCL (POSIX) and _O_CREAT | _O_EXCL (Windows).
+ * Returns NULL with errno == EEXIST if the file already exists, leaving it untouched.
+ */
+static FILE* open_atomic_exclusive_csv(const char *path) {
+#if defined(_WIN32)
+    int fd = _open(path, _O_WRONLY | _O_CREAT | _O_EXCL, _S_IREAD | _S_IWRITE);
+    if (fd < 0) return NULL;
+    return _fdopen(fd, "w");
+#else
+    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0644);
+    if (fd < 0) return NULL;
+    return fdopen(fd, "w");
+#endif
+}
+
 static FILE* open_safe_csv_r5(char *out_path, size_t out_path_sz) {
-    const char *base_paths[] = {
-        "docs/audit/decisive_benchmark_raw_r5.csv",
-        "decisive_benchmark_raw_r5.csv"
-    };
-    for (int b = 0; b < 2; b++) {
-        const char *bp = base_paths[b];
-        FILE *check = fopen(bp, "rb");
-        if (!check) {
-            FILE *f = fopen(bp, "w");
+    const char *base_dirs[] = { "docs/audit", "." };
+    for (int d = 0; d < 2; d++) {
+        char target[512];
+        snprintf(target, sizeof(target), "%s/decisive_benchmark_raw_r5.csv", base_dirs[d]);
+        FILE *f = open_atomic_exclusive_csv(target);
+        if (f) {
+            if (out_path) snprintf(out_path, out_path_sz, "%s", target);
+            return f;
+        }
+        /* Base file already exists: atomically acquire the first unallocated run file */
+        for (int run = 1; run < 1000; run++) {
+            snprintf(target, sizeof(target), "%s/decisive_benchmark_raw_r5_run%d.csv", base_dirs[d], run);
+            f = open_atomic_exclusive_csv(target);
             if (f) {
-                if (out_path) snprintf(out_path, out_path_sz, "%s", bp);
+                if (out_path) snprintf(out_path, out_path_sz, "%s", target);
                 return f;
-            }
-        } else {
-            fclose(check);
-            /* Target file already exists: do not truncate! Find next available run filename */
-            for (int run = 1; run < 1000; run++) {
-                char candidate[512];
-                if (b == 0) {
-                    snprintf(candidate, sizeof(candidate), "docs/audit/decisive_benchmark_raw_r5_run%d.csv", run);
-                } else {
-                    snprintf(candidate, sizeof(candidate), "decisive_benchmark_raw_r5_run%d.csv", run);
-                }
-                FILE *c_check = fopen(candidate, "rb");
-                if (!c_check) {
-                    FILE *f = fopen(candidate, "w");
-                    if (f) {
-                        if (out_path) snprintf(out_path, out_path_sz, "%s", candidate);
-                        return f;
-                    }
-                } else {
-                    fclose(c_check);
-                }
             }
         }
     }

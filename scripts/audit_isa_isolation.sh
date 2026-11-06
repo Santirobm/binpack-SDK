@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # scripts/audit_isa_isolation.sh
-# BinPack Enterprise SDK — Strict ISA Isolation Verification Gate (BP-008D-R5)
+# BinPack Enterprise SDK — Strict ISA Isolation Verification Gate (BP-008D-R6)
 #
 # Inspects every compiled object file to certify that portable modules contain
 # ZERO VEX (AVX/AVX2) and ZERO EVEX (AVX-512/AVX10) instructions, and that
@@ -15,7 +15,7 @@ mkdir -p "$(dirname "$REPORT")"
 
 echo "================================================================================" > "$REPORT"
 echo "BINPACK ENTERPRISE SDK — AUDITORIA FORMAL DE AISLAMIENTO ISA (VEX / EVEX)" >> "$REPORT"
-echo "Expediente: BP-008D-R5 | Verificación Automática de Compilación y Opcodes" >> "$REPORT"
+echo "Expediente: BP-008D-R6 | Verificación Automática de Compilación y Opcodes" >> "$REPORT"
 echo "Fecha de Ejecución (UTC): $(date -u '+%Y-%m-%d %H:%M:%SZ')" >> "$REPORT"
 echo "Sistema Host: $(uname -srm 2>/dev/null || echo 'Unknown')" >> "$REPORT"
 
@@ -115,7 +115,7 @@ for obj_name in "${MANDATORY_PORTABLE_OBJS[@]}"; do
         OVERALL_PASS=0
     fi
     
-    printf "%-26s | SHA256: %-16.16s... | VEX: %3d | EVEX: %3d | %s\n" \
+    printf "%-22s | SHA256: %s | VEX: %3d | EVEX: %3d | %s\n" \
         "$obj_name" "$SHA" "$TOTAL_VEX" "$TOTAL_EVEX" "$STATUS" >> "$REPORT"
 done
 
@@ -131,21 +131,33 @@ else
     SHA=$(sha256sum "$OBJ_PATH" | awk '{print $1}')
     DISASM=$($DISASSEMBLER -d --show-raw-insn "$OBJ_PATH" 2>/dev/null || $DISASSEMBLER -d "$OBJ_PATH")
     
+    # Capa 1: Inspección de Mnemónicos vectoriales AVX2
     VEX_MNEM=$(echo "$DISASM" | grep -E "^\s*[0-9a-f]+:\s+([0-9a-f]{2}\s+)+\s+v[a-z0-9]+" || true)
     VEX_MNEM_COUNT=$(echo -n "$VEX_MNEM" | grep -c . || true)
     
+    # Capa 2: Inspección de Opcodes binarios x86-64 para prefijos VEX (C4/C5)
+    VEX_BYTES=$(echo "$DISASM" | grep -E "^\s*[0-9a-f]+:\s+(c4|c5)\s+" || true)
+    VEX_BYTES_COUNT=$(echo -n "$VEX_BYTES" | grep -c . || true)
+    TOTAL_VEX=$(( VEX_MNEM_COUNT > VEX_BYTES_COUNT ? VEX_MNEM_COUNT : VEX_BYTES_COUNT ))
+
+    # Capa 3: Inspección de Mnemónicos y decoradores EVEX (AVX-512)
     EVEX_MNEM=$(echo "$DISASM" | grep -E "(zmm[0-9]+|%k[0-7]|\{k[0-7]\}|\{1to[0-9]+\}|\{z\})" || true)
     EVEX_MNEM_COUNT=$(echo -n "$EVEX_MNEM" | grep -c . || true)
     
-    if [[ "$VEX_MNEM_COUNT" -gt 0 && "$EVEX_MNEM_COUNT" -eq 0 ]]; then
+    # Capa 4: Inspección de Opcodes binarios para prefijo EVEX (0x62)
+    EVEX_BYTES=$(echo "$DISASM" | grep -E "^\s*[0-9a-f]+:\s+62\s+" || true)
+    EVEX_BYTES_COUNT=$(echo -n "$EVEX_BYTES" | grep -c . || true)
+    TOTAL_EVEX=$(( EVEX_MNEM_COUNT > EVEX_BYTES_COUNT ? EVEX_MNEM_COUNT : EVEX_BYTES_COUNT ))
+
+    if [[ "$TOTAL_VEX" -gt 0 && "$TOTAL_EVEX" -eq 0 ]]; then
         STATUS="PASS (AVX2 Vectorization Verified, EVEX=0)"
     else
-        STATUS="FAIL (Inconsistencia SIMD: VEX=$VEX_MNEM_COUNT, EVEX=$EVEX_MNEM_COUNT)"
+        STATUS="FAIL (Inconsistencia SIMD: VEX=$TOTAL_VEX, EVEX=$TOTAL_EVEX)"
         OVERALL_PASS=0
     fi
     
-    printf "%-26s | SHA256: %-16.16s... | VEX: %3d | EVEX: %3d | %s\n" \
-        "$AVX2_OBJ" "$SHA" "$VEX_MNEM_COUNT" "$EVEX_MNEM_COUNT" "$STATUS" >> "$REPORT"
+    printf "%-22s | SHA256: %s | VEX: %3d | EVEX: %3d | %s\n" \
+        "$AVX2_OBJ" "$SHA" "$TOTAL_VEX" "$TOTAL_EVEX" "$STATUS" >> "$REPORT"
 fi
 
 echo "" >> "$REPORT"
