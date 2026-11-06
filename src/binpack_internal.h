@@ -195,6 +195,11 @@ typedef struct binpack_v2_footer_s {
 #define BINPACK_MAX_PATCH_SIZE (512ULL * 1024ULL * 1024ULL)
 
 /**
+ * @brief Maximum pre-trained dictionary buffer capacity (32 MiB telemetry safety budget).
+ */
+#define BINPACK_MAX_DICT_SIZE (32ULL * 1024ULL * 1024ULL)
+
+/**
  * @brief Binary Differential Patch Container Header (40 bytes packed).
  */
 typedef struct binpack_patch_header_s {
