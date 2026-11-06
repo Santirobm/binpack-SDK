@@ -190,23 +190,36 @@ typedef struct binpack_v2_footer_s {
 } binpack_v2_footer_t;
 
 /**
- * @brief Binary Differential Patch Container Header (36 bytes).
+ * @brief Maximum differential patch target image size (512 MiB OTA safety budget).
+ */
+#define BINPACK_MAX_PATCH_SIZE (512ULL * 1024ULL * 1024ULL)
+
+/**
+ * @brief Binary Differential Patch Container Header (40 bytes packed).
  */
 typedef struct binpack_patch_header_s {
-    uint32_t patch_magic;        /* 0x504B5042 'BPKP' */
-    uint8_t  version_major;      /* 2 */
-    uint8_t  version_minor;      /* 2 */
-    uint16_t flags;              /* Patch flags */
+    uint32_t patch_magic;        /* 0x504B5042 'BPKP' (BINPACK_MAGIC_PATCH) */
+    uint8_t  version_major;      /* 1 (Historical) or 2 (Enterprise) */
+    uint8_t  version_minor;      /* Minor revision */
+    uint16_t flags;              /* Patch flags (must be 0) */
     uint64_t old_sz;             /* Baseline expected original size */
     uint64_t new_sz;             /* Restored target size */
     uint32_t old_crc32;          /* Baseline uncompressed CRC32 */
     uint32_t new_crc32;          /* Restored target CRC32 */
     uint8_t  filter_id;          /* Prefilter used on both buffers */
     uint16_t filter_param;       /* Filter parameter (e.g. stride) */
-    uint8_t  reserved[5];        /* Alignment padding */
+    uint8_t  reserved[5];        /* Alignment padding / reserved (must be 0) */
 } binpack_patch_header_t;
 
 #pragma pack(pop)
+
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+_Static_assert(sizeof(binpack_patch_header_t) == 40, "sizeof(binpack_patch_header_t) must be 40 bytes");
+#elif defined(__cplusplus) && __cplusplus >= 201103L
+static_assert(sizeof(binpack_patch_header_t) == 40, "sizeof(binpack_patch_header_t) must be 40 bytes");
+#else
+typedef char binpack_patch_header_size_assert[(sizeof(binpack_patch_header_t) == 40) ? 1 : -1];
+#endif
 
 #define BP_FLAG_CHECKSUM     0x0001
 #define BP_FLAG_SEEK_INDEX   0x0002
