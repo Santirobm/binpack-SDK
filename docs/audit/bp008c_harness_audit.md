@@ -1,72 +1,65 @@
-# Auditoría del Harness y Adaptación Metodológica — Hito BP-008C (Revisión R5)
+# Auditoría del Harness y Adaptación Metodológica — Hito BP-008C (Revisión R6)
 
-**Expediente:** BP-008C-R5 — Cierre Semántico y Documental Definitivo del Harness de Benchmark  
+**Expediente:** BP-008C-R6 — Subsanación de Detección Previa de Virtualización, Validación de Rango de Hojas CPUID y Robustez en Topología Sysfs  
 **Proyecto:** BinPack Enterprise SDK  
 **Ramas Auditadas:** `audit/bp1-core-safety`  
-**Commit Base:** `18ea0912fc5a10ac9a3f51efe22fa5ff4d92205b`  
+**Commit Base:** `958d059db2f9fa3b4afd267721ec985b314f9b42`  
 **Fecha:** 6 de Noviembre de 2026  
 **Responsable Técnico:** Antigravity AI — Advanced Agentic Coding & Systems Architecture  
 
 ---
 
-## 1. Resumen Ejecutivo y Respuesta a la Orden de Trabajo BP-008C-R5
+## 1. Resumen Ejecutivo y Respuesta a la Orden de Trabajo BP-008C-R6
 
-En respuesta al dictamen técnico emitido sobre **BP-008C-R4**, se procedió al ajuste semántico y documental estricto de los tres puntos de rigor topológico solicitados por la auditoría:
+En respuesta al dictamen técnico emitido sobre **BP-008C-R5**, se implementaron las tres correcciones metodológicas y de instrumentación requeridas:
 
-1. **Disociación Semántica de Banderas de Topología:**
-   Se sustituyó la bandera unificada `is_pcore` en la estructura `cpu_affinity_info_t` por dos indicadores ortogonales:
-   - `physical_core_verified`: Se establece en `1` única y exclusivamente cuando se verifica en silicio nativo (bare-metal) mediante `CPUID Leaf 0x1A` que el tipo de núcleo es `0x40` (Intel Raptor Cove P-Core). En entornos virtualizados donde el hipervisor oculta o abstrae dicha hoja, permanece estrictamente en `0`.
-   - `topology_gate_passed`: Se establece en `1` cuando la afinidad de CPU ha sido fijada con éxito a un CPU lógico determinado (vCPU 2), la máscara devuelta por `sched_getaffinity` confirma aislamiento estricto (`CPU_COUNT == 1`), y se ha emitido `sched_yield()`. El proceso hijo en aislamiento (`run_engine_isolated`) comprueba `topology_gate_passed` para autorizar la ejecución del ensayo sin atribuir falsamente certificación de silicio físico.
+1. **R5-01 — Orden Estricto de Detección de Virtualización (Precedencia Obligatoria):**
+   Se reordenó de manera inviolable la secuencia de verificación en `detect_and_set_pcore_affinity()`. La consulta de la bandera de virtualización `CPUID.1:ECX[31]` se ejecuta **antes** de cualquier evaluación de tipo de núcleo físico.
+   - Si el bit de hipervisor está activo, se asigna `physical_core_verified = 0` y `topology_gate_passed = 1`, retornando inmediatamente tras clasificar el entorno virtual. Ningún entorno virtualizado puede obtener `physical_core_verified = 1`, incluso si expone o emula la hoja `0x1A` con valor `0x40`.
+   - La evaluación de silicio físico nativo (`physical_core_verified = 1`) queda estrictamente reservada para ejecuciones bare-metal donde `is_hypervisor == 0`.
+   - El mismo principio unificado rige tanto para Linux como para Windows.
 
-2. **Eliminación de Presunciones de `core_id`:**
-   El campo `core_id` se inicializa estrictamente en `-1` (desconocido). Únicamente se actualiza si el subsistema `sysfs` (`/sys/devices/system/cpu/cpu%d/topology/core_id`) existe y devuelve un entero válido. Si la lectura falla o no está disponible, se conserva `-1` y se reporta explícitamente como `Unknown`, eliminando cualquier asignación arbitraria por defecto.
+2. **R5-02 — Validación Exhaustiva del Rango de Hojas CPUID:**
+   - Para hojas básicas: se verifica `CPUID.0:EAX >= 1` antes de consultar `CPUID Leaf 1`. En silicio nativo, se comprueba explícitamente `CPUID.0:EAX >= 0x1A` antes de intentar consultar la hoja `0x1A`; si la CPU nativa no soporta dicha hoja híbrida, se rechaza la certificación física y se aborta controladamente.
+   - Para hojas de hipervisor: tras detectar `is_hypervisor == 1`, se consulta `CPUID Leaf 0x40000000` y se valida que el rango anunciado (`h_eax`) cumpla `h_eax >= 0x40000000 && h_eax < 0x40010000`. Solo si el rango es válido se extrae la firma de 12 bytes (`EBX`, `ECX`, `EDX`); en caso de rango incompleto o anómalo, se preserva el fallback seguro `"Generic Virtual Guest / Hypervisor (Incomplete Leaf Range)"`.
 
-3. **Identificación Rigurosa del Hipervisor:**
-   Tras detectar la presencia de un entorno virtualizado vía `CPUID.1:ECX[31]`, el harness interroga la hoja estándar `0x40000000` para leer la firma ASCII de 12 bytes del proveedor (registros `EBX`, `ECX`, `EDX`):
-   - `"Microsoft Hv"` $\rightarrow$ `Microsoft Hyper-V Virtual Guest (WSL2/Hyper-V)`
-   - `"KVMKVMKVM"` $\rightarrow$ `KVM Virtual Guest`
-   - `"VMwareVMware"` $\rightarrow$ `VMware Virtual Guest`
-   - Firma desconocida $\rightarrow$ `Generic Virtual Guest / Hypervisor`
-   Se erradica cualquier atribución genérica o no comprobada del entorno de virtualización.
+3. **R5-03 — Validación Robusta de `core_id` en Sysfs:**
+   En la lectura de `/sys/devices/system/cpu/cpu%d/topology/core_id`, se exige que `fscanf` devuelva exitosamente 1 entero y que dicho valor sea estrictamente no negativo (`parsed_id >= 0`). Cualquier valor negativo, error de lectura o archivo inexistente preserva de forma estricta `info->core_id = -1`, reportándose en los metadatos como `Core ID Unknown`.
 
-Conforme a las directrices de la orden de trabajo BP-008C-R5:
+Conforme a las directrices de la orden de trabajo BP-008C-R6:
 - **Cero modificaciones** a `src/`, `include/` ni `deps/`.
 - **Cero repetición de la campaña:** no se re-ejecutó el benchmark ni se alteró ningún archivo de resultados históricos.
 - **Preservación histórica íntegra:** se conservan intactos `decisive_benchmark_raw_pilot.csv`, `decisive_benchmark_raw_r1.csv`, `decisive_benchmark_raw_r2.csv`, `decisive_benchmark_raw_r3.csv` y `decisive_benchmark_raw_r4.csv`.
 
 ---
 
-## 2. Detalle de las Subsanaciones Técnicas Implementadas (R4 y R5)
+## 2. Detalle de las Subsanaciones Técnicas Implementadas (R4, R5 y R6)
 
-### 2.1 Modelo Semántico de Topología y Frontera de Virtualización (R5)
+### 2.1 Modelo Semántico de Topología y Frontera de Virtualización (R6)
 En [`tests/benchmarks/benchmark_decisive_suite.c`](file:///C:/Users/sgi.lm/Desktop/binpack-SDK/tests/benchmarks/benchmark_decisive_suite.c):
 - Estructura `cpu_affinity_info_t`:
   ```c
   typedef struct {
       int logical_id;
       int core_id;                   /* -1 si es desconocido o no disponible */
-      int physical_core_verified;    /* 1 solo si CPUID nativo 0x1A devuelve 0x40 */
+      int physical_core_verified;    /* 1 solo en silicio nativo verificado */
       int topology_gate_passed;      /* 1 si la afinidad y barrera fueron verificadas */
       char description[128];
   } cpu_affinity_info_t;
   ```
-- Inicialización en `detect_and_set_pcore_affinity()`:
-  `info->logical_id = 2; info->core_id = -1; info->physical_core_verified = 0; info->topology_gate_passed = 0;`
-- Interrogación de firma de hipervisor en `0x40000000`:
-  ```c
-  char hv_sig[13] = {0};
-  __cpuid(0x40000000, h_eax, h_ebx, h_ecx, h_edx);
-  memcpy(hv_sig + 0, &h_ebx, 4);
-  memcpy(hv_sig + 4, &h_ecx, 4);
-  memcpy(hv_sig + 8, &h_edx, 4);
-  ```
-- Verificación en subproceso hijo (`run_engine_isolated`):
-  ```c
-  if (!aff->topology_gate_passed) {
-      fprintf(stderr, "[CHILD ERROR] Child running without verified topology gate\n");
-      _exit(4);
-  }
-  ```
+- Secuencia unificada de detección (Linux y Windows):
+  1. Fijación y verificación de afinidad (`sched_setaffinity` / `SetProcessAffinityMask`).
+  2. Validación estricta de `core_id` en sysfs (`parsed_id >= 0`, preservando `-1` si falla).
+  3. Comprobación de disponibilidad básica de CPUID (`max_basic_leaf >= 1`).
+  4. **Detección Previa de Virtualización:** `__cpuid(1, ...)` $\rightarrow$ `is_hypervisor = (ecx >> 31) & 1`.
+     - Si `is_hypervisor`: `physical_core_verified = 0; topology_gate_passed = 1;`.
+     - Validación de hoja de hipervisor `0x40000000` con `0x40000000 <= h_eax < 0x40010000`.
+     - Comparación de firma de 12 bytes (`"Microsoft Hv"`, `"KVMKVMKVM"`, `"VMwareVMware"` o Fallback genérico).
+     - Retorno temprano seguro (`return 0;`).
+  5. **Evaluación de Silicio Nativo (Bare-Metal):**
+     - Exigencia estricta de soporte: `max_basic_leaf >= 0x1A`.
+     - Consulta de `CPUID Leaf 0x1A`: si `core_type == 0x40`, certifica `physical_core_verified = 1; topology_gate_passed = 1;`.
+     - Si `core_type == 0x20` (E-Core) o no coincide con `0x40`, aborta con error fatal.
 
 ### 2.2 Robustez en la Gestión de Contextos Zstandard (R4)
 En [`measure_latencies_generic()`](file:///C:/Users/sgi.lm/Desktop/binpack-SDK/tests/benchmarks/benchmark_decisive_suite.c#L508-L585):
@@ -151,7 +144,7 @@ Resultados certificados obtenidos tras la ejecución aleatorizada bajo semilla r
 
 ## 4. Trazabilidad y Archivos del Repositorio
 
-- **`tests/benchmarks/benchmark_decisive_suite.c`:** Código fuente del harness con subsanaciones BP-008C-R5 (disociación semántica de `physical_core_verified` y `topology_gate_passed`, inicialización y control estricto de `core_id = -1`, identificación rigurosa de hipervisor vía CPUID Leaf `0x40000000`, manejo seguro de contextos Zstandard y retornos de `ZSTD_CCtx_reset`).
+- **`tests/benchmarks/benchmark_decisive_suite.c`:** Código fuente del harness con subsanaciones BP-008C-R6 (detección obligatoria de hipervisor previa a cualquier certificación física en Linux y Windows, validación de rango de hojas CPUID Leaf `0x40000000` y Leaf `0x1A`, comprobación estricta de `core_id >= 0`, y manejo seguro de contextos Zstandard y retornos de `ZSTD_CCtx_reset`).
 - **`docs/audit/decisive_benchmark_raw_r4.csv`:** Registro auditado de 29 líneas con los 40 vectores crudos de muestras y metadatos completos.
 - **`docs/audit/decisive_benchmark_raw_r3.csv`:** Preservado intacto como registro histórico previo.
 - **`docs/audit/decisive_benchmark_raw_r2.csv`:** Preservado intacto como registro histórico previo.
