@@ -391,12 +391,14 @@ static void calc_stats(const double *samples, int n, size_t orig_sz, stat_summar
 }
 
 /* ========================================================================= */
-/* Generador Pseudoaleatorio & Aleatorizacion de Fisher-Yates                 */
+/* Generador Pseudoaleatorio & Aleatorizacion de Fisher-Yates (Lemire Unbiased)*/
 /* ========================================================================= */
 
 typedef struct {
     uint32_t state;
 } rng_t;
+
+static rng_t g_suite_rng;
 
 static inline void rng_init(rng_t *rng, uint32_t seed) {
     rng->state = seed ? seed : 20261106u;
@@ -407,8 +409,28 @@ static inline uint32_t rng_next(rng_t *rng) {
     return rng->state;
 }
 
-static inline int rng_next_bounded(rng_t *rng, int bound) {
-    return (int)(rng_next(rng) % (uint32_t)bound);
+/* Lemire's nearly divisionless unbiased bounded integer reduction.
+ * ACM Transactions on Mathematical Software, 2019.
+ * Uses 64-bit multiplication: (uint64_t)x * bound, taking upper 32 bits (m >> 32).
+ * Rejection sampling eliminates modulo bias on the residual interval: t = (-bound) % bound.
+ * Crucially, because LCG low bits suffer from short periodicities and parity cycles,
+ * extracting the upper 32 bits via (m >> 32) isolates the high-entropy state bits.
+ */
+static inline int rng_next_unbiased_lemire(rng_t *rng, int bound) {
+    if (bound <= 1) return 0;
+    uint32_t b = (uint32_t)bound;
+    uint32_t x = rng_next(rng);
+    uint64_t m = (uint64_t)x * (uint64_t)b;
+    uint32_t l = (uint32_t)m;
+    if (l < b) {
+        uint32_t t = -b % b;
+        while (l < t) {
+            x = rng_next(rng);
+            m = (uint64_t)x * (uint64_t)b;
+            l = (uint32_t)m;
+        }
+    }
+    return (int)(m >> 32);
 }
 
 /* ========================================================================= */
@@ -527,6 +549,78 @@ static int pre_flight_validate_float_codecs(void) {
 }
 
 /* ========================================================================= */
+/* Pre-flight Checksum Rejection para Zstd Strict Checksum                   */
+/* ========================================================================= */
+
+static int pre_flight_validate_zstd_checksum_rejection(void) {
+    printf("[PRE-FLIGHT] Validating Zstd Strict Checksum Flag and Corrupted Frame Rejection...\n");
+    const size_t test_sz = 16384;
+    uint8_t *src = (uint8_t*)malloc(test_sz);
+    uint8_t *cmp = (uint8_t*)malloc(test_sz * 2 + 65536);
+    uint8_t *dec = (uint8_t*)malloc(test_sz);
+    if (!src || !cmp || !dec) {
+        free(src); free(cmp); free(dec);
+        return 0;
+    }
+    for (size_t i = 0; i < test_sz; i++) {
+        src[i] = (uint8_t)((i * 37 + 13) & 0xFF);
+    }
+
+    ZSTD_CCtx *cctx = ZSTD_createCCtx();
+    ZSTD_DCtx *dctx = ZSTD_createDCtx();
+    if (!cctx || !dctx) {
+        if (cctx) ZSTD_freeCCtx(cctx);
+        if (dctx) ZSTD_freeDCtx(dctx);
+        free(src); free(cmp); free(dec);
+        return 0;
+    }
+
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+    size_t c_sz = ZSTD_compressCCtx(cctx, cmp, test_sz * 2 + 65536, src, test_sz, 1);
+    if (ZSTD_isError(c_sz) || c_sz < 5) {
+        ZSTD_freeCCtx(cctx); ZSTD_freeDCtx(dctx);
+        free(src); free(cmp); free(dec);
+        return 0;
+    }
+
+    /* Verify Content_Checksum_flag in Frame_Header_Descriptor (Byte 4, bit 2) */
+    if ((cmp[4] & 0x04) == 0) {
+        fprintf(stderr, "  [FAIL] Zstd Frame header missing Content_Checksum_flag (byte 4 = 0x%02X)\n", cmp[4]);
+        ZSTD_freeCCtx(cctx); ZSTD_freeDCtx(dctx);
+        free(src); free(cmp); free(dec);
+        return 0;
+    }
+
+    /* Normal decompression succeeds */
+    size_t dec_sz = ZSTD_decompressDCtx(dctx, dec, test_sz, cmp, c_sz);
+    if (ZSTD_isError(dec_sz) || dec_sz != test_sz || memcmp(dec, src, test_sz) != 0) {
+        fprintf(stderr, "  [FAIL] Zstd decomp failed on valid stream\n");
+        ZSTD_freeCCtx(cctx); ZSTD_freeDCtx(dctx);
+        free(src); free(cmp); free(dec);
+        return 0;
+    }
+
+    /* Corrupt 1 byte in the compressed payload (avoiding magic number and descriptor) */
+    size_t corrupt_pos = c_sz > 16 ? c_sz - 8 : c_sz - 1;
+    cmp[corrupt_pos] ^= 0xA5;
+
+    size_t corrupt_ret = ZSTD_decompressDCtx(dctx, dec, test_sz, cmp, c_sz);
+    if (!ZSTD_isError(corrupt_ret)) {
+        fprintf(stderr, "  [FAIL] Zstd silently accepted corrupted payload with checksumFlag=1!\n");
+        ZSTD_freeCCtx(cctx); ZSTD_freeDCtx(dctx);
+        free(src); free(cmp); free(dec);
+        return 0;
+    }
+
+    printf("  [PASS] Zstd Strict Checksum: Frame flag 0x04 verified, corrupted frame strictly rejected (%s)\n",
+           ZSTD_getErrorName(corrupt_ret));
+
+    ZSTD_freeCCtx(cctx); ZSTD_freeDCtx(dctx);
+    free(src); free(cmp); free(dec);
+    return 1;
+}
+
+/* ========================================================================= */
 /* Medicion de Latencias de Bloques (4 KiB y 64 KiB) con Chequeo de Errores  */
 /* ========================================================================= */
 
@@ -566,6 +660,7 @@ static int measure_latencies_generic(
             free(cbuf); free(dbuf);
             return -1;
         }
+        ZSTD_CCtx_setParameter(zcctx, ZSTD_c_checksumFlag, 1);
     }
 
     int success = 1;
@@ -710,12 +805,13 @@ static int run_zstd_l1(const uint8_t *src, size_t src_sz, bench_result_t *res) {
         free(comp_buf); free(decomp_buf);
         return -1;
     }
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
 
     /* Uniform Warm-up */
     size_t rst = ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
     if (ZSTD_isError(rst)) all_pass = 0;
     c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 1);
-    if (ZSTD_isError(c_sz)) all_pass = 0;
+    if (ZSTD_isError(c_sz) || (c_sz > 4 && (comp_buf[4] & 0x04) == 0)) all_pass = 0;
     size_t dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
     if (ZSTD_isError(dec_ret) || dec_ret != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
 
@@ -726,7 +822,7 @@ static int run_zstd_l1(const uint8_t *src, size_t src_sz, bench_result_t *res) {
         c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 1);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
-        if (ZSTD_isError(c_sz)) all_pass = 0;
+        if (ZSTD_isError(c_sz) || (c_sz > 4 && (comp_buf[4] & 0x04) == 0)) all_pass = 0;
     }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
@@ -956,12 +1052,13 @@ static int run_zstd_l19(const uint8_t *src, size_t src_sz, bench_result_t *res) 
     }
     ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 19);
     ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 25);
+    ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
 
     /* Warm-up */
     size_t rst = ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
     if (ZSTD_isError(rst)) all_pass = 0;
     c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 19);
-    if (ZSTD_isError(c_sz)) all_pass = 0;
+    if (ZSTD_isError(c_sz) || (c_sz > 4 && (comp_buf[4] & 0x04) == 0)) all_pass = 0;
     size_t dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
     if (ZSTD_isError(dec_ret) || dec_ret != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
 
@@ -972,7 +1069,7 @@ static int run_zstd_l19(const uint8_t *src, size_t src_sz, bench_result_t *res) 
         c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 19);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
-        if (ZSTD_isError(c_sz)) all_pass = 0;
+        if (ZSTD_isError(c_sz) || (c_sz > 4 && (comp_buf[4] & 0x04) == 0)) all_pass = 0;
     }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
@@ -1614,6 +1711,11 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    if (!pre_flight_validate_zstd_checksum_rejection()) {
+        fprintf(stderr, "[FATAL] Pre-flight Zstd strict checksum validation failed! Aborting.\n");
+        return 1;
+    }
+
     g_csv_file = fopen("docs/audit/decisive_benchmark_raw_r4.csv", "w");
     if (!g_csv_file) {
         g_csv_file = fopen("decisive_benchmark_raw_r4.csv", "w");
@@ -1661,8 +1763,7 @@ int main(int argc, char **argv) {
     }
     size_t sz_tf_ch0 = n_ch_floats * sizeof(float);
 
-    rng_t rng;
-    rng_init(&rng, seed);
+    rng_init(&g_suite_rng, seed);
 
     /* ===================================================================== */
     /* DATASET 1: busybox_armv7l (Tier 1, Tier 2, Tier 3)                    */
@@ -1694,7 +1795,7 @@ int main(int argc, char **argv) {
         engine_config_t *shuffled[16];
         for (int i = 0; i < n_arm; i++) shuffled[i] = &engines_arm[i];
         for (int i = n_arm - 1; i > 0; i--) {
-            int j = rng_next_bounded(&rng, i + 1);
+            int j = rng_next_unbiased_lemire(&g_suite_rng, i + 1);
             engine_config_t *tmp = shuffled[i];
             shuffled[i] = shuffled[j];
             shuffled[j] = tmp;
@@ -1823,7 +1924,7 @@ int main(int argc, char **argv) {
         engine_config_t *shuffled[8];
         for (int i = 0; i < n_moz; i++) shuffled[i] = &engines_moz[i];
         for (int i = n_moz - 1; i > 0; i--) {
-            int j = rng_next_bounded(&rng, i + 1);
+            int j = rng_next_unbiased_lemire(&g_suite_rng, i + 1);
             engine_config_t *tmp = shuffled[i];
             shuffled[i] = shuffled[j];
             shuffled[j] = tmp;
@@ -1885,7 +1986,7 @@ int main(int argc, char **argv) {
         engine_config_t *shuffled[8];
         for (int i = 0; i < n_sam; i++) shuffled[i] = &engines_sam[i];
         for (int i = n_sam - 1; i > 0; i--) {
-            int j = rng_next_bounded(&rng, i + 1);
+            int j = rng_next_unbiased_lemire(&g_suite_rng, i + 1);
             engine_config_t *tmp = shuffled[i];
             shuffled[i] = shuffled[j];
             shuffled[j] = tmp;
