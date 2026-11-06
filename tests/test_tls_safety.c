@@ -364,20 +364,31 @@ static int test_real_compression_benchmark(void) {
 typedef struct {
     PVOID main_fiber;
     int status;
+    size_t fiber_cctx_created_inside;
+    size_t fiber_sdk_tls_created_inside;
 } fiber_ctx_t;
 
 static VOID WINAPI fiber_worker(PVOID lpParameter) {
     fiber_ctx_t *ctx = (fiber_ctx_t*)lpParameter;
-    uint8_t src[4096];
-    uint8_t dst[8192];
-    memset(src, 0x42, sizeof(src));
+    uint8_t src[8192];
+    uint8_t dst[16384];
+    for (size_t i = 0; i < sizeof(src); i++) {
+        src[i] = (uint8_t)((i * 17) & 0xFF);
+    }
     binpack_options_t opt;
     binpack_default_options(&opt);
+    opt.filter = BINPACK_FILTER_TRANSPOSE_DELTA;
+    opt.transpose_stride = 4;
+
     size_t c_size = 0;
     binpack_status_t st = binpack_compress_into(src, sizeof(src), dst, sizeof(dst), &c_size, &opt);
     if (st == BINPACK_OK) {
         ctx->status = 1;
     }
+#if defined(BINPACK_TESTING)
+    ctx->fiber_cctx_created_inside = atomic_load(&g_dbg_sdk_cctx_created);
+    ctx->fiber_sdk_tls_created_inside = atomic_load(&g_dbg_sdk_tls_created);
+#endif
     SwitchToFiber(ctx->main_fiber);
 }
 #endif
@@ -387,24 +398,72 @@ static int test_windows_fls_fiber_safety(void) {
     printf("    [SKIP] Windows FLS Fiber test only applies to Windows\n");
     return TEST_PASS;
 #else
+#if !defined(BINPACK_TESTING)
+    printf("    [SKIP] Requires -DBINPACK_TESTING\n");
+    return TEST_PASS;
+#else
     PVOID main_fiber = ConvertThreadToFiber(NULL);
     if (!main_fiber) {
         /* Already a fiber or unsupported */
         return TEST_PASS;
     }
 
-    fiber_ctx_t ctx = { main_fiber, 0 };
+    size_t before_cctx_c = atomic_load(&g_dbg_sdk_cctx_created);
+    size_t before_cctx_d = atomic_load(&g_dbg_sdk_cctx_destroyed);
+    size_t before_sdk_tls_c = atomic_load(&g_dbg_sdk_tls_created);
+    size_t before_sdk_tls_d = atomic_load(&g_dbg_sdk_tls_destroyed);
+    size_t before_core_tls_c = atomic_load(&g_dbg_core_tls_created);
+    size_t before_core_tls_d = atomic_load(&g_dbg_core_tls_destroyed);
+
+    fiber_ctx_t ctx = { main_fiber, 0, 0, 0 };
     PVOID child_fiber = CreateFiber(0, fiber_worker, &ctx);
     if (!child_fiber) {
         ConvertFiberToThread();
         return TEST_FAIL;
     }
 
+    /* 1. Switch to child fiber: it creates TLS/FLS resources */
     SwitchToFiber(child_fiber);
+
+    if (ctx.status != 1) {
+        DeleteFiber(child_fiber);
+        ConvertFiberToThread();
+        return TEST_FAIL;
+    }
+
+    /* 2. Verify that while the child fiber was alive, resources were created but NOT yet destroyed */
+    size_t created_cctx = ctx.fiber_cctx_created_inside - before_cctx_c;
+    size_t created_sdk_tls = ctx.fiber_sdk_tls_created_inside - before_sdk_tls_c;
+    size_t destroyed_cctx_before_delete = atomic_load(&g_dbg_sdk_cctx_destroyed) - before_cctx_d;
+
+    printf("    [Fiber Active] Created CCtx=%zu, Created SDK TLS=%zu, Destroyed prior to DeleteFiber=%zu\n",
+           created_cctx, created_sdk_tls, destroyed_cctx_before_delete);
+
+    if (created_cctx != 1 || created_sdk_tls != 1 || destroyed_cctx_before_delete != 0) {
+        DeleteFiber(child_fiber);
+        ConvertFiberToThread();
+        return TEST_FAIL;
+    }
+
+    /* 3. Delete the fiber: Windows MUST invoke the FLS destructor callbacks */
     DeleteFiber(child_fiber);
     ConvertFiberToThread();
 
-    return (ctx.status == 1) ? TEST_PASS : TEST_FAIL;
+    /* 4. Verify that DeleteFiber executed the FLS destructor and reclaimed all resources */
+    size_t after_cctx_d = atomic_load(&g_dbg_sdk_cctx_destroyed) - before_cctx_d;
+    size_t after_sdk_tls_d = atomic_load(&g_dbg_sdk_tls_destroyed) - before_sdk_tls_d;
+    size_t after_core_tls_d = atomic_load(&g_dbg_core_tls_destroyed) - before_core_tls_d;
+    size_t after_core_tls_c = atomic_load(&g_dbg_core_tls_created) - before_core_tls_c;
+
+    printf("    [Fiber Destroyed] Destroyed CCtx=%zu, Destroyed SDK TLS=%zu, Net Core TLS=%zu\n",
+           after_cctx_d, after_sdk_tls_d, after_core_tls_c - after_core_tls_d);
+
+    if (after_cctx_d != created_cctx || after_sdk_tls_d != created_sdk_tls || (after_core_tls_c != after_core_tls_d)) {
+        return TEST_FAIL;
+    }
+
+    return TEST_PASS;
+#endif
 #endif
 }
 
