@@ -401,7 +401,7 @@ typedef struct {
 static rng_t g_suite_rng;
 
 static inline void rng_init(rng_t *rng, uint32_t seed) {
-    rng->state = seed ? seed : 20261106u;
+    rng->state = seed;
 }
 
 static inline uint32_t rng_next(rng_t *rng) {
@@ -600,9 +600,11 @@ static int pre_flight_validate_zstd_checksum_rejection(void) {
         return 0;
     }
 
-    /* Corrupt 1 byte in the compressed payload (avoiding magic number and descriptor) */
-    size_t corrupt_pos = c_sz > 16 ? c_sz - 8 : c_sz - 1;
-    cmp[corrupt_pos] ^= 0xA5;
+    /* Corrupt the 4-byte xxHash64 Content_Checksum at the frame trailer (last byte of stream).
+     * This keeps the compressed payload blocks intact while forcing the frame epilogue
+     * verification to fail specifically with ZSTD_error_checksum_wrong.
+     */
+    cmp[c_sz - 1] ^= 0x55;
 
     size_t corrupt_ret = ZSTD_decompressDCtx(dctx, dec, test_sz, cmp, c_sz);
     if (!ZSTD_isError(corrupt_ret)) {
@@ -612,7 +614,15 @@ static int pre_flight_validate_zstd_checksum_rejection(void) {
         return 0;
     }
 
-    printf("  [PASS] Zstd Strict Checksum: Frame flag 0x04 verified, corrupted frame strictly rejected (%s)\n",
+    if (ZSTD_getErrorCode(corrupt_ret) != ZSTD_error_checksum_wrong) {
+        fprintf(stderr, "  [FAIL] Zstd failed with error '%s' instead of expected ZSTD_error_checksum_wrong!\n",
+                ZSTD_getErrorName(corrupt_ret));
+        ZSTD_freeCCtx(cctx); ZSTD_freeDCtx(dctx);
+        free(src); free(cmp); free(dec);
+        return 0;
+    }
+
+    printf("  [PASS] Zstd Strict Checksum: Frame flag 0x04 verified, corrupted frame specifically rejected with ZSTD_error_checksum_wrong (%s)\n",
            ZSTD_getErrorName(corrupt_ret));
 
     ZSTD_freeCCtx(cctx); ZSTD_freeDCtx(dctx);
@@ -1608,12 +1618,12 @@ static int run_engine_isolated(
 }
 
 /* ========================================================================= */
-/* Registro en Archivo CSV Crudo (BP-008C-R4)                                */
+/* Registro en Archivo CSV Crudo (BP-008D-R5 Campana Decisiva)               */
 /* ========================================================================= */
 
 static FILE *g_csv_file = NULL;
 
-static void log_csv_record_r4(
+static void log_csv_record_r5(
     const char *tier, const char *dataset, const char *engine,
     const bench_result_t *res, uint32_t seed
 ) {
@@ -1716,9 +1726,9 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    g_csv_file = fopen("docs/audit/decisive_benchmark_raw_r4.csv", "w");
+    g_csv_file = fopen("docs/audit/decisive_benchmark_raw_r5.csv", "w");
     if (!g_csv_file) {
-        g_csv_file = fopen("decisive_benchmark_raw_r4.csv", "w");
+        g_csv_file = fopen("decisive_benchmark_raw_r5.csv", "w");
     }
     if (g_csv_file) {
         fprintf(g_csv_file,
@@ -1827,7 +1837,7 @@ int main(int argc, char **argv) {
                    lat_str, res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r4(cur_e->tier, "busybox_armv7l", cur_e->engine_id, &res, seed);
+            log_csv_record_r5(cur_e->tier, "busybox_armv7l", cur_e->engine_id, &res, seed);
         }
     }
 
@@ -1866,7 +1876,7 @@ int main(int argc, char **argv) {
                    "—", res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r4(cur_e->tier, "nasa_turbofan_f32", cur_e->engine_id, &res, seed);
+            log_csv_record_r5(cur_e->tier, "nasa_turbofan_f32", cur_e->engine_id, &res, seed);
         }
 
         /* B. Single De-interleaved Channel 0 (Fair evaluation for 1D time-series codecs) */
@@ -1891,7 +1901,7 @@ int main(int argc, char **argv) {
                    "—", res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r4(cur_e->tier, "nasa_turbofan_ch0", cur_e->engine_id, &res, seed);
+            log_csv_record_r5(cur_e->tier, "nasa_turbofan_ch0", cur_e->engine_id, &res, seed);
         }
 
         printf("  [TIER 4B AUDIT NOTICE]: Sprintz I16 excluded from production claims (Mathematical UB quarantine).\n");
@@ -1956,7 +1966,7 @@ int main(int argc, char **argv) {
                    lat_str, res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r4(cur_e->tier, "silesia_mozilla", cur_e->engine_id, &res, seed);
+            log_csv_record_r5(cur_e->tier, "silesia_mozilla", cur_e->engine_id, &res, seed);
         }
     }
 
@@ -2018,12 +2028,12 @@ int main(int argc, char **argv) {
                    lat_str, res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r4(cur_e->tier, "silesia_samba", cur_e->engine_id, &res, seed);
+            log_csv_record_r5(cur_e->tier, "silesia_samba", cur_e->engine_id, &res, seed);
         }
     }
 
     printf("\n==================================================================================================================================\n");
-    printf("[COMPLETE] Benchmark execution finished cleanly. Raw sample data exported to 'decisive_benchmark_raw_r4.csv'.\n");
+    printf("[COMPLETE] Benchmark execution finished cleanly. Raw sample data exported to 'decisive_benchmark_raw_r5.csv'.\n");
     printf("==================================================================================================================================\n");
     fflush(stdout);
 
