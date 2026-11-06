@@ -20,12 +20,12 @@ echo "Fecha de Ejecución (UTC): $(date -u '+%Y-%m-%d %H:%M:%SZ')" >> "$REPORT"
 echo "Sistema Host: $(uname -srm 2>/dev/null || echo 'Unknown')" >> "$REPORT"
 
 DISASSEMBLER=""
-if command -v llvm-objdump &>/dev/null; then
-    DISASSEMBLER="llvm-objdump"
-    echo "Herramienta de Desensamblado: $(llvm-objdump --version | head -n 1)" >> "$REPORT"
-elif command -v objdump &>/dev/null; then
+if command -v objdump &>/dev/null; then
     DISASSEMBLER="objdump"
     echo "Herramienta de Desensamblado: $(objdump --version | head -n 1)" >> "$REPORT"
+elif command -v llvm-objdump &>/dev/null; then
+    DISASSEMBLER="llvm-objdump"
+    echo "Herramienta de Desensamblado: $(llvm-objdump --version | head -n 1)" >> "$REPORT"
 else
     echo "[FATAL] No se encontró objdump ni llvm-objdump en el entorno PATH." >> "$REPORT"
     echo "[FATAL] No se encontró objdump ni llvm-objdump en PATH." >&2
@@ -91,28 +91,23 @@ for obj_name in "${MANDATORY_PORTABLE_OBJS[@]}"; do
         continue
     fi
     
-    # Desensamblado con volcado obligatorio de bytes crudos de instrucción (sin degradación silenciosa)
-    DISASM=""
-    if [[ "$DISASSEMBLER" == "llvm-objdump" ]]; then
-        DISASM=$(llvm-objdump -d --show-raw-insn "$OBJ_PATH" 2>/dev/null || true)
-    else
-        DISASM=$(objdump -d "$OBJ_PATH" 2>/dev/null || true)
-    fi
+    # Desensamblado estándar verificable (sin opciones experimentales)
+    DISASM=$($DISASSEMBLER -d "$OBJ_PATH" 2>/dev/null || true)
     
     # Validación estricta de presencia de bytes crudos en la salida
-    if ! echo "$DISASM" | grep -qE "^\s*[0-9a-f]+:\s+[0-9a-f]{2}\s+"; then
-        echo "[FALLO CRITICO] El desensamblador no emitió bytes crudos de instrucción para $obj_name." >> "$REPORT"
+    if ! echo "$DISASM" | grep -qE "^[[:space:]]*[0-9a-f]+:[[:space:]]+[0-9a-f]{2}"; then
+        echo "[FALLO CRITICO] El desensamblador $DISASSEMBLER no emitió bytes crudos de instrucción para $obj_name." >> "$REPORT"
         echo "[FALLO CRITICO] Inspección binaria abortada para prevenir falsos negativos de opcodes." >> "$REPORT"
         OVERALL_PASS=0
         continue
     fi
     
     # Capa 1: Inspección de Mnemónicos vectoriales (prefijo 'v' en mnemónico)
-    VEX_MNEM=$(echo "$DISASM" | grep -E "^\s*[0-9a-f]+:\s+([0-9a-f]{2}\s+)+\s+v[a-z0-9]+" || true)
+    VEX_MNEM=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+([0-9a-f]{2}[[:space:]]+)+[[:space:]]*v[a-z0-9]+" || true)
     VEX_MNEM_COUNT=$(echo -n "$VEX_MNEM" | grep -c . || true)
     
     # Capa 2: Inspección de Opcodes binarios x86-64 para prefijos VEX (C5, C4 en 64 bits son VEX puros)
-    VEX_BYTES=$(echo "$DISASM" | grep -E "^\s*[0-9a-f]+:\s+(c4|c5)\s+" || true)
+    VEX_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+(c4|c5)[[:space:]]+" || true)
     VEX_BYTES_COUNT=$(echo -n "$VEX_BYTES" | grep -c . || true)
     
     # Capa 3: Inspección de Mnemónicos y decoradores EVEX (AVX-512: zmm, opmasks, broadcast)
@@ -120,7 +115,7 @@ for obj_name in "${MANDATORY_PORTABLE_OBJS[@]}"; do
     EVEX_MNEM_COUNT=$(echo -n "$EVEX_MNEM" | grep -c . || true)
     
     # Capa 4: Inspección de Opcodes binarios para prefijo EVEX (62 en 64 bits es EVEX puro)
-    EVEX_BYTES=$(echo "$DISASM" | grep -E "^\s*[0-9a-f]+:\s+62\s+" || true)
+    EVEX_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+62[[:space:]]+" || true)
     EVEX_BYTES_COUNT=$(echo -n "$EVEX_BYTES" | grep -c . || true)
     
     TOTAL_VEX=$(( VEX_MNEM_COUNT > VEX_BYTES_COUNT ? VEX_MNEM_COUNT : VEX_BYTES_COUNT ))
@@ -151,26 +146,20 @@ else
         echo "[FALLO CRITICO] Hash SHA-256 inválido para $AVX2_OBJ: '$SHA' (debe ser exactamente 64 hex)" >> "$REPORT"
         OVERALL_PASS=0
     else
-        # Desensamblado con volcado obligatorio de bytes crudos de instrucción (sin degradación silenciosa)
-        DISASM=""
-        if [[ "$DISASSEMBLER" == "llvm-objdump" ]]; then
-            DISASM=$(llvm-objdump -d --show-raw-insn "$OBJ_PATH" 2>/dev/null || true)
-        else
-            DISASM=$(objdump -d "$OBJ_PATH" 2>/dev/null || true)
-        fi
+        DISASM=$($DISASSEMBLER -d "$OBJ_PATH" 2>/dev/null || true)
         
         # Validación estricta de presencia de bytes crudos en la salida
-        if ! echo "$DISASM" | grep -qE "^\s*[0-9a-f]+:\s+[0-9a-f]{2}\s+"; then
-            echo "[FALLO CRITICO] El desensamblador no emitió bytes crudos de instrucción para $AVX2_OBJ." >> "$REPORT"
+        if ! echo "$DISASM" | grep -qE "^[[:space:]]*[0-9a-f]+:[[:space:]]+[0-9a-f]{2}"; then
+            echo "[FALLO CRITICO] El desensamblador $DISASSEMBLER no emitió bytes crudos de instrucción para $AVX2_OBJ." >> "$REPORT"
             echo "[FALLO CRITICO] Inspección binaria abortada para prevenir falsos negativos de opcodes." >> "$REPORT"
             OVERALL_PASS=0
         else
             # Capa 1: Inspección de Mnemónicos vectoriales AVX2
-            VEX_MNEM=$(echo "$DISASM" | grep -E "^\s*[0-9a-f]+:\s+([0-9a-f]{2}\s+)+\s+v[a-z0-9]+" || true)
+            VEX_MNEM=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+([0-9a-f]{2}[[:space:]]+)+[[:space:]]*v[a-z0-9]+" || true)
             VEX_MNEM_COUNT=$(echo -n "$VEX_MNEM" | grep -c . || true)
             
             # Capa 2: Inspección de Opcodes binarios x86-64 para prefijos VEX (C4/C5)
-            VEX_BYTES=$(echo "$DISASM" | grep -E "^\s*[0-9a-f]+:\s+(c4|c5)\s+" || true)
+            VEX_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+(c4|c5)[[:space:]]+" || true)
             VEX_BYTES_COUNT=$(echo -n "$VEX_BYTES" | grep -c . || true)
             TOTAL_VEX=$(( VEX_MNEM_COUNT > VEX_BYTES_COUNT ? VEX_MNEM_COUNT : VEX_BYTES_COUNT ))
 
@@ -179,7 +168,7 @@ else
             EVEX_MNEM_COUNT=$(echo -n "$EVEX_MNEM" | grep -c . || true)
             
             # Capa 4: Inspección de Opcodes binarios para prefijo EVEX (0x62)
-            EVEX_BYTES=$(echo "$DISASM" | grep -E "^\s*[0-9a-f]+:\s+62\s+" || true)
+            EVEX_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+62[[:space:]]+" || true)
             EVEX_BYTES_COUNT=$(echo -n "$EVEX_BYTES" | grep -c . || true)
             TOTAL_EVEX=$(( EVEX_MNEM_COUNT > EVEX_BYTES_COUNT ? EVEX_MNEM_COUNT : EVEX_BYTES_COUNT ))
 
