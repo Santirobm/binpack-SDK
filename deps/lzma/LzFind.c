@@ -1026,6 +1026,31 @@ void Hc3Zip_MatchFinder_Skip(CMatchFinder *p, UInt32 num)
 
 void MatchFinder_CreateVTable(CMatchFinder *p, IMatchFinder *vTable)
 {
+#ifdef _7ZIP_ST
+  vTable->Init = MatchFinder_Init;
+  vTable->GetNumAvailableBytes = MatchFinder_GetNumAvailableBytes;
+  vTable->GetPointerToCurrentPos = MatchFinder_GetPointerToCurrentPos;
+  if (!p->btMode)
+  {
+    vTable->GetMatches = Hc4_MatchFinder_GetMatches;
+    vTable->Skip = Hc4_MatchFinder_Skip;
+  }
+  else if (p->numHashBytes == 2)
+  {
+    vTable->GetMatches = Bt2_MatchFinder_GetMatches;
+    vTable->Skip = Bt2_MatchFinder_Skip;
+  }
+  else if (p->numHashBytes == 3)
+  {
+    vTable->GetMatches = Bt3_MatchFinder_GetMatches;
+    vTable->Skip = Bt3_MatchFinder_Skip;
+  }
+  else
+  {
+    vTable->GetMatches = Bt4_MatchFinder_GetMatches;
+    vTable->Skip = Bt4_MatchFinder_Skip;
+  }
+#else
   vTable->Init = (Mf_Init_Func)MatchFinder_Init;
   vTable->GetNumAvailableBytes = (Mf_GetNumAvailableBytes_Func)MatchFinder_GetNumAvailableBytes;
   vTable->GetPointerToCurrentPos = (Mf_GetPointerToCurrentPos_Func)MatchFinder_GetPointerToCurrentPos;
@@ -1059,6 +1084,7 @@ void MatchFinder_CreateVTable(CMatchFinder *p, IMatchFinder *vTable)
     vTable->GetMatches = (Mf_GetMatches_Func)Bt4_MatchFinder_GetMatches;
     vTable->Skip = (Mf_Skip_Func)Bt4_MatchFinder_Skip;
   }
+#endif
   /*
   else
   {
