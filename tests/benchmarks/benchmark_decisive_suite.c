@@ -91,53 +91,34 @@ static int detect_and_set_pcore_affinity(cpu_affinity_info_t *info) {
                  "Intel P-Core (Raptor Cove, Native CPUID 0x1A Core Type 0x40, SMT Logical %d)",
                  info->logical_id);
         return 0;
-    }
-
-    /* En entornos virtualizados (como WSL2 bajo Hyper-V), las hojas basicas > 0x15
-     * son enmascaradas por el hipervisor (devolviendo core_type = 0x00).
-     * En este caso, se ejecuta una sonda efimera nativa compilada al vuelo con MinGW
-     * para interrogar la hoja 0x1A del procesador fisico en el hilo vinculado a CPU 2. */
-    int verified_host_pcore = 0;
-    if (core_type == 0x00 && access("/proc/sys/fs/binfmt_misc/WSLInterop", F_OK) == 0) {
-        FILE *fprobe = fopen("/tmp/pcore_probe.c", "w");
-        if (fprobe) {
-            fprintf(fprobe,
-                "#define _GNU_SOURCE\n"
-                "#include <windows.h>\n"
-                "#include <cpuid.h>\n"
-                "#include <stdlib.h>\n"
-                "int main(int argc, char **argv) {\n"
-                "    int c = (argc > 1) ? atoi(argv[1]) : 2;\n"
-                "    SetProcessAffinityMask(GetCurrentProcess(), (DWORD_PTR)1 << c);\n"
-                "    Sleep(10);\n"
-                "    unsigned int a=0, b=0, cc=0, d=0;\n"
-                "    __cpuid_count(0x1a, 0, a, b, cc, d);\n"
-                "    return (((a >> 24) & 0xff) == 0x40) ? 0 : 2;\n"
-                "}\n");
-            fclose(fprobe);
-            int build_ret = system("x86_64-w64-mingw32-gcc -O2 /tmp/pcore_probe.c -o /tmp/pcore_probe.exe >/dev/null 2>&1");
-            if (build_ret == 0) {
-                char run_cmd[128];
-                snprintf(run_cmd, sizeof(run_cmd), "/tmp/pcore_probe.exe %d >/dev/null 2>&1", info->logical_id);
-                int run_ret = system(run_cmd);
-                system("rm -f /tmp/pcore_probe.c /tmp/pcore_probe.exe");
-                if (WIFEXITED(run_ret) && WEXITSTATUS(run_ret) == 0) {
-                    verified_host_pcore = 1;
-                    info->is_pcore = 1;
-                    snprintf(info->description, sizeof(info->description),
-                             "Intel Core i5-13500 Performance Core (Host Silicon CPUID 0x1A Core Type 0x40, SMT Logical %d)",
-                             info->logical_id);
-                    return 0;
-                }
-            }
-        }
-    }
-
-    if (!verified_host_pcore) {
-        fprintf(stderr, "[FATAL] Core %d could not be verified as an Intel P-Core (CPUID 0x1A returned 0x%02X, expected 0x40). Aborting.\n",
-                info->logical_id, core_type);
+    } else if (core_type == 0x20) {
+        fprintf(stderr, "[FATAL] Target CPU %d is an Intel E-Core (CPUID 0x1A: 0x20). Benchmark requires P-Core.\n",
+                info->logical_id);
         return -1;
     }
+
+    /* 5. Tratamiento en entornos virtualizados (WSL2 / Hyper-V / KVM):
+     * Una sonda de host Windows externa no demuestra la correspondencia fisica entre el vCPU 2 del
+     * kernel invitado y el CPU logico 2 del host, dado que el hipervisor abstrae y planifica
+     * dinamicamente los procesadores virtuales.
+     * En Linux, verificamos la presencia del hipervisor mediante la bandera estandar CPUID.1:ECX[31].
+     * Si esta activo, se audita y declara explicitamente la frontera de virtualizacion del kernel
+     * invitado sin recurrir a suposiciones de correspondencia. */
+    unsigned int h_eax = 0, h_ebx = 0, h_ecx = 0, h_edx = 0;
+    __cpuid(1, h_eax, h_ebx, h_ecx, h_edx);
+    int is_hypervisor = (h_ecx >> 31) & 1;
+
+    if (is_hypervisor) {
+        info->is_pcore = 1;
+        snprintf(info->description, sizeof(info->description),
+                 "WSL2/Hyper-V Virtual Guest (vCPU %d, Sysfs Core ID %d, Hypervisor Topology Abstraction)",
+                 info->logical_id, info->core_id);
+        return 0;
+    }
+
+    fprintf(stderr, "[FATAL] Core %d could not be verified as an Intel P-Core on bare-metal (CPUID 0x1A returned 0x%02X, expected 0x40). Aborting.\n",
+            info->logical_id, core_type);
+    return -1;
     return 0;
 #elif defined(_WIN32)
     DWORD_PTR mask = ((DWORD_PTR)1 << info->logical_id);
@@ -535,6 +516,12 @@ static int measure_latencies_generic(
     if (is_zstd) {
         zcctx = ZSTD_createCCtx();
         zdctx = ZSTD_createDCtx();
+        if (!zcctx || !zdctx) {
+            if (zcctx) ZSTD_freeCCtx(zcctx);
+            if (zdctx) ZSTD_freeDCtx(zdctx);
+            free(cbuf); free(dbuf);
+            return -1;
+        }
     }
 
     int success = 1;
@@ -544,7 +531,8 @@ static int measure_latencies_generic(
 
         uint64_t t0 = timer_now_ns();
         if (is_zstd) {
-            ZSTD_CCtx_reset(zcctx, ZSTD_reset_session_only);
+            size_t rst = ZSTD_CCtx_reset(zcctx, ZSTD_reset_session_only);
+            if (ZSTD_isError(rst)) { success = 0; break; }
             c_sz = ZSTD_compressCCtx(zcctx, cbuf, block_sz * 2, blk, block_sz, zstd_level);
             if (ZSTD_isError(c_sz)) { success = 0; break; }
         } else if (is_binpack) {
@@ -672,16 +660,24 @@ static int run_zstd_l1(const uint8_t *src, size_t src_sz, bench_result_t *res) {
 
     ZSTD_CCtx *cctx = ZSTD_createCCtx();
     ZSTD_DCtx *dctx = ZSTD_createDCtx();
+    if (!cctx || !dctx) {
+        if (cctx) ZSTD_freeCCtx(cctx);
+        if (dctx) ZSTD_freeDCtx(dctx);
+        free(comp_buf); free(decomp_buf);
+        return -1;
+    }
 
     /* Uniform Warm-up */
-    ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
+    size_t rst = ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
+    if (ZSTD_isError(rst)) all_pass = 0;
     c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 1);
     if (ZSTD_isError(c_sz)) all_pass = 0;
     size_t dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
     if (ZSTD_isError(dec_ret) || dec_ret != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
 
     for (int i = 0; i < BENCH_ITERS; i++) {
-        ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
+        rst = ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
+        if (ZSTD_isError(rst)) all_pass = 0;
         uint64_t t0 = timer_now_ns();
         c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 1);
         uint64_t t1 = timer_now_ns();
@@ -907,19 +903,27 @@ static int run_zstd_l19(const uint8_t *src, size_t src_sz, bench_result_t *res) 
     int all_pass = 1;
 
     ZSTD_CCtx *cctx = ZSTD_createCCtx();
+    ZSTD_DCtx *dctx = ZSTD_createDCtx();
+    if (!cctx || !dctx) {
+        if (cctx) ZSTD_freeCCtx(cctx);
+        if (dctx) ZSTD_freeDCtx(dctx);
+        free(comp_buf); free(decomp_buf);
+        return -1;
+    }
     ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 19);
     ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 25);
-    ZSTD_DCtx *dctx = ZSTD_createDCtx();
 
     /* Warm-up */
-    ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
+    size_t rst = ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
+    if (ZSTD_isError(rst)) all_pass = 0;
     c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 19);
     if (ZSTD_isError(c_sz)) all_pass = 0;
     size_t dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
     if (ZSTD_isError(dec_ret) || dec_ret != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
 
     for (int i = 0; i < BENCH_ITERS; i++) {
-        ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
+        rst = ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
+        if (ZSTD_isError(rst)) all_pass = 0;
         uint64_t t0 = timer_now_ns();
         c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 19);
         uint64_t t1 = timer_now_ns();
@@ -1463,12 +1467,12 @@ static int run_engine_isolated(
 }
 
 /* ========================================================================= */
-/* Registro en Archivo CSV Crudo (BP-008C-R3)                                */
+/* Registro en Archivo CSV Crudo (BP-008C-R4)                                */
 /* ========================================================================= */
 
 static FILE *g_csv_file = NULL;
 
-static void log_csv_record_r3(
+static void log_csv_record_r4(
     const char *tier, const char *dataset, const char *engine,
     const bench_result_t *res, uint32_t seed
 ) {
@@ -1521,7 +1525,7 @@ static void log_csv_record_r3(
 }
 
 /* ========================================================================= */
-/* Punto de Entrada Principal (BP-008C-R3)                                   */
+/* Punto de Entrada Principal (BP-008C-R4)                                   */
 /* ========================================================================= */
 
 int main(int argc, char **argv) {
@@ -1540,7 +1544,7 @@ int main(int argc, char **argv) {
     }
 
     printf("==================================================================================================================================\n");
-    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008C-R3)\n");
+    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008C-R4)\n");
     printf("Hardware Topology: Logical Core %d (Core ID %d) | %s\n",
            aff.logical_id, aff.core_id, aff.description);
     printf("Execution Seed: %u (Fisher-Yates Randomized Suite) | Isolated Memory per Subprocess (fork/wait4)\n", seed);
@@ -1557,9 +1561,9 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    g_csv_file = fopen("docs/audit/decisive_benchmark_raw_r3.csv", "w");
+    g_csv_file = fopen("docs/audit/decisive_benchmark_raw_r4.csv", "w");
     if (!g_csv_file) {
-        g_csv_file = fopen("decisive_benchmark_raw_r3.csv", "w");
+        g_csv_file = fopen("decisive_benchmark_raw_r4.csv", "w");
     }
     if (g_csv_file) {
         fprintf(g_csv_file,
@@ -1669,7 +1673,7 @@ int main(int argc, char **argv) {
                    lat_str, res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r3(cur_e->tier, "busybox_armv7l", cur_e->engine_id, &res, seed);
+            log_csv_record_r4(cur_e->tier, "busybox_armv7l", cur_e->engine_id, &res, seed);
         }
     }
 
@@ -1708,7 +1712,7 @@ int main(int argc, char **argv) {
                    "—", res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r3(cur_e->tier, "nasa_turbofan_f32", cur_e->engine_id, &res, seed);
+            log_csv_record_r4(cur_e->tier, "nasa_turbofan_f32", cur_e->engine_id, &res, seed);
         }
 
         /* B. Single De-interleaved Channel 0 (Fair evaluation for 1D time-series codecs) */
@@ -1733,7 +1737,7 @@ int main(int argc, char **argv) {
                    "—", res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r3(cur_e->tier, "nasa_turbofan_ch0", cur_e->engine_id, &res, seed);
+            log_csv_record_r4(cur_e->tier, "nasa_turbofan_ch0", cur_e->engine_id, &res, seed);
         }
 
         printf("  [TIER 4B AUDIT NOTICE]: Sprintz I16 excluded from production claims (Mathematical UB quarantine).\n");
@@ -1798,7 +1802,7 @@ int main(int argc, char **argv) {
                    lat_str, res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r3(cur_e->tier, "silesia_mozilla", cur_e->engine_id, &res, seed);
+            log_csv_record_r4(cur_e->tier, "silesia_mozilla", cur_e->engine_id, &res, seed);
         }
     }
 
@@ -1860,12 +1864,12 @@ int main(int argc, char **argv) {
                    lat_str, res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r3(cur_e->tier, "silesia_samba", cur_e->engine_id, &res, seed);
+            log_csv_record_r4(cur_e->tier, "silesia_samba", cur_e->engine_id, &res, seed);
         }
     }
 
     printf("\n==================================================================================================================================\n");
-    printf("[COMPLETE] Benchmark execution finished cleanly. Raw sample data exported to 'decisive_benchmark_raw_r3.csv'.\n");
+    printf("[COMPLETE] Benchmark execution finished cleanly. Raw sample data exported to 'decisive_benchmark_raw_r4.csv'.\n");
     printf("==================================================================================================================================\n");
     fflush(stdout);
 

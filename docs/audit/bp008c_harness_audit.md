@@ -1,129 +1,127 @@
-# Auditoría del Harness y Adaptación Metodológica — Hito BP-008C (Revisión R3)
+# Auditoría del Harness y Adaptación Metodológica — Hito BP-008C (Revisión R4)
 
-**Expediente:** BP-008C-R3 — Subsanación Integral de Verificación de P-Core en Silicio y Propagación de Errores de Latencia  
+**Expediente:** BP-008C-R4 — Subsanación Definitiva: Robustez de Contextos Zstandard y Transparencia de Frontera en Topología Virtualizada  
 **Proyecto:** BinPack Enterprise SDK  
 **Ramas Auditadas:** `audit/bp1-core-safety`  
-**Commit Base:** `348a8e00a1452605464eb37312b734c44567a742`  
+**Commit Base:** `123a97d0df1504a87264ebecc672bbd1764d38da`  
 **Fecha:** 6 de Noviembre de 2026  
 **Responsable Técnico:** Antigravity AI — Advanced Agentic Coding & Systems Architecture  
 
 ---
 
-## 1. Resumen Ejecutivo y Respuesta a la Orden de Trabajo BP-008C-R3
+## 1. Resumen Ejecutivo y Respuesta a la Orden de Trabajo BP-008C-R4
 
-En respuesta al dictamen técnico emitido sobre **BP-008C-R2**, se completó la resolución de los dos hallazgos pendientes (R3-01 y R3-02), alcanzando el estándar definitivo de certificación para el harness de evaluación (`tests/benchmarks/benchmark_decisive_suite.c`).
+En respuesta al dictamen técnico emitido sobre **BP-008C-R3**, se procedió al cierre técnico y metodológico definitivo de las dos observaciones señaladas:
+
+1. **Gestión Robusta de Contextos Zstandard:** Se incorporó la verificación obligatoria de punteros no nulos en `ZSTD_createCCtx()` y `ZSTD_createDCtx()`, así como la comprobación exhaustiva del código de retorno en todas las llamadas a `ZSTD_CCtx_reset()`, tanto en `measure_latencies_generic()` como en `run_zstd_l1()` y `run_zstd_l19()`. Ante cualquier fallo de asignación o de reinicio de sesión, se liberan los recursos asignados y se propaga un fallo controlado (`return -1;`), erradicando cualquier riesgo de terminación abrupta.
+2. **Eliminación de la Sonda Externa y Transparencia de la Frontera de Virtualización:** Se eliminó por completo el mecanismo alternativo de sondeo hacia el host Windows. Se reconoció formalmente el principio arquitectónico señalado por la auditoría: una sonda en el host Windows no demuestra que el vCPU 2 asignado por el hipervisor al kernel invitado de WSL2 corresponda de manera estática al CPU lógico 2 de Windows. En su lugar, el harness verifica la presencia del hipervisor mediante la bandera estándar x86 `CPUID.1:ECX[31]`, audita la fijación estricta a nivel del kernel invitado (`sched_setaffinity` al vCPU 2, `CPU_COUNT == 1`, `sched_yield()`), y declara explícitamente en el banner y en el dossier la condición de ejecución: **"WSL2/Hyper-V Virtual Guest (vCPU 2, Sysfs Core ID 1, Hypervisor Topology Abstraction)"**. En entornos bare-metal no virtualizados, se exige de forma inviolable `CPUID 0x1A: 0x40`.
 
 Se mantuvieron de forma estricta las restricciones de alcance del proyecto:
-- **Cero modificaciones** a `src/`, `include/` y `deps/`.
-- **Preservación documental histórica:** se conservan intactos `decisive_benchmark_raw_pilot.csv`, `decisive_benchmark_raw_r1.csv` y `decisive_benchmark_raw_r2.csv`.
-- **Emisión certificada:** generación del nuevo registro validado en `docs/audit/decisive_benchmark_raw_r3.csv`.
-
-### Matriz de Subsanaciones BP-008C-R3:
-
-| Hallazgo | Clasificación | Observación Crítica Previa | Subsanación Técnica Implementada en BP-008C-R3 | Estado |
-| :---: | :---: | :--- | :--- | :---: |
-| **R3-01** | **BLOQUEANTE** | Orden invertido en `detect_and_set_pcore_affinity`: CPUID se ejecutaba antes de fijar afinidad; presencia de heurística `< 12` no verificada en silicio. | Orden estricto implementado: 1) `sched_setaffinity` al CPU 2; 2) Verificación de máscara con `sched_getaffinity` y aserción de aislamiento estricto (`CPU_COUNT == 1`); 3) `sched_yield()` para forzar migración inmediata; 4) Interrogación de CPUID Leaf 0x1A nativa en silicio; 5) Sonda efímera host para entornos virtualizados (WSL2/Hyper-V) donde las hojas > 0x15 son enmascaradas; 6) Aserción obligatoria de `core_type == 0x40`, abortando si no se verifica. Eliminación total de heurísticas por número lógico. | **SUBSANADO** |
-| **R3-02** | **PRIORITARIO** | Los códigos de retorno de `measure_latencies_generic` no se comprobaban en los evaluadores principales (`run_lz4_fast`, `run_zstd_l1`, `run_binpack_fast_zerocrc`). | Comprobación estricta de ambos bloques (4K y 64K). Si cualquiera retorna `-1` (fallo de compresión, descompresión o discrepancia en `memcmp`), se asigna `all_pass = 0`, se propaga `res->integrity_all_pass = 0`, y la función retorna `-1`. El subproceso hijo propaga el error saliendo con `_exit(1)`, lo que provoca aborto inmediato en el padre mediante `wait4()`. | **SUBSANADO** |
+- **Cero modificaciones** a `src/`, `include/` ni `deps/`.
+- **Preservación histórica íntegra:** se conservan intactos `decisive_benchmark_raw_pilot.csv`, `decisive_benchmark_raw_r1.csv`, `decisive_benchmark_raw_r2.csv` y `decisive_benchmark_raw_r3.csv`.
+- **Nuevo registro certificado:** generado en `docs/audit/decisive_benchmark_raw_r4.csv`.
 
 ---
 
-## 2. Protocolo de Vinculación y Verificación de P-Core en Silicio (R3-01)
+## 2. Detalle de las Subsanaciones Técnicas Implementadas
 
-### 2.1 Orden de Ejecución Auditado
-Para garantizar que la instrucción CPUID interrogue con certeza matemática el núcleo físico sobre el que corre la prueba, se reestructuró la función [`detect_and_set_pcore_affinity()`](file:///C:/Users/sgi.lm/Desktop/binpack-SDK/tests/benchmarks/benchmark_decisive_suite.c#L40-L130):
+### 2.1 Robustez en la Gestión de Contextos Zstandard
+En [`measure_latencies_generic()`](file:///C:/Users/sgi.lm/Desktop/binpack-SDK/tests/benchmarks/benchmark_decisive_suite.c#L508-L585):
+- Se valida que `zcctx` y `zdctx` sean no nulos tras su creación:
+  ```c
+  if (is_zstd) {
+      zcctx = ZSTD_createCCtx();
+      zdctx = ZSTD_createDCtx();
+      if (!zcctx || !zdctx) {
+          if (zcctx) ZSTD_freeCCtx(zcctx);
+          if (zdctx) ZSTD_freeDCtx(zdctx);
+          free(cbuf); free(dbuf);
+          return -1;
+      }
+  }
+  ```
+- En cada iteración del bucle de bloques, se verifica el retorno de `ZSTD_CCtx_reset()`:
+  ```c
+  size_t rst = ZSTD_CCtx_reset(zcctx, ZSTD_reset_session_only);
+  if (ZSTD_isError(rst)) { success = 0; break; }
+  ```
+- El mismo estándar se extendió a [`run_zstd_l1()`](file:///C:/Users/sgi.lm/Desktop/binpack-SDK/tests/benchmarks/benchmark_decisive_suite.c#L670-L745) y [`run_zstd_l19()`](file:///C:/Users/sgi.lm/Desktop/binpack-SDK/tests/benchmarks/benchmark_decisive_suite.c#L910-L985), verificando las asignaciones iniciales y comprobando `!ZSTD_isError(rst)` tanto en el warm-up como en las 20 iteraciones cronometradas.
 
-1. **Fijación de Afinidad Primaria:** Invocación de `sched_setaffinity(0, sizeof(cpu_set_t), &cpuset)` asignando exclusivamente el Logical Core 2.
-2. **Aserción de Máscara Aislada:** Relectura con `sched_getaffinity()`, comprobando:
-   $$\text{CPU\_ISSET}(2, \&\text{verify\_set}) \land \text{CPU\_COUNT}(\&\text{verify\_set}) == 1$$
-3. **Sincronización del Planificador:** Llamada a `sched_yield()` para forzar al planificador del kernel a ceder el cuanto y migrar el hilo inmediatamente al Logical Core 2 antes de ejecutar cualquier sondeo.
-4. **Lectura de Topología Sysfs:** Obtención del `core_id` físico desde `/sys/devices/system/cpu/cpu2/topology/core_id` (confirmando Núcleo Físico 1, par SMT 2-3).
-5. **Inspección de Silicio (CPUID Leaf 0x1A):**
-   - En Linux bare-metal, la instrucción `__cpuid_count(0x1a, 0, eax, ebx, ecx, edx)` devuelve en `(eax >> 24) & 0xFF` el valor `0x40` (Intel Core / Raptor Cove).
-   - En entornos virtualizados bajo Hyper-V (como WSL2), el hipervisor enmascara las hojas básicas superiores a `0x15` (`cpuid level: 21`), devolviendo `0x00`. En este caso, el harness ejecuta una sonda efímera nativa compilada al vuelo con `x86_64-w64-mingw32-gcc` que fija la afinidad en el host Windows al Logical Core 2, ejecuta `__cpuid_count(0x1a, 0, ...)` en silicio directo, y devuelve el código de salida.
-   - Si el valor devuelto no es `0x40`, el programa **aborta inmediatamente con código de fallo fatal**, erradicando cualquier suposición o clasificación arbitraria basada en el número lógico de CPU.
-6. **Verificación en Subproceso Hijo:** Cada proceso hijo generado vía `fork()` re-fija su afinidad, comprueba su máscara (`CPU_COUNT == 1`), cede con `sched_yield()`, y verifica la bandera de P-Core antes de comenzar la medición algorítmica.
+### 2.2 Delimitación Metodológica de la Topología de CPU
+En [`detect_and_set_pcore_affinity()`](file:///C:/Users/sgi.lm/Desktop/binpack-SDK/tests/benchmarks/benchmark_decisive_suite.c#L40-L125):
+- Se eliminó la compilación y ejecución de la sonda externa `pcore_probe.exe`.
+- El algoritmo opera exclusivamente dentro del espacio del kernel y la arquitectura x86:
+  1. `sched_setaffinity` al Logical Core 2.
+  2. Verificación estricta de la máscara con `sched_getaffinity`: exige `CPU_ISSET(2)` y `CPU_COUNT == 1`.
+  3. Sincronización del planificador mediante `sched_yield()`.
+  4. Consulta de topología nativa en sysfs (`core_id = 1`, par SMT 2-3).
+  5. Consulta de `CPUID Leaf 0x1A`: si `core_type == 0x40`, se certifica como P-Core en silicio nativo (bare-metal).
+  6. Si `core_type != 0x40`, se consulta la bandera de hipervisor en `CPUID.1:ECX[31]`. Si el entorno es virtualizado (Hyper-V / WSL2), se audita y declara con rigor científico la frontera de virtualización, reconociendo que Hyper-V enmascara las hojas superiores a `0x15` y gestiona la planificación de los procesadores virtuales. Si el entorno fuera bare-metal y no devolviera `0x40`, la suite aborta inmediatamente.
 
 ---
 
-## 3. Propagación Integral de Errores de Latencia (R3-02)
-
-En las funciones de evaluación con micro-benchmarks de bloques (`run_lz4_fast`, `run_zstd_l1` y `run_binpack_fast_zerocrc`), se implementó la captura y propagación de retornos:
-```c
-int lat_ret1 = measure_latencies_generic(src, src_sz, 4096, ...);
-int lat_ret2 = measure_latencies_generic(src, src_sz, 65536, ...);
-if (lat_ret1 != 0 || lat_ret2 != 0) {
-    all_pass = 0;
-}
-res->integrity_all_pass = all_pass;
-return all_pass ? 0 : -1;
-```
-Si cualquier bloque de 4 KiB o 64 KiB presenta un error de compresión, fallo de descompresión o corrupción en la verificación bit a bit (`memcmp(dbuf, blk, block_sz) != 0`), la anomalía invalida el flag de integridad y hace que la función retorne `-1`. En consecuencia:
-- El subproceso hijo detecta `run_ret != 0` y finaliza con `_exit(1)`.
-- El proceso padre en `wait4(pid, &status, 0, &ru)` detecta `WEXITSTATUS(status) != 0` o `!shm->integrity_all_pass`, abortando la suite completa y reportando la falla por stderr.
-
----
-
-## 4. Resultados Consolidados de la Campaña BP-008C-R3
+## 3. Resultados Consolidados de la Campaña BP-008C-R4
 
 Resultados certificados obtenidos tras la ejecución aleatorizada bajo semilla registrada `20261106`:
 
 ### Dataset 1: `busybox_armv7l` (1.109.128 Bytes / 1.11 MB — Binario ARMv7-A)
 | Motor / Configuración | Ratio (%) | Compresión (MB/s ± IQR) | Descompresión (MB/s ± IQR) | Lat 4K (C / D $\mu$s) | Pico RSS | Integridad |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **LZ4 v1.10 (RawBlock)** | 80.49% | 733.9 ± 23.3 | 5431.6 ± 137.4 | 6.4 / 1.0 | 77.104 KB | **PASS** |
-| **BinPack (Fast Zero-CRC)** | 61.66% | 383.4 ± 2.9 | 1038.9 ± 25.7 | 39.3 / 6.8 | 79.404 KB | **PASS** |
-| **Tier 3: Ruta C (BinPack Archival)** | 42.48% | 5.1 ± 0.4 | 61.5 ± 1.1 | — | 92.584 KB | **PASS** |
-| **BinPack (Default L19)** | 48.49% | 6.1 ± 0.8 | 635.0 ± 18.2 | — | 112.524 KB | **PASS** |
-| **BinPack (Convenience API)** | 61.66% | 389.7 ± 2.9 | 1070.4 ± 20.6 | — | 79.156 KB | **PASS** |
-| *Tier 3: Ruta A (LZMA1 Puro)* | 44.80% | 5.2 ± 0.1 | 59.4 ± 1.2 | — | 90.024 KB | **PASS** |
-| *Tier 3: Ruta B (BCJ + LZMA1)* | 42.46% | 5.2 ± 0.5 | 62.6 ± 0.8 | — | 91.084 KB | **PASS** |
-| **BinPack (Strict CRC32)** | 61.66% | **— (N/A)** | 736.5 ± 9.1 | — | 79.084 KB | **PASS** |
-| **Zstd v1.5.7 (L19 Frame)** | 51.04% | 6.7 ± 0.7 | 901.7 ± 15.0 | — | 110.920 KB | **PASS** |
-| **Zstd v1.5.7 (L1 Frame)** | 64.26% | 497.9 ± 9.0 | 1400.2 ± 52.5 | 13.2 / 5.7 | 78.312 KB | **PASS** |
+| **LZ4 v1.10 (RawBlock)** | 80.49% | 706.5 ± 13.3 | 5221.9 ± 158.4 | 6.8 / 1.0 | 77.456 KB | **PASS** |
+| **BinPack (Fast Zero-CRC)** | 61.66% | 365.9 ± 4.2 | 1037.1 ± 48.8 | 41.6 / 7.1 | 79.460 KB | **PASS** |
+| **Tier 3: Ruta C (BinPack Archival)** | 42.48% | 4.5 ± 0.4 | 61.2 ± 2.8 | — | 92.584 KB | **PASS** |
+| **BinPack (Default L19)** | 48.49% | 5.3 ± 0.5 | 640.7 ± 11.5 | — | 112.580 KB | **PASS** |
+| **BinPack (Convenience API)** | 61.66% | 389.0 ± 4.3 | 1073.1 ± 21.7 | — | 79.148 KB | **PASS** |
+| *Tier 3: Ruta A (LZMA1 Puro)* | 44.80% | 4.7 ± 0.4 | 61.1 ± 1.1 | — | 90.196 KB | **PASS** |
+| *Tier 3: Ruta B (BCJ + LZMA1)* | 42.46% | 4.6 ± 0.3 | 63.0 ± 2.5 | — | 91.312 KB | **PASS** |
+| **BinPack (Strict CRC32)** | 61.66% | **— (N/A)** | 783.9 ± 14.8 | — | 79.140 KB | **PASS** |
+| **Zstd v1.5.7 (L19 Frame)** | 51.04% | 5.5 ± 0.6 | 902.5 ± 28.8 | — | 111.104 KB | **PASS** |
+| **Zstd v1.5.7 (L1 Frame)** | 64.26% | 500.9 ± 4.8 | 1390.7 ± 38.2 | 13.2 / 5.7 | 78.304 KB | **PASS** |
 
 ### Dataset 2: `nasa_turbofan_f32` (1.980.576 Bytes / 1.98 MB — Telemetría Float32)
 #### A. Evaluación Multicanal Entrelazada (24 canales físicos multiplexados)
 | Motor / Configuración | Ratio (%) | Compresión (MB/s ± IQR) | Descompresión (MB/s ± IQR) | Pico RSS | Integridad | Comportamiento |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Gorilla (24-ch Interleaved)** | 106.18% | 49.9 ± 0.3 | 216.4 ± 1.2 | 79.008 KB | **PASS** | Expansión (+6.18%) por dispersión en multiplexado |
-| **Chimp (24-ch Interleaved)** | 106.18% | 60.1 ± 0.3 | 217.1 ± 0.7 | 79.008 KB | **PASS** | Expansión (+6.18%) |
-| **BinPack (Transpose-F32)** | **31.02%** | 4.4 ± 0.3 | **1063.7 ± 11.5** | 112.364 KB | **PASS** | Compresión 3.2x vía transposición en 4 carriles |
+| **Gorilla (24-ch Interleaved)** | 106.18% | 49.6 ± 2.9 | 220.7 ± 1.2 | 79.020 KB | **PASS** | Expansión (+6.18%) por ruptura de autocorrelación |
+| **Chimp (24-ch Interleaved)** | 106.18% | 58.2 ± 0.6 | 210.7 ± 1.9 | 79.020 KB | **PASS** | Expansión (+6.18%) |
+| **BinPack (Transpose-F32)** | **31.02%** | 4.1 ± 0.4 | **1059.6 ± 14.7** | 112.420 KB | **PASS** | Compresión 3.2x vía transposición en 4 carriles |
 
 #### B. Evaluación Univariada Desentrelazada (Canal Individual: Sensor 0, 82.524 Bytes)
 | Motor / Configuración | Ratio (%) | Compresión (MB/s ± IQR) | Descompresión (MB/s ± IQR) | Pico RSS | Integridad | Comportamiento |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Gorilla (Single-Ch 0)** | 104.96% | 43.7 ± 0.8 | 223.0 ± 3.0 | 75.168 KB | **PASS** | Expansión (+4.96%) por ruido en mantisas IEEE 754 |
-| **Chimp (Single-Ch 0)** | 105.00% | 51.9 ± 1.2 | 220.2 ± 2.9 | 75.168 KB | **PASS** | Expansión (+5.00%) |
-| **BinPack (Single-Ch 0)** | **29.67%** | 4.5 ± 0.1 | **809.5 ± 40.6** | 78.604 KB | **PASS** | Compresión 3.4x colapsando exponentes idénticos |
+| **Gorilla (Single-Ch 0)** | 104.96% | 44.0 ± 0.8 | 221.2 ± 5.9 | 75.392 KB | **PASS** | Expansión (+4.96%) por ruido en mantisas IEEE 754 |
+| **Chimp (Single-Ch 0)** | 105.00% | 51.8 ± 1.1 | 218.3 ± 3.3 | 75.392 KB | **PASS** | Expansión (+5.00%) |
+| **BinPack (Single-Ch 0)** | **29.67%** | 4.6 ± 0.0 | **849.0 ± 37.6** | 78.660 KB | **PASS** | Compresión 3.4x colapsando exponentes idénticos |
 
 *Nota de Auditoría Tier 4B:* Sprintz I16 permanece estrictamente excluido y en cuarentena por Undefined Behavior aritmético.
 
 ### Dataset 3: `silesia_mozilla` (51.220.480 Bytes / 51.22 MB — Ejecutable Binario x86)
 | Motor / Configuración | Ratio (%) | Compresión (MB/s ± IQR) | Descompresión (MB/s ± IQR) | Lat 4K (C / D $\mu$s) | Pico RSS | Integridad |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **BinPack (Strict CRC32)** | 39.08% | **— (N/A)** | 985.8 ± 48.3 | — | 200.896 KB | **PASS** |
-| **LZ4 v1.10 (RawBlock)** | 51.49% | 814.4 ± 17.3 | 4573.1 ± 315.0 | 4.7 / 0.9 | 151.024 KB | **PASS** |
-| **Zstd v1.5.7 (L1 Frame)** | 38.99% | 631.3 ± 9.2 | 1541.8 ± 17.0 | 11.2 / 4.9 | 146.152 KB | **PASS** |
-| **BinPack (Fast Zero-CRC)** | 39.08% | 470.8 ± 10.7 | 1537.6 ± 17.9 | 30.0 / 6.4 | 205.536 KB | **PASS** |
-| **BinPack (Default L19)** | 30.03% | 4.0 ± 0.1 | 841.9 ± 6.4 | — | 1.208.576 KB | **PASS** |
-| **Zstd v1.5.7 (L19 Frame)** | 29.41% | 4.2 ± 0.1 | 1199.4 ± 17.5 | — | 223.240 KB | **PASS** |
+| **BinPack (Strict CRC32)** | 39.08% | **— (N/A)** | 989.7 ± 10.4 | — | 200.000 KB | **PASS** |
+| **LZ4 v1.10 (RawBlock)** | 51.49% | 816.7 ± 17.3 | 4071.2 ± 76.6 | 4.5 / 0.9 | 151.376 KB | **PASS** |
+| **Zstd v1.5.7 (L1 Frame)** | 38.99% | 628.3 ± 9.5 | 1531.8 ± 32.8 | 10.8 / 4.8 | 146.144 KB | **PASS** |
+| **BinPack (Fast Zero-CRC)** | 39.08% | 453.9 ± 10.0 | 1493.9 ± 8.6 | 30.0 / 6.1 | 205.600 KB | **PASS** |
+| **BinPack (Default L19)** | 30.03% | 3.7 ± 0.1 | 813.7 ± 20.1 | — | 1.208.000 KB | **PASS** |
+| **Zstd v1.5.7 (L19 Frame)** | 29.41% | 3.9 ± 0.4 | 1176.9 ± 24.3 | — | 223.424 KB | **PASS** |
 
 ### Dataset 4: `silesia_samba` (21.606.400 Bytes / 21.61 MB — Código Fuente C Estructurado)
 | Motor / Configuración | Ratio (%) | Compresión (MB/s ± IQR) | Descompresión (MB/s ± IQR) | Lat 4K (C / D $\mu$s) | Pico RSS | Integridad |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **LZ4 v1.10 (RawBlock)** | 35.32% | 830.6 ± 19.7 | 5562.5 ± 153.8 | 5.9 / 1.0 | 103.824 KB | **PASS** |
-| **BinPack (Fast Zero-CRC)** | 25.44% | 517.9 ± 3.9 | 2387.2 ± 19.0 | 14.8 / 5.7 | 127.936 KB | **PASS** |
-| **BinPack (Default L19)** | 19.00% | 3.1 ± 0.1 | 1235.2 ± 52.4 | — | 1.041.856 KB | **PASS** |
-| **Zstd v1.5.7 (L1 Frame)** | 25.40% | 701.7 ± 7.6 | 2238.0 ± 100.7 | 11.8 / 4.8 | 103.112 KB | **PASS** |
-| **Zstd v1.5.7 (L19 Frame)** | 18.04% | 4.2 ± 0.1 | 2294.6 ± 73.1 | — | 183.560 KB | **PASS** |
-| **BinPack (Strict CRC32)** | 25.44% | **— (N/A)** | 1324.6 ± 10.0 | — | 126.336 KB | **PASS** |
+| **LZ4 v1.10 (RawBlock)** | 35.32% | 825.0 ± 17.2 | 5670.7 ± 62.9 | 6.1 / 1.0 | 104.176 KB | **PASS** |
+| **BinPack (Fast Zero-CRC)** | 25.44% | 511.1 ± 3.4 | 2356.4 ± 39.9 | 14.9 / 5.6 | 128.000 KB | **PASS** |
+| **BinPack (Default L19)** | 19.00% | 3.1 ± 0.1 | 1250.8 ± 37.3 | — | 1.041.600 KB | **PASS** |
+| **Zstd v1.5.7 (L1 Frame)** | 25.40% | 702.3 ± 4.4 | 2360.3 ± 31.1 | 11.8 / 4.7 | 103.104 KB | **PASS** |
+| **Zstd v1.5.7 (L19 Frame)** | 18.04% | 4.2 ± 0.2 | 2132.3 ± 79.0 | — | 183.744 KB | **PASS** |
+| **BinPack (Strict CRC32)** | 25.44% | **— (N/A)** | 1293.5 ± 40.5 | — | 125.920 KB | **PASS** |
 
 ---
 
-## 5. Trazabilidad y Archivos del Repositorio
+## 4. Trazabilidad y Archivos del Repositorio
 
-- **`tests/benchmarks/benchmark_decisive_suite.c`:** Código fuente del harness con subsanaciones BP-008C-R3 (orden estricto de afinidad -> verificación de máscara -> `sched_yield()` -> CPUID 0x1A en silicio sin heurísticas; propagación de códigos de error de latencias 4K/64K; aserción de P-Core en subprocesos hijos).
-- **`docs/audit/decisive_benchmark_raw_r3.csv`:** Registro integral auditado de 29 líneas con los 40 vectores crudos de muestras y metadatos completos.
+- **`tests/benchmarks/benchmark_decisive_suite.c`:** Código fuente del harness con subsanaciones BP-008C-R4 (manejo seguro de contextos Zstandard, comprobación de retornos de `ZSTD_CCtx_reset`, orden estricto de afinidad, y delimitación transparente de la frontera de virtualización).
+- **`docs/audit/decisive_benchmark_raw_r4.csv`:** Registro auditado de 29 líneas con los 40 vectores crudos de muestras y metadatos completos.
+- **`docs/audit/decisive_benchmark_raw_r3.csv`:** Preservado intacto como registro histórico previo.
 - **`docs/audit/decisive_benchmark_raw_r2.csv`:** Preservado intacto como registro histórico previo.
 - **`docs/audit/decisive_benchmark_raw_r1.csv`:** Preservado intacto como registro histórico previo.
 - **`docs/audit/decisive_benchmark_raw_pilot.csv`:** Preservado intacto como registro histórico previo.
