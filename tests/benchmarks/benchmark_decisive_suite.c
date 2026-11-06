@@ -113,7 +113,7 @@ static int detect_and_set_pcore_affinity(cpu_affinity_info_t *info) {
 }
 
 /* ========================================================================= */
-/* Temporizacion de Alta Precision Monotonica con Verificacion de Error      */
+/* Temporizacion Monotonica de Alta Precision & Libre de Desbordamiento      */
 /* ========================================================================= */
 
 static inline uint64_t timer_now_ns(void) {
@@ -126,52 +126,71 @@ static inline uint64_t timer_now_ns(void) {
     return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
 #elif defined(_WIN32)
     static LARGE_INTEGER freq;
-    static int freq_init = 0;
-    if (!freq_init) {
+    static volatile LONG freq_init = 0;
+    if (InterlockedCompareExchange(&freq_init, 1, 0) == 0) {
         if (!QueryPerformanceFrequency(&freq)) {
             fprintf(stderr, "[FATAL] QueryPerformanceFrequency failed\n");
             abort();
         }
-        freq_init = 1;
+    } else {
+        while (freq.QuadPart == 0) {
+            Sleep(0);
+        }
     }
     LARGE_INTEGER counter;
     if (!QueryPerformanceCounter(&counter)) {
         fprintf(stderr, "[FATAL] QueryPerformanceCounter failed\n");
         abort();
     }
-    return (uint64_t)((counter.QuadPart * 1000000000ULL) / freq.QuadPart);
+    /* Overflow-safe decomposition: counter * 1e9 can overflow 64-bit integer when uptime > 30 mins */
+    uint64_t whole_sec = (uint64_t)counter.QuadPart / (uint64_t)freq.QuadPart;
+    uint64_t remainder = (uint64_t)counter.QuadPart % (uint64_t)freq.QuadPart;
+    return whole_sec * 1000000000ULL + (remainder * 1000000000ULL) / (uint64_t)freq.QuadPart;
 #endif
 }
 
 /* ========================================================================= */
-/* Modulo Estadistico Riguroso (Muestras Raw + Regla de Tukey Aplicada)       */
+/* Modulo Estadistico Riguroso (Calculo Directo de Throughput + Tukey)       */
 /* ========================================================================= */
 
 #define BENCH_ITERS 20
 
 typedef struct {
     int n_samples;
-    double raw_samples[BENCH_ITERS];
-    double sorted_samples[BENCH_ITERS];
+    double raw_samples[BENCH_ITERS]; /* execution time in seconds */
+    double raw_tp_mbs[BENCH_ITERS];  /* sample throughput in MB/s */
 
     /* Raw Statistics */
-    double raw_min;
-    double raw_max;
-    double raw_mean;
-    double raw_median;
-    double raw_q1;
-    double raw_q3;
-    double raw_iqr;
-    double lower_fence;
-    double upper_fence;
+    double raw_min_sec;
+    double raw_max_sec;
+    double raw_mean_sec;
+    double raw_median_sec;
+    double raw_q1_sec;
+    double raw_q3_sec;
+    double raw_iqr_sec;
+    double lower_fence_sec;
+    double upper_fence_sec;
     int outliers_count;
+
+    /* Raw Throughput Statistics (Calculated directly from sample throughputs!) */
+    double raw_median_tp_mbs;
+    double raw_q1_tp_mbs;
+    double raw_q3_tp_mbs;
+    double raw_iqr_tp_mbs;
 
     /* Filtered Statistics (Tukey's Rule Applied) */
     int n_filtered;
     double filtered_samples[BENCH_ITERS];
-    double filtered_mean;
-    double filtered_median;
-    double filtered_stddev;
+    double filtered_tp_mbs[BENCH_ITERS];
+    double filtered_mean_sec;
+    double filtered_median_sec;
+    double filtered_stddev_sec;
+
+    /* Filtered Throughput Statistics (Calculated directly from filtered samples!) */
+    double filtered_median_tp_mbs;
+    double filtered_q1_tp_mbs;
+    double filtered_q3_tp_mbs;
+    double filtered_iqr_tp_mbs;
 } stat_summary_t;
 
 static int compare_doubles(const void *a, const void *b) {
@@ -182,68 +201,108 @@ static int compare_doubles(const void *a, const void *b) {
     return 0;
 }
 
-static void calc_stats(const double *samples, int n, stat_summary_t *out) {
+static void calc_stats(const double *samples, int n, size_t orig_sz, stat_summary_t *out) {
     memset(out, 0, sizeof(*out));
+    if (n <= 0) return;
     out->n_samples = n;
+
     double sum_raw = 0.0;
+    double sorted_time[BENCH_ITERS];
+    double sorted_tp[BENCH_ITERS];
+
     for (int i = 0; i < n; i++) {
         out->raw_samples[i] = samples[i];
-        out->sorted_samples[i] = samples[i];
+        sorted_time[i] = samples[i];
         sum_raw += samples[i];
-    }
-    qsort(out->sorted_samples, n, sizeof(double), compare_doubles);
 
-    out->raw_min = out->sorted_samples[0];
-    out->raw_max = out->sorted_samples[n - 1];
-    out->raw_mean = sum_raw / (double)n;
+        if (samples[i] > 0.0) {
+            out->raw_tp_mbs[i] = (double)orig_sz / (1e6 * samples[i]);
+        } else {
+            out->raw_tp_mbs[i] = 0.0;
+        }
+        sorted_tp[i] = out->raw_tp_mbs[i];
+    }
+
+    qsort(sorted_time, n, sizeof(double), compare_doubles);
+    qsort(sorted_tp, n, sizeof(double), compare_doubles);
+
+    out->raw_min_sec = sorted_time[0];
+    out->raw_max_sec = sorted_time[n - 1];
+    out->raw_mean_sec = sum_raw / (double)n;
 
     if (n == 20) {
-        out->raw_median = (out->sorted_samples[9] + out->sorted_samples[10]) / 2.0;
-        out->raw_q1     = (out->sorted_samples[4] + out->sorted_samples[5]) / 2.0;
-        out->raw_q3     = (out->sorted_samples[14] + out->sorted_samples[15]) / 2.0;
-    } else {
-        out->raw_median = out->sorted_samples[n / 2];
-        out->raw_q1     = out->sorted_samples[n / 4];
-        out->raw_q3     = out->sorted_samples[(n * 3) / 4];
-    }
-    out->raw_iqr = out->raw_q3 - out->raw_q1;
-    out->lower_fence = out->raw_q1 - 1.5 * out->raw_iqr;
-    out->upper_fence = out->raw_q3 + 1.5 * out->raw_iqr;
+        out->raw_median_sec = (sorted_time[9] + sorted_time[10]) / 2.0;
+        out->raw_q1_sec     = (sorted_time[4] + sorted_time[5]) / 2.0;
+        out->raw_q3_sec     = (sorted_time[14] + sorted_time[15]) / 2.0;
 
-    /* Apply Tukey's Rule: keep only values inside [lower_fence, upper_fence] */
+        out->raw_median_tp_mbs = (sorted_tp[9] + sorted_tp[10]) / 2.0;
+        out->raw_q1_tp_mbs     = (sorted_tp[4] + sorted_tp[5]) / 2.0;
+        out->raw_q3_tp_mbs     = (sorted_tp[14] + sorted_tp[15]) / 2.0;
+    } else {
+        out->raw_median_sec = sorted_time[n / 2];
+        out->raw_q1_sec     = sorted_time[n / 4];
+        out->raw_q3_sec     = sorted_time[(n * 3) / 4];
+
+        out->raw_median_tp_mbs = sorted_tp[n / 2];
+        out->raw_q1_tp_mbs     = sorted_tp[n / 4];
+        out->raw_q3_tp_mbs     = sorted_tp[(n * 3) / 4];
+    }
+    out->raw_iqr_sec = out->raw_q3_sec - out->raw_q1_sec;
+    out->raw_iqr_tp_mbs = out->raw_q3_tp_mbs - out->raw_q1_tp_mbs;
+    out->lower_fence_sec = out->raw_q1_sec - 1.5 * out->raw_iqr_sec;
+    out->upper_fence_sec = out->raw_q3_sec + 1.5 * out->raw_iqr_sec;
+
+    /* Apply Tukey's Rule on raw time samples */
     out->n_filtered = 0;
     out->outliers_count = 0;
     double sum_filt = 0.0;
     for (int i = 0; i < n; i++) {
         double val = out->raw_samples[i];
-        if (val >= out->lower_fence && val <= out->upper_fence) {
-            out->filtered_samples[out->n_filtered++] = val;
+        if (val >= out->lower_fence_sec && val <= out->upper_fence_sec) {
+            out->filtered_samples[out->n_filtered] = val;
+            out->filtered_tp_mbs[out->n_filtered] = out->raw_tp_mbs[i];
             sum_filt += val;
+            out->n_filtered++;
         } else {
             out->outliers_count++;
         }
     }
 
     if (out->n_filtered > 0) {
-        out->filtered_mean = sum_filt / (double)out->n_filtered;
-        double sorted_filt[BENCH_ITERS];
-        memcpy(sorted_filt, out->filtered_samples, out->n_filtered * sizeof(double));
-        qsort(sorted_filt, out->n_filtered, sizeof(double), compare_doubles);
-        if (out->n_filtered % 2 == 0) {
-            out->filtered_median = (sorted_filt[out->n_filtered / 2 - 1] + sorted_filt[out->n_filtered / 2]) / 2.0;
+        out->filtered_mean_sec = sum_filt / (double)out->n_filtered;
+
+        double sorted_filt_time[BENCH_ITERS];
+        double sorted_filt_tp[BENCH_ITERS];
+        memcpy(sorted_filt_time, out->filtered_samples, out->n_filtered * sizeof(double));
+        memcpy(sorted_filt_tp, out->filtered_tp_mbs, out->n_filtered * sizeof(double));
+        qsort(sorted_filt_time, out->n_filtered, sizeof(double), compare_doubles);
+        qsort(sorted_filt_tp, out->n_filtered, sizeof(double), compare_doubles);
+
+        int nf = out->n_filtered;
+        if (nf % 2 == 0) {
+            out->filtered_median_sec    = (sorted_filt_time[nf / 2 - 1] + sorted_filt_time[nf / 2]) / 2.0;
+            out->filtered_median_tp_mbs = (sorted_filt_tp[nf / 2 - 1] + sorted_filt_tp[nf / 2]) / 2.0;
         } else {
-            out->filtered_median = sorted_filt[out->n_filtered / 2];
+            out->filtered_median_sec    = sorted_filt_time[nf / 2];
+            out->filtered_median_tp_mbs = sorted_filt_tp[nf / 2];
         }
+
+        out->filtered_q1_tp_mbs = sorted_filt_tp[nf / 4];
+        out->filtered_q3_tp_mbs = sorted_filt_tp[(nf * 3) / 4];
+        out->filtered_iqr_tp_mbs = out->filtered_q3_tp_mbs - out->filtered_q1_tp_mbs;
+
         double sum_sq = 0.0;
         for (int i = 0; i < out->n_filtered; i++) {
-            double d = out->filtered_samples[i] - out->filtered_mean;
+            double d = out->filtered_samples[i] - out->filtered_mean_sec;
             sum_sq += d * d;
         }
-        out->filtered_stddev = sqrt(sum_sq / (double)out->n_filtered);
+        out->filtered_stddev_sec = sqrt(sum_sq / (double)out->n_filtered);
     } else {
-        out->filtered_mean = out->raw_mean;
-        out->filtered_median = out->raw_median;
-        out->filtered_stddev = 0.0;
+        out->filtered_mean_sec = out->raw_mean_sec;
+        out->filtered_median_sec = out->raw_median_sec;
+        out->filtered_median_tp_mbs = out->raw_median_tp_mbs;
+        out->filtered_iqr_tp_mbs = out->raw_iqr_tp_mbs;
+        out->filtered_stddev_sec = 0.0;
     }
 }
 
@@ -276,6 +335,7 @@ typedef struct {
     size_t orig_sz;
     size_t cmp_sz;
     double ratio_pct;
+    int has_comp_measurement; /* 1 if compression was timed, 0 for Strict CRC32 */
     int integrity_all_pass;
 
     stat_summary_t c_stat;
@@ -383,10 +443,10 @@ static int pre_flight_validate_float_codecs(void) {
 }
 
 /* ========================================================================= */
-/* Medicion de Latencias de Bloques (4 KiB y 64 KiB)                         */
+/* Medicion de Latencias de Bloques (4 KiB y 64 KiB) con Chequeo de Errores  */
 /* ========================================================================= */
 
-static void measure_latencies_generic(
+static int measure_latencies_generic(
     const uint8_t *src, size_t src_sz,
     size_t block_sz,
     int is_zstd, int zstd_level,
@@ -396,15 +456,19 @@ static void measure_latencies_generic(
     if (src_sz < block_sz) {
         *out_comp_us = 0.0;
         *out_decomp_us = 0.0;
-        return;
+        return 0;
     }
 
     int n_blocks = (int)(src_sz / block_sz);
-    if (n_blocks > 32) n_blocks = 32; /* Limit to 32 representative blocks */
-    if (n_blocks <= 0) return;
+    if (n_blocks > 32) n_blocks = 32;
+    if (n_blocks <= 0) return 0;
 
     uint8_t *cbuf = (uint8_t*)malloc(block_sz * 2 + 65536);
     uint8_t *dbuf = (uint8_t*)malloc(block_sz * 2 + 65536);
+    if (!cbuf || !dbuf) {
+        free(cbuf); free(dbuf);
+        return -1;
+    }
     double c_times[32], d_times[32];
 
     ZSTD_CCtx *zcctx = NULL;
@@ -414,6 +478,7 @@ static void measure_latencies_generic(
         zdctx = ZSTD_createDCtx();
     }
 
+    int success = 1;
     for (int b = 0; b < n_blocks; b++) {
         const uint8_t *blk = src + (b * block_sz);
         size_t c_sz = 0;
@@ -422,37 +487,54 @@ static void measure_latencies_generic(
         if (is_zstd) {
             ZSTD_CCtx_reset(zcctx, ZSTD_reset_session_only);
             c_sz = ZSTD_compressCCtx(zcctx, cbuf, block_sz * 2, blk, block_sz, zstd_level);
+            if (ZSTD_isError(c_sz)) { success = 0; break; }
         } else if (is_binpack) {
-            binpack_compress_into(blk, block_sz, cbuf, block_sz * 2, &c_sz, bp_opt);
+            binpack_status_t st = binpack_compress_into(blk, block_sz, cbuf, block_sz * 2, &c_sz, bp_opt);
+            if (st != BINPACK_OK || c_sz == 0) { success = 0; break; }
         } else {
             /* LZ4 */
             c_sz = (size_t)LZ4_compress_default((const char*)blk, (char*)cbuf, (int)block_sz, (int)(block_sz * 2));
+            if (c_sz == 0) { success = 0; break; }
         }
         uint64_t t1 = timer_now_ns();
-        c_times[b] = (double)(t1 - t0) / 1000.0; /* microseconds */
+        c_times[b] = (double)(t1 - t0) / 1000.0;
 
         size_t dec_sz = 0;
         uint64_t t2 = timer_now_ns();
         if (is_zstd) {
-            ZSTD_decompressDCtx(zdctx, dbuf, block_sz, cbuf, c_sz);
+            dec_sz = ZSTD_decompressDCtx(zdctx, dbuf, block_sz, cbuf, c_sz);
+            if (ZSTD_isError(dec_sz) || dec_sz != block_sz) { success = 0; break; }
         } else if (is_binpack) {
-            binpack_decompress_into(cbuf, c_sz, dbuf, block_sz, &dec_sz, 0);
+            binpack_status_t st = binpack_decompress_into(cbuf, c_sz, dbuf, block_sz, &dec_sz, 0);
+            if (st != BINPACK_OK || dec_sz != block_sz) { success = 0; break; }
         } else {
-            LZ4_decompress_safe((const char*)cbuf, (char*)dbuf, (int)c_sz, (int)block_sz);
+            int d_ret = LZ4_decompress_safe((const char*)cbuf, (char*)dbuf, (int)c_sz, (int)block_sz);
+            if (d_ret != (int)block_sz) { success = 0; break; }
+            dec_sz = (size_t)d_ret;
         }
         uint64_t t3 = timer_now_ns();
-        d_times[b] = (double)(t3 - t2) / 1000.0; /* microseconds */
+        d_times[b] = (double)(t3 - t2) / 1000.0;
+
+        if (memcmp(dbuf, blk, block_sz) != 0) {
+            success = 0;
+            break;
+        }
     }
 
-    qsort(c_times, n_blocks, sizeof(double), compare_doubles);
-    qsort(d_times, n_blocks, sizeof(double), compare_doubles);
-
-    *out_comp_us = c_times[n_blocks / 2];
-    *out_decomp_us = d_times[n_blocks / 2];
+    if (success) {
+        qsort(c_times, n_blocks, sizeof(double), compare_doubles);
+        qsort(d_times, n_blocks, sizeof(double), compare_doubles);
+        *out_comp_us = c_times[n_blocks / 2];
+        *out_decomp_us = d_times[n_blocks / 2];
+    } else {
+        *out_comp_us = 0.0;
+        *out_decomp_us = 0.0;
+    }
 
     if (zcctx) ZSTD_freeCCtx(zcctx);
     if (zdctx) ZSTD_freeDCtx(zdctx);
     free(cbuf); free(dbuf);
+    return success ? 0 : -1;
 }
 
 /* ========================================================================= */
@@ -464,31 +546,35 @@ static int run_lz4_fast(const uint8_t *src, size_t src_sz, bench_result_t *res) 
     size_t max_buf_sz = src_sz * 2 + 65536;
     uint8_t *comp_buf = (uint8_t*)malloc(max_buf_sz);
     uint8_t *decomp_buf = (uint8_t*)malloc(max_buf_sz);
+    if (!comp_buf || !decomp_buf) {
+        free(comp_buf); free(decomp_buf);
+        return -1;
+    }
     double c_samples[BENCH_ITERS], d_samples[BENCH_ITERS];
     size_t c_sz = 0;
     int all_pass = 1;
 
-    /* Uniform Warm-up: 1 un-timed round */
+    /* Uniform Warm-up */
     c_sz = (size_t)LZ4_compress_default((const char*)src, (char*)comp_buf, (int)src_sz, (int)max_buf_sz);
-    LZ4_decompress_safe((const char*)comp_buf, (char*)decomp_buf, (int)c_sz, (int)src_sz);
-    if (memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+    if (c_sz == 0) all_pass = 0;
+    int d_ret = LZ4_decompress_safe((const char*)comp_buf, (char*)decomp_buf, (int)c_sz, (int)src_sz);
+    if (d_ret != (int)src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
 
-    /* 20 Timed Compression Iterations */
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
         c_sz = (size_t)LZ4_compress_default((const char*)src, (char*)comp_buf, (int)src_sz, (int)max_buf_sz);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
+        if (c_sz == 0) all_pass = 0;
     }
 
-    /* 20 Timed Decompression Iterations with per-iteration memcmp verification */
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
-        LZ4_decompress_safe((const char*)comp_buf, (char*)decomp_buf, (int)c_sz, (int)src_sz);
+        d_ret = LZ4_decompress_safe((const char*)comp_buf, (char*)decomp_buf, (int)c_sz, (int)src_sz);
         uint64_t t1 = timer_now_ns();
         d_samples[i] = (double)(t1 - t0) / 1e9;
 
-        if (memcmp(decomp_buf, src, src_sz) != 0) {
+        if (d_ret != (int)src_sz || memcmp(decomp_buf, src, src_sz) != 0) {
             all_pass = 0;
         }
     }
@@ -496,9 +582,10 @@ static int run_lz4_fast(const uint8_t *src, size_t src_sz, bench_result_t *res) 
     res->orig_sz = src_sz;
     res->cmp_sz = c_sz;
     res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->has_comp_measurement = 1;
     res->integrity_all_pass = all_pass;
-    calc_stats(c_samples, BENCH_ITERS, &res->c_stat);
-    calc_stats(d_samples, BENCH_ITERS, &res->d_stat);
+    calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
+    calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
     measure_latencies_generic(src, src_sz, 4096, 0, 0, 0, NULL, &res->lat_4k_comp_us, &res->lat_4k_decomp_us);
     measure_latencies_generic(src, src_sz, 65536, 0, 0, 0, NULL, &res->lat_64k_comp_us, &res->lat_64k_decomp_us);
@@ -512,6 +599,10 @@ static int run_zstd_l1(const uint8_t *src, size_t src_sz, bench_result_t *res) {
     size_t max_buf_sz = src_sz * 2 + 65536;
     uint8_t *comp_buf = (uint8_t*)malloc(max_buf_sz);
     uint8_t *decomp_buf = (uint8_t*)malloc(max_buf_sz);
+    if (!comp_buf || !decomp_buf) {
+        free(comp_buf); free(decomp_buf);
+        return -1;
+    }
     double c_samples[BENCH_ITERS], d_samples[BENCH_ITERS];
     size_t c_sz = 0;
     int all_pass = 1;
@@ -522,8 +613,9 @@ static int run_zstd_l1(const uint8_t *src, size_t src_sz, bench_result_t *res) {
     /* Uniform Warm-up */
     ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
     c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 1);
-    ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
-    if (memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+    if (ZSTD_isError(c_sz)) all_pass = 0;
+    size_t dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
+    if (ZSTD_isError(dec_ret) || dec_ret != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
@@ -531,15 +623,16 @@ static int run_zstd_l1(const uint8_t *src, size_t src_sz, bench_result_t *res) {
         c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 1);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
+        if (ZSTD_isError(c_sz)) all_pass = 0;
     }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
-        ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
+        dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
         uint64_t t1 = timer_now_ns();
         d_samples[i] = (double)(t1 - t0) / 1e9;
 
-        if (memcmp(decomp_buf, src, src_sz) != 0) {
+        if (ZSTD_isError(dec_ret) || dec_ret != src_sz || memcmp(decomp_buf, src, src_sz) != 0) {
             all_pass = 0;
         }
     }
@@ -547,9 +640,10 @@ static int run_zstd_l1(const uint8_t *src, size_t src_sz, bench_result_t *res) {
     res->orig_sz = src_sz;
     res->cmp_sz = c_sz;
     res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->has_comp_measurement = 1;
     res->integrity_all_pass = all_pass;
-    calc_stats(c_samples, BENCH_ITERS, &res->c_stat);
-    calc_stats(d_samples, BENCH_ITERS, &res->d_stat);
+    calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
+    calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
     measure_latencies_generic(src, src_sz, 4096, 1, 1, 0, NULL, &res->lat_4k_comp_us, &res->lat_4k_decomp_us);
     measure_latencies_generic(src, src_sz, 65536, 1, 1, 0, NULL, &res->lat_64k_comp_us, &res->lat_64k_decomp_us);
@@ -564,6 +658,10 @@ static int run_binpack_fast_zerocrc(const uint8_t *src, size_t src_sz, bench_res
     size_t max_buf_sz = src_sz * 2 + 65536;
     uint8_t *comp_buf = (uint8_t*)malloc(max_buf_sz);
     uint8_t *decomp_buf = (uint8_t*)malloc(max_buf_sz);
+    if (!comp_buf || !decomp_buf) {
+        free(comp_buf); free(decomp_buf);
+        return -1;
+    }
     double c_samples[BENCH_ITERS], d_samples[BENCH_ITERS];
     size_t c_sz = 0;
     int all_pass = 1;
@@ -574,25 +672,27 @@ static int run_binpack_fast_zerocrc(const uint8_t *src, size_t src_sz, bench_res
     opt.clevel = 1;
 
     /* Uniform Warm-up */
-    binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
+    binpack_status_t st = binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
+    if (st != BINPACK_OK) all_pass = 0;
     size_t dec_sz = 0;
-    binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 0);
-    if (memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+    st = binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 0);
+    if (st != BINPACK_OK || dec_sz != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
-        binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
+        st = binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
+        if (st != BINPACK_OK) all_pass = 0;
     }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
-        binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 0 /* Zero-CRC */);
+        st = binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 0 /* Zero-CRC */);
         uint64_t t1 = timer_now_ns();
         d_samples[i] = (double)(t1 - t0) / 1e9;
 
-        if (memcmp(decomp_buf, src, src_sz) != 0) {
+        if (st != BINPACK_OK || dec_sz != src_sz || memcmp(decomp_buf, src, src_sz) != 0) {
             all_pass = 0;
         }
     }
@@ -600,9 +700,10 @@ static int run_binpack_fast_zerocrc(const uint8_t *src, size_t src_sz, bench_res
     res->orig_sz = src_sz;
     res->cmp_sz = c_sz;
     res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->has_comp_measurement = 1;
     res->integrity_all_pass = all_pass;
-    calc_stats(c_samples, BENCH_ITERS, &res->c_stat);
-    calc_stats(d_samples, BENCH_ITERS, &res->d_stat);
+    calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
+    calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
     measure_latencies_generic(src, src_sz, 4096, 0, 0, 1, &opt, &res->lat_4k_comp_us, &res->lat_4k_decomp_us);
     measure_latencies_generic(src, src_sz, 65536, 0, 0, 1, &opt, &res->lat_64k_comp_us, &res->lat_64k_decomp_us);
@@ -611,12 +712,16 @@ static int run_binpack_fast_zerocrc(const uint8_t *src, size_t src_sz, bench_res
     return all_pass ? 0 : -1;
 }
 
-/* 4. BinPack Strict CRC32 (Decompression Verification Path) */
+/* 4. BinPack Strict CRC32 (Decompression Verification Path — Compression marked N/A) */
 static int run_binpack_strict_crc32(const uint8_t *src, size_t src_sz, bench_result_t *res) {
     size_t max_buf_sz = src_sz * 2 + 65536;
     uint8_t *comp_buf = (uint8_t*)malloc(max_buf_sz);
     uint8_t *decomp_buf = (uint8_t*)malloc(max_buf_sz);
-    double c_samples[BENCH_ITERS], d_samples[BENCH_ITERS];
+    if (!comp_buf || !decomp_buf) {
+        free(comp_buf); free(decomp_buf);
+        return -1;
+    }
+    double d_samples[BENCH_ITERS];
     size_t c_sz = 0;
     int all_pass = 1;
 
@@ -625,23 +730,23 @@ static int run_binpack_strict_crc32(const uint8_t *src, size_t src_sz, bench_res
     opt.mode = BINPACK_MODE_RUNTIME;
     opt.clevel = 1;
 
-    /* Produce payload once */
-    binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
+    /* Produce payload once outside the timing window (Compression is N/A) */
+    binpack_status_t st = binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
+    if (st != BINPACK_OK) all_pass = 0;
 
-    /* Warm-up */
+    /* Uniform Warm-up of decompression */
     size_t dec_sz = 0;
-    binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1);
-    if (memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+    st = binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1);
+    if (st != BINPACK_OK || dec_sz != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
 
-    /* Measure decompression under CRC32 verification */
+    /* Timed 20 iterations of decompression under strict CRC32 */
     for (int i = 0; i < BENCH_ITERS; i++) {
-        c_samples[i] = 0.001; /* Sentinel */
         uint64_t t0 = timer_now_ns();
-        binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1 /* Strict CRC32 */);
+        st = binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1 /* Strict CRC32 */);
         uint64_t t1 = timer_now_ns();
         d_samples[i] = (double)(t1 - t0) / 1e9;
 
-        if (memcmp(decomp_buf, src, src_sz) != 0) {
+        if (st != BINPACK_OK || dec_sz != src_sz || memcmp(decomp_buf, src, src_sz) != 0) {
             all_pass = 0;
         }
     }
@@ -649,9 +754,10 @@ static int run_binpack_strict_crc32(const uint8_t *src, size_t src_sz, bench_res
     res->orig_sz = src_sz;
     res->cmp_sz = c_sz;
     res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->has_comp_measurement = 0; /* Compression is explicitly N/A! No fake sentinels! */
     res->integrity_all_pass = all_pass;
-    calc_stats(c_samples, BENCH_ITERS, &res->c_stat);
-    calc_stats(d_samples, BENCH_ITERS, &res->d_stat);
+    memset(&res->c_stat, 0, sizeof(res->c_stat));
+    calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
     free(comp_buf); free(decomp_buf);
     return all_pass ? 0 : -1;
@@ -661,6 +767,7 @@ static int run_binpack_strict_crc32(const uint8_t *src, size_t src_sz, bench_res
 static int run_binpack_convenience_api(const uint8_t *src, size_t src_sz, bench_result_t *res) {
     size_t max_buf_sz = src_sz * 2 + 65536;
     uint8_t *decomp_buf = (uint8_t*)malloc(max_buf_sz);
+    if (!decomp_buf) return -1;
     double c_samples[BENCH_ITERS], d_samples[BENCH_ITERS];
     void *out_dst = NULL;
     size_t c_sz = 0;
@@ -672,30 +779,32 @@ static int run_binpack_convenience_api(const uint8_t *src, size_t src_sz, bench_
     opt.clevel = 1;
 
     /* Warm-up */
-    binpack_compress_buffer(src, src_sz, &out_dst, &c_sz, &opt);
+    binpack_status_t st = binpack_compress_buffer(src, src_sz, &out_dst, &c_sz, &opt);
+    if (st != BINPACK_OK || !out_dst) all_pass = 0;
     if (out_dst) {
         size_t dec_sz = 0;
-        binpack_decompress_into(out_dst, c_sz, decomp_buf, src_sz, &dec_sz, 0);
-        if (memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+        st = binpack_decompress_into(out_dst, c_sz, decomp_buf, src_sz, &dec_sz, 0);
+        if (st != BINPACK_OK || dec_sz != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
         free(out_dst); out_dst = NULL;
     }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
-        binpack_compress_buffer(src, src_sz, &out_dst, &c_sz, &opt);
+        st = binpack_compress_buffer(src, src_sz, &out_dst, &c_sz, &opt);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
+        if (st != BINPACK_OK || !out_dst) all_pass = 0;
         if (i < BENCH_ITERS - 1 && out_dst) { free(out_dst); out_dst = NULL; }
     }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         size_t dec_sz = 0;
         uint64_t t0 = timer_now_ns();
-        binpack_decompress_into(out_dst, c_sz, decomp_buf, src_sz, &dec_sz, 0);
+        st = binpack_decompress_into(out_dst, c_sz, decomp_buf, src_sz, &dec_sz, 0);
         uint64_t t1 = timer_now_ns();
         d_samples[i] = (double)(t1 - t0) / 1e9;
 
-        if (memcmp(decomp_buf, src, src_sz) != 0) {
+        if (st != BINPACK_OK || dec_sz != src_sz || memcmp(decomp_buf, src, src_sz) != 0) {
             all_pass = 0;
         }
     }
@@ -704,9 +813,10 @@ static int run_binpack_convenience_api(const uint8_t *src, size_t src_sz, bench_
     res->orig_sz = src_sz;
     res->cmp_sz = c_sz;
     res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->has_comp_measurement = 1;
     res->integrity_all_pass = all_pass;
-    calc_stats(c_samples, BENCH_ITERS, &res->c_stat);
-    calc_stats(d_samples, BENCH_ITERS, &res->d_stat);
+    calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
+    calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
     free(decomp_buf);
     return all_pass ? 0 : -1;
@@ -717,6 +827,10 @@ static int run_zstd_l19(const uint8_t *src, size_t src_sz, bench_result_t *res) 
     size_t max_buf_sz = src_sz * 2 + 65536;
     uint8_t *comp_buf = (uint8_t*)malloc(max_buf_sz);
     uint8_t *decomp_buf = (uint8_t*)malloc(max_buf_sz);
+    if (!comp_buf || !decomp_buf) {
+        free(comp_buf); free(decomp_buf);
+        return -1;
+    }
     double c_samples[BENCH_ITERS], d_samples[BENCH_ITERS];
     size_t c_sz = 0;
     int all_pass = 1;
@@ -729,8 +843,9 @@ static int run_zstd_l19(const uint8_t *src, size_t src_sz, bench_result_t *res) 
     /* Warm-up */
     ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
     c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 19);
-    ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
-    if (memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+    if (ZSTD_isError(c_sz)) all_pass = 0;
+    size_t dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
+    if (ZSTD_isError(dec_ret) || dec_ret != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
@@ -738,15 +853,16 @@ static int run_zstd_l19(const uint8_t *src, size_t src_sz, bench_result_t *res) 
         c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 19);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
+        if (ZSTD_isError(c_sz)) all_pass = 0;
     }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
-        ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
+        dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
         uint64_t t1 = timer_now_ns();
         d_samples[i] = (double)(t1 - t0) / 1e9;
 
-        if (memcmp(decomp_buf, src, src_sz) != 0) {
+        if (ZSTD_isError(dec_ret) || dec_ret != src_sz || memcmp(decomp_buf, src, src_sz) != 0) {
             all_pass = 0;
         }
     }
@@ -754,9 +870,10 @@ static int run_zstd_l19(const uint8_t *src, size_t src_sz, bench_result_t *res) 
     res->orig_sz = src_sz;
     res->cmp_sz = c_sz;
     res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->has_comp_measurement = 1;
     res->integrity_all_pass = all_pass;
-    calc_stats(c_samples, BENCH_ITERS, &res->c_stat);
-    calc_stats(d_samples, BENCH_ITERS, &res->d_stat);
+    calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
+    calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
     ZSTD_freeCCtx(cctx); ZSTD_freeDCtx(dctx);
     free(comp_buf); free(decomp_buf);
@@ -768,6 +885,10 @@ static int run_binpack_default_l19(const uint8_t *src, size_t src_sz, bench_resu
     size_t max_buf_sz = src_sz * 2 + 65536;
     uint8_t *comp_buf = (uint8_t*)malloc(max_buf_sz);
     uint8_t *decomp_buf = (uint8_t*)malloc(max_buf_sz);
+    if (!comp_buf || !decomp_buf) {
+        free(comp_buf); free(decomp_buf);
+        return -1;
+    }
     double c_samples[BENCH_ITERS], d_samples[BENCH_ITERS];
     size_t c_sz = 0;
     int all_pass = 1;
@@ -778,25 +899,27 @@ static int run_binpack_default_l19(const uint8_t *src, size_t src_sz, bench_resu
     opt.clevel = 19;
 
     /* Warm-up */
-    binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
+    binpack_status_t st = binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
+    if (st != BINPACK_OK) all_pass = 0;
     size_t dec_sz = 0;
-    binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1);
-    if (memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+    st = binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1);
+    if (st != BINPACK_OK || dec_sz != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
-        binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
+        st = binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
+        if (st != BINPACK_OK) all_pass = 0;
     }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
-        binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1);
+        st = binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1);
         uint64_t t1 = timer_now_ns();
         d_samples[i] = (double)(t1 - t0) / 1e9;
 
-        if (memcmp(decomp_buf, src, src_sz) != 0) {
+        if (st != BINPACK_OK || dec_sz != src_sz || memcmp(decomp_buf, src, src_sz) != 0) {
             all_pass = 0;
         }
     }
@@ -804,9 +927,10 @@ static int run_binpack_default_l19(const uint8_t *src, size_t src_sz, bench_resu
     res->orig_sz = src_sz;
     res->cmp_sz = c_sz;
     res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->has_comp_measurement = 1;
     res->integrity_all_pass = all_pass;
-    calc_stats(c_samples, BENCH_ITERS, &res->c_stat);
-    calc_stats(d_samples, BENCH_ITERS, &res->d_stat);
+    calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
+    calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
     free(comp_buf); free(decomp_buf);
     return all_pass ? 0 : -1;
@@ -817,6 +941,10 @@ static int run_tier3_ruta_a(const uint8_t *src, size_t src_sz, bench_result_t *r
     size_t max_buf_sz = src_sz * 2 + 65536;
     uint8_t *comp_buf = (uint8_t*)malloc(max_buf_sz);
     uint8_t *decomp_buf = (uint8_t*)malloc(max_buf_sz);
+    if (!comp_buf || !decomp_buf) {
+        free(comp_buf); free(decomp_buf);
+        return -1;
+    }
     double c_samples[BENCH_ITERS], d_samples[BENCH_ITERS];
     size_t c_sz = 0;
     int all_pass = 1;
@@ -826,36 +954,38 @@ static int run_tier3_ruta_a(const uint8_t *src, size_t src_sz, bench_result_t *r
 
     /* Warm-up */
     size_t dst_len = max_buf_sz - LZMA_PROPS_SIZE;
-    LzmaCompress(comp_buf + LZMA_PROPS_SIZE, &dst_len, src, src_sz,
-                 props, &props_sz, 9, 1 << 25, 3, 0, 2, 32, 1);
+    int lz_ret = LzmaCompress(comp_buf + LZMA_PROPS_SIZE, &dst_len, src, src_sz,
+                              props, &props_sz, 9, 1 << 25, 3, 0, 2, 32, 1);
+    if (lz_ret != SZ_OK) all_pass = 0;
     c_sz = dst_len + LZMA_PROPS_SIZE;
     size_t uncmp_len = src_sz;
     size_t src_processed = dst_len;
-    LzmaUncompress(decomp_buf, &uncmp_len, comp_buf + LZMA_PROPS_SIZE, &src_processed,
-                   props, props_sz);
-    if (memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+    lz_ret = LzmaUncompress(decomp_buf, &uncmp_len, comp_buf + LZMA_PROPS_SIZE, &src_processed,
+                            props, props_sz);
+    if (lz_ret != SZ_OK || uncmp_len != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         dst_len = max_buf_sz - LZMA_PROPS_SIZE;
         props_sz = LZMA_PROPS_SIZE;
         uint64_t t0 = timer_now_ns();
-        LzmaCompress(comp_buf + LZMA_PROPS_SIZE, &dst_len, src, src_sz,
-                     props, &props_sz, 9, 1 << 25, 3, 0, 2, 32, 1);
+        lz_ret = LzmaCompress(comp_buf + LZMA_PROPS_SIZE, &dst_len, src, src_sz,
+                              props, &props_sz, 9, 1 << 25, 3, 0, 2, 32, 1);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
         c_sz = dst_len + LZMA_PROPS_SIZE;
+        if (lz_ret != SZ_OK) all_pass = 0;
     }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uncmp_len = src_sz;
         src_processed = c_sz - LZMA_PROPS_SIZE;
         uint64_t t0 = timer_now_ns();
-        LzmaUncompress(decomp_buf, &uncmp_len, comp_buf + LZMA_PROPS_SIZE, &src_processed,
-                       props, props_sz);
+        lz_ret = LzmaUncompress(decomp_buf, &uncmp_len, comp_buf + LZMA_PROPS_SIZE, &src_processed,
+                                props, props_sz);
         uint64_t t1 = timer_now_ns();
         d_samples[i] = (double)(t1 - t0) / 1e9;
 
-        if (memcmp(decomp_buf, src, src_sz) != 0) {
+        if (lz_ret != SZ_OK || uncmp_len != src_sz || memcmp(decomp_buf, src, src_sz) != 0) {
             all_pass = 0;
         }
     }
@@ -863,9 +993,10 @@ static int run_tier3_ruta_a(const uint8_t *src, size_t src_sz, bench_result_t *r
     res->orig_sz = src_sz;
     res->cmp_sz = c_sz;
     res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->has_comp_measurement = 1;
     res->integrity_all_pass = all_pass;
-    calc_stats(c_samples, BENCH_ITERS, &res->c_stat);
-    calc_stats(d_samples, BENCH_ITERS, &res->d_stat);
+    calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
+    calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
     free(comp_buf); free(decomp_buf);
     return all_pass ? 0 : -1;
@@ -877,6 +1008,10 @@ static int run_tier3_ruta_b(const uint8_t *src, size_t src_sz, bench_result_t *r
     uint8_t *bcj_work = (uint8_t*)malloc(max_buf_sz);
     uint8_t *comp_buf = (uint8_t*)malloc(max_buf_sz);
     uint8_t *decomp_buf = (uint8_t*)malloc(max_buf_sz);
+    if (!bcj_work || !comp_buf || !decomp_buf) {
+        free(bcj_work); free(comp_buf); free(decomp_buf);
+        return -1;
+    }
     double c_samples[BENCH_ITERS], d_samples[BENCH_ITERS];
     size_t c_sz = 0;
     int all_pass = 1;
@@ -888,15 +1023,16 @@ static int run_tier3_ruta_b(const uint8_t *src, size_t src_sz, bench_result_t *r
     memcpy(bcj_work, src, src_sz);
     ARM_Convert(bcj_work, src_sz, 0, 1 /* forward encoding */);
     size_t dst_len = max_buf_sz - LZMA_PROPS_SIZE;
-    LzmaCompress(comp_buf + LZMA_PROPS_SIZE, &dst_len, bcj_work, src_sz,
-                 props, &props_sz, 9, 1 << 25, 3, 0, 2, 32, 1);
+    int lz_ret = LzmaCompress(comp_buf + LZMA_PROPS_SIZE, &dst_len, bcj_work, src_sz,
+                              props, &props_sz, 9, 1 << 25, 3, 0, 2, 32, 1);
+    if (lz_ret != SZ_OK) all_pass = 0;
     c_sz = dst_len + LZMA_PROPS_SIZE;
     size_t uncmp_len = src_sz;
     size_t src_processed = dst_len;
-    LzmaUncompress(decomp_buf, &uncmp_len, comp_buf + LZMA_PROPS_SIZE, &src_processed,
-                   props, props_sz);
+    lz_ret = LzmaUncompress(decomp_buf, &uncmp_len, comp_buf + LZMA_PROPS_SIZE, &src_processed,
+                            props, props_sz);
     ARM_Convert(decomp_buf, src_sz, 0, 0 /* inverse decoding */);
-    if (memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+    if (lz_ret != SZ_OK || uncmp_len != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         memcpy(bcj_work, src, src_sz);
@@ -904,24 +1040,25 @@ static int run_tier3_ruta_b(const uint8_t *src, size_t src_sz, bench_result_t *r
         props_sz = LZMA_PROPS_SIZE;
         uint64_t t0 = timer_now_ns();
         ARM_Convert(bcj_work, src_sz, 0, 1);
-        LzmaCompress(comp_buf + LZMA_PROPS_SIZE, &dst_len, bcj_work, src_sz,
-                     props, &props_sz, 9, 1 << 25, 3, 0, 2, 32, 1);
+        lz_ret = LzmaCompress(comp_buf + LZMA_PROPS_SIZE, &dst_len, bcj_work, src_sz,
+                              props, &props_sz, 9, 1 << 25, 3, 0, 2, 32, 1);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
         c_sz = dst_len + LZMA_PROPS_SIZE;
+        if (lz_ret != SZ_OK) all_pass = 0;
     }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uncmp_len = src_sz;
         src_processed = c_sz - LZMA_PROPS_SIZE;
         uint64_t t0 = timer_now_ns();
-        LzmaUncompress(decomp_buf, &uncmp_len, comp_buf + LZMA_PROPS_SIZE, &src_processed,
-                       props, props_sz);
+        lz_ret = LzmaUncompress(decomp_buf, &uncmp_len, comp_buf + LZMA_PROPS_SIZE, &src_processed,
+                                props, props_sz);
         ARM_Convert(decomp_buf, src_sz, 0, 0);
         uint64_t t1 = timer_now_ns();
         d_samples[i] = (double)(t1 - t0) / 1e9;
 
-        if (memcmp(decomp_buf, src, src_sz) != 0) {
+        if (lz_ret != SZ_OK || uncmp_len != src_sz || memcmp(decomp_buf, src, src_sz) != 0) {
             all_pass = 0;
         }
     }
@@ -929,9 +1066,10 @@ static int run_tier3_ruta_b(const uint8_t *src, size_t src_sz, bench_result_t *r
     res->orig_sz = src_sz;
     res->cmp_sz = c_sz;
     res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->has_comp_measurement = 1;
     res->integrity_all_pass = all_pass;
-    calc_stats(c_samples, BENCH_ITERS, &res->c_stat);
-    calc_stats(d_samples, BENCH_ITERS, &res->d_stat);
+    calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
+    calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
     free(bcj_work); free(comp_buf); free(decomp_buf);
     return all_pass ? 0 : -1;
@@ -942,6 +1080,10 @@ static int run_tier3_ruta_c(const uint8_t *src, size_t src_sz, bench_result_t *r
     size_t max_buf_sz = src_sz * 2 + 65536;
     uint8_t *comp_buf = (uint8_t*)malloc(max_buf_sz);
     uint8_t *decomp_buf = (uint8_t*)malloc(max_buf_sz);
+    if (!comp_buf || !decomp_buf) {
+        free(comp_buf); free(decomp_buf);
+        return -1;
+    }
     double c_samples[BENCH_ITERS], d_samples[BENCH_ITERS];
     size_t c_sz = 0;
     int all_pass = 1;
@@ -952,25 +1094,27 @@ static int run_tier3_ruta_c(const uint8_t *src, size_t src_sz, bench_result_t *r
     opt.clevel = 19;
 
     /* Warm-up */
-    binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
+    binpack_status_t st = binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
+    if (st != BINPACK_OK) all_pass = 0;
     size_t dec_sz = 0;
-    binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1);
-    if (memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+    st = binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1);
+    if (st != BINPACK_OK || dec_sz != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
-        binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
+        st = binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
+        if (st != BINPACK_OK) all_pass = 0;
     }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
-        binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1);
+        st = binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1);
         uint64_t t1 = timer_now_ns();
         d_samples[i] = (double)(t1 - t0) / 1e9;
 
-        if (memcmp(decomp_buf, src, src_sz) != 0) {
+        if (st != BINPACK_OK || dec_sz != src_sz || memcmp(decomp_buf, src, src_sz) != 0) {
             all_pass = 0;
         }
     }
@@ -978,9 +1122,10 @@ static int run_tier3_ruta_c(const uint8_t *src, size_t src_sz, bench_result_t *r
     res->orig_sz = src_sz;
     res->cmp_sz = c_sz;
     res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->has_comp_measurement = 1;
     res->integrity_all_pass = all_pass;
-    calc_stats(c_samples, BENCH_ITERS, &res->c_stat);
-    calc_stats(d_samples, BENCH_ITERS, &res->d_stat);
+    calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
+    calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
     free(comp_buf); free(decomp_buf);
     return all_pass ? 0 : -1;
@@ -993,12 +1138,17 @@ static int run_gorilla_f32(const uint8_t *src, size_t src_sz, bench_result_t *re
     size_t max_buf_sz = src_sz * 2 + 65536;
     uint8_t *comp_buf = (uint8_t*)malloc(max_buf_sz);
     float *dec_f = (float*)malloc(n_floats * sizeof(float));
+    if (!comp_buf || !dec_f) {
+        free(comp_buf); free(dec_f);
+        return -1;
+    }
     double c_samples[BENCH_ITERS], d_samples[BENCH_ITERS];
     size_t c_sz = 0;
     int all_pass = 1;
 
     /* Warm-up */
     c_sz = gorilla_compress_f32(src_f, n_floats, comp_buf, max_buf_sz);
+    if (c_sz == 0) all_pass = 0;
     gorilla_decompress_f32(comp_buf, c_sz, dec_f, n_floats);
     if (memcmp(dec_f, src_f, src_sz) != 0) all_pass = 0;
 
@@ -1007,6 +1157,7 @@ static int run_gorilla_f32(const uint8_t *src, size_t src_sz, bench_result_t *re
         c_sz = gorilla_compress_f32(src_f, n_floats, comp_buf, max_buf_sz);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
+        if (c_sz == 0) all_pass = 0;
     }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
@@ -1023,9 +1174,10 @@ static int run_gorilla_f32(const uint8_t *src, size_t src_sz, bench_result_t *re
     res->orig_sz = src_sz;
     res->cmp_sz = c_sz;
     res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->has_comp_measurement = 1;
     res->integrity_all_pass = all_pass;
-    calc_stats(c_samples, BENCH_ITERS, &res->c_stat);
-    calc_stats(d_samples, BENCH_ITERS, &res->d_stat);
+    calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
+    calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
     free(comp_buf); free(dec_f);
     return all_pass ? 0 : -1;
@@ -1038,12 +1190,17 @@ static int run_chimp_f32(const uint8_t *src, size_t src_sz, bench_result_t *res)
     size_t max_buf_sz = src_sz * 2 + 65536;
     uint8_t *comp_buf = (uint8_t*)malloc(max_buf_sz);
     float *dec_f = (float*)malloc(n_floats * sizeof(float));
+    if (!comp_buf || !dec_f) {
+        free(comp_buf); free(dec_f);
+        return -1;
+    }
     double c_samples[BENCH_ITERS], d_samples[BENCH_ITERS];
     size_t c_sz = 0;
     int all_pass = 1;
 
     /* Warm-up */
     c_sz = chimp_compress_f32(src_f, n_floats, comp_buf, max_buf_sz);
+    if (c_sz == 0) all_pass = 0;
     chimp_decompress_f32(comp_buf, c_sz, dec_f, n_floats);
     if (memcmp(dec_f, src_f, src_sz) != 0) all_pass = 0;
 
@@ -1052,6 +1209,7 @@ static int run_chimp_f32(const uint8_t *src, size_t src_sz, bench_result_t *res)
         c_sz = chimp_compress_f32(src_f, n_floats, comp_buf, max_buf_sz);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
+        if (c_sz == 0) all_pass = 0;
     }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
@@ -1068,9 +1226,10 @@ static int run_chimp_f32(const uint8_t *src, size_t src_sz, bench_result_t *res)
     res->orig_sz = src_sz;
     res->cmp_sz = c_sz;
     res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->has_comp_measurement = 1;
     res->integrity_all_pass = all_pass;
-    calc_stats(c_samples, BENCH_ITERS, &res->c_stat);
-    calc_stats(d_samples, BENCH_ITERS, &res->d_stat);
+    calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
+    calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
     free(comp_buf); free(dec_f);
     return all_pass ? 0 : -1;
@@ -1081,6 +1240,10 @@ static int run_binpack_transpose_f32(const uint8_t *src, size_t src_sz, bench_re
     size_t max_buf_sz = src_sz * 2 + 65536;
     uint8_t *comp_buf = (uint8_t*)malloc(max_buf_sz);
     uint8_t *decomp_buf = (uint8_t*)malloc(max_buf_sz);
+    if (!comp_buf || !decomp_buf) {
+        free(comp_buf); free(decomp_buf);
+        return -1;
+    }
     double c_samples[BENCH_ITERS], d_samples[BENCH_ITERS];
     size_t c_sz = 0;
     int all_pass = 1;
@@ -1093,25 +1256,27 @@ static int run_binpack_transpose_f32(const uint8_t *src, size_t src_sz, bench_re
     opt.clevel = 19;
 
     /* Warm-up */
-    binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
+    binpack_status_t st = binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
+    if (st != BINPACK_OK) all_pass = 0;
     size_t dec_sz = 0;
-    binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1);
-    if (memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+    st = binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1);
+    if (st != BINPACK_OK || dec_sz != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
-        binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
+        st = binpack_compress_into(src, src_sz, comp_buf, max_buf_sz, &c_sz, &opt);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
+        if (st != BINPACK_OK) all_pass = 0;
     }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
-        binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1);
+        st = binpack_decompress_into(comp_buf, c_sz, decomp_buf, src_sz, &dec_sz, 1);
         uint64_t t1 = timer_now_ns();
         d_samples[i] = (double)(t1 - t0) / 1e9;
 
-        if (memcmp(decomp_buf, src, src_sz) != 0) {
+        if (st != BINPACK_OK || dec_sz != src_sz || memcmp(decomp_buf, src, src_sz) != 0) {
             all_pass = 0;
         }
     }
@@ -1119,9 +1284,10 @@ static int run_binpack_transpose_f32(const uint8_t *src, size_t src_sz, bench_re
     res->orig_sz = src_sz;
     res->cmp_sz = c_sz;
     res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->has_comp_measurement = 1;
     res->integrity_all_pass = all_pass;
-    calc_stats(c_samples, BENCH_ITERS, &res->c_stat);
-    calc_stats(d_samples, BENCH_ITERS, &res->d_stat);
+    calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
+    calc_stats(d_samples, BENCH_ITERS, src_sz, &res->d_stat);
 
     free(comp_buf); free(decomp_buf);
     return all_pass ? 0 : -1;
@@ -1141,89 +1307,130 @@ static int run_engine_isolated(
     bench_result_t *shm = (bench_result_t*)mmap(NULL, sizeof(bench_result_t),
         PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     if (shm == MAP_FAILED) {
-        fprintf(stderr, "[ERROR] mmap failed for IPC: %s\n", strerror(errno));
+        fprintf(stderr, "[FATAL] mmap failed for IPC: %s\n", strerror(errno));
         return -1;
     }
     memset(shm, 0, sizeof(bench_result_t));
 
     pid_t pid = fork();
     if (pid < 0) {
-        fprintf(stderr, "[ERROR] fork failed: %s\n", strerror(errno));
+        fprintf(stderr, "[FATAL] fork failed: %s\n", strerror(errno));
         munmap(shm, sizeof(bench_result_t));
         return -1;
     }
 
     if (pid == 0) {
-        /* Child Process: Set CPU Affinity */
+        /* Child Process: Set CPU Affinity and verify */
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
         CPU_SET(aff->logical_id, &cpuset);
-        sched_setaffinity(0, sizeof(cpu_set_t), &cpuset);
+        if (sched_setaffinity(0, sizeof(cpu_set_t), &cpuset) != 0) {
+            fprintf(stderr, "[CHILD ERROR] sched_setaffinity failed: %s\n", strerror(errno));
+            _exit(2);
+        }
+        cpu_set_t verify_set;
+        CPU_ZERO(&verify_set);
+        if (sched_getaffinity(0, sizeof(cpu_set_t), &verify_set) != 0 || !CPU_ISSET(aff->logical_id, &verify_set)) {
+            fprintf(stderr, "[CHILD ERROR] sched_getaffinity verification failed in child\n");
+            _exit(3);
+        }
 
-        /* Execute benchmark function */
-        cfg->run_fn(src, src_sz, shm);
+        /* Execute benchmark function and propagate exit code */
+        int run_ret = cfg->run_fn(src, src_sz, shm);
+        if (run_ret != 0 || !shm->integrity_all_pass) {
+            _exit(1);
+        }
         _exit(0);
     }
 
-    /* Parent Process: wait for child and capture isolated resource usage */
+    /* Parent Process: wait for child and check status */
     int status = 0;
     struct rusage ru;
     memset(&ru, 0, sizeof(ru));
-    wait4(pid, &status, 0, &ru);
+    pid_t w = wait4(pid, &status, 0, &ru);
+    if (w < 0) {
+        fprintf(stderr, "[FATAL] wait4 failed: %s\n", strerror(errno));
+        munmap(shm, sizeof(bench_result_t));
+        return -1;
+    }
 
-    shm->peak_rss_kb = (size_t)ru.ru_maxrss; /* Kernel-measured isolated RSS */
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "[FATAL] Engine '%s' child process failed (exit status %d, signal %d)\n",
+                cfg->engine_id, WEXITSTATUS(status), WIFSIGNALED(status) ? WTERMSIG(status) : 0);
+        munmap(shm, sizeof(bench_result_t));
+        return -1;
+    }
+
+    if (!shm->integrity_all_pass) {
+        fprintf(stderr, "[FATAL] Engine '%s' failed bit-exact integrity checks\n", cfg->engine_id);
+        munmap(shm, sizeof(bench_result_t));
+        return -1;
+    }
+
+    shm->peak_rss_kb = (size_t)ru.ru_maxrss; /* Kernel-measured isolated RSS of child process */
     memcpy(out_res, shm, sizeof(bench_result_t));
     munmap(shm, sizeof(bench_result_t));
     return 0;
 #else
-    /* Fallback on non-Linux platforms */
-    cfg->run_fn(src, src_sz, out_res);
+    /* Windows in-process execution with memory tracking */
+    int ret = cfg->run_fn(src, src_sz, out_res);
     PROCESS_MEMORY_COUNTERS pmc;
     if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
         out_res->peak_rss_kb = pmc.PeakWorkingSetSize / 1024;
     }
-    return 0;
+    return ret;
 #endif
 }
 
 /* ========================================================================= */
-/* Registro en Archivo CSV Crudo (BP-008C-R1)                                */
+/* Registro en Archivo CSV Crudo (BP-008C-R2)                                */
 /* ========================================================================= */
 
 static FILE *g_csv_file = NULL;
 
-static void log_csv_record_r1(
+static void log_csv_record_r2(
     const char *tier, const char *dataset, const char *engine,
     const bench_result_t *res, uint32_t seed
 ) {
     if (!g_csv_file) return;
 
-    double c_raw_mbs  = (double)res->orig_sz / (1e6 * res->c_stat.raw_median);
-    double c_filt_mbs = (double)res->orig_sz / (1e6 * res->c_stat.filtered_median);
-    double c_iqr_mbs  = (res->c_stat.raw_iqr > 0) ? (res->c_stat.raw_iqr / res->c_stat.raw_median) * c_raw_mbs : 0.0;
-
-    double d_raw_mbs  = (double)res->orig_sz / (1e6 * res->d_stat.raw_median);
-    double d_filt_mbs = (double)res->orig_sz / (1e6 * res->d_stat.filtered_median);
-    double d_iqr_mbs  = (res->d_stat.raw_iqr > 0) ? (res->d_stat.raw_iqr / res->d_stat.raw_median) * d_raw_mbs : 0.0;
-
-    fprintf(g_csv_file,
-            "%s,%s,%s,%zu,%zu,%.3f,"
-            "%.2f,%.2f,%.2f,%d,"
-            "%.2f,%.2f,%.2f,%d,"
-            "%.4f,%.4f,"
-            "%.2f,%.2f,%.2f,%.2f,"
-            "%zu,%s,%u",
-            tier, dataset, engine, res->orig_sz, res->cmp_sz, res->ratio_pct,
-            c_raw_mbs, c_filt_mbs, c_iqr_mbs, res->c_stat.outliers_count,
-            d_raw_mbs, d_filt_mbs, d_iqr_mbs, res->d_stat.outliers_count,
-            res->c_stat.filtered_median * 1000.0, res->d_stat.filtered_median * 1000.0,
-            res->lat_4k_comp_us, res->lat_4k_decomp_us,
-            res->lat_64k_comp_us, res->lat_64k_decomp_us,
-            res->peak_rss_kb, res->integrity_all_pass ? "PASS" : "FAIL", seed);
+    if (res->has_comp_measurement) {
+        fprintf(g_csv_file,
+                "%s,%s,%s,%zu,%zu,%.3f,"
+                "%.2f,%.2f,%.2f,%d,"
+                "%.2f,%.2f,%.2f,%d,"
+                "%.4f,%.4f,"
+                "%.2f,%.2f,%.2f,%.2f,"
+                "%zu,%s,%u",
+                tier, dataset, engine, res->orig_sz, res->cmp_sz, res->ratio_pct,
+                res->c_stat.raw_median_tp_mbs, res->c_stat.filtered_median_tp_mbs,
+                res->c_stat.filtered_iqr_tp_mbs, res->c_stat.outliers_count,
+                res->d_stat.raw_median_tp_mbs, res->d_stat.filtered_median_tp_mbs,
+                res->d_stat.filtered_iqr_tp_mbs, res->d_stat.outliers_count,
+                res->c_stat.filtered_median_sec * 1000.0, res->d_stat.filtered_median_sec * 1000.0,
+                res->lat_4k_comp_us, res->lat_4k_decomp_us,
+                res->lat_64k_comp_us, res->lat_64k_decomp_us,
+                res->peak_rss_kb, res->integrity_all_pass ? "PASS" : "FAIL", seed);
+    } else {
+        /* Compression is explicitly N/A (Strict CRC32 decompression evaluation) */
+        fprintf(g_csv_file,
+                "%s,%s,%s,%zu,%zu,%.3f,"
+                "N/A,N/A,N/A,0,"
+                "%.2f,%.2f,%.2f,%d,"
+                "N/A,%.4f,"
+                "N/A,%.2f,N/A,%.2f,"
+                "%zu,%s,%u",
+                tier, dataset, engine, res->orig_sz, res->cmp_sz, res->ratio_pct,
+                res->d_stat.raw_median_tp_mbs, res->d_stat.filtered_median_tp_mbs,
+                res->d_stat.filtered_iqr_tp_mbs, res->d_stat.outliers_count,
+                res->d_stat.filtered_median_sec * 1000.0,
+                res->lat_4k_decomp_us, res->lat_64k_decomp_us,
+                res->peak_rss_kb, res->integrity_all_pass ? "PASS" : "FAIL", seed);
+    }
 
     /* Export 20 raw samples for compression */
     for (int i = 0; i < BENCH_ITERS; i++) {
-        fprintf(g_csv_file, ",%.6f", res->c_stat.raw_samples[i]);
+        fprintf(g_csv_file, ",%.6f", res->has_comp_measurement ? res->c_stat.raw_samples[i] : 0.0);
     }
     /* Export 20 raw samples for decompression */
     for (int i = 0; i < BENCH_ITERS; i++) {
@@ -1234,7 +1441,7 @@ static void log_csv_record_r1(
 }
 
 /* ========================================================================= */
-/* Punto de Entrada Principal (BP-008C-R1)                                   */
+/* Punto de Entrada Principal (BP-008C-R2)                                   */
 /* ========================================================================= */
 
 int main(int argc, char **argv) {
@@ -1253,7 +1460,7 @@ int main(int argc, char **argv) {
     }
 
     printf("==================================================================================================================================\n");
-    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008C-R1)\n");
+    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008C-R2)\n");
     printf("Hardware Topology: Logical Core %d (Core ID %d) | %s\n",
            aff.logical_id, aff.core_id, aff.description);
     printf("Execution Seed: %u (Fisher-Yates Randomized Suite) | Isolated Memory per Subprocess (fork/wait4)\n", seed);
@@ -1261,7 +1468,7 @@ int main(int argc, char **argv) {
            ZSTD_versionString(), ZSTD_versionNumber(),
            LZ4_versionString(), LZ4_versionNumber(),
            binpack_version_string());
-    printf("Protocol: 1 Warm-up + 20 Timed Iterations | Tukey's Rule Outlier Removal | Decimal MB/s (10^6 B/s)\n");
+    printf("Protocol: 1 Warm-up + 20 Timed Iterations | Tukey Outlier Rule | Decimal MB/s (10^6 B/s) Directly from Samples\n");
     printf("==================================================================================================================================\n\n");
     fflush(stdout);
 
@@ -1270,9 +1477,9 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    g_csv_file = fopen("docs/audit/decisive_benchmark_raw_r1.csv", "w");
+    g_csv_file = fopen("docs/audit/decisive_benchmark_raw_r2.csv", "w");
     if (!g_csv_file) {
-        g_csv_file = fopen("decisive_benchmark_raw_r1.csv", "w");
+        g_csv_file = fopen("decisive_benchmark_raw_r2.csv", "w");
     }
     if (g_csv_file) {
         fprintf(g_csv_file,
@@ -1307,13 +1514,13 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    /* Also extract a single sensor channel (Channel 0, de-interleaved) from NASA telemetry */
+    /* Extract Single Sensor Channel 0 (de-interleaved) from NASA telemetry */
     size_t n_total_floats = sz_tf / sizeof(float);
     size_t n_ch_floats = n_total_floats / 24;
     float *d_tf_ch0 = (float*)malloc(n_ch_floats * sizeof(float));
     const float *all_floats = (const float*)d_tf;
     for (size_t i = 0; i < n_ch_floats; i++) {
-        d_tf_ch0[i] = all_floats[i * 24]; /* Sensor 0 */
+        d_tf_ch0[i] = all_floats[i * 24];
     }
     size_t sz_tf_ch0 = n_ch_floats * sizeof(float);
 
@@ -1347,7 +1554,6 @@ int main(int argc, char **argv) {
         };
         int n_arm = sizeof(engines_arm) / sizeof(engines_arm[0]);
 
-        /* Shuffle engines */
         engine_config_t *shuffled[16];
         for (int i = 0; i < n_arm; i++) shuffled[i] = &engines_arm[i];
         for (int i = n_arm - 1; i > 0; i--) {
@@ -1360,23 +1566,30 @@ int main(int argc, char **argv) {
         for (int e = 0; e < n_arm; e++) {
             engine_config_t *cur_e = shuffled[e];
             bench_result_t res;
-            run_engine_isolated(cur_e, d_arm, sz_arm, &aff, &res);
+            if (run_engine_isolated(cur_e, d_arm, sz_arm, &aff, &res) != 0) {
+                fprintf(stderr, "[FATAL] Execution failed for engine '%s'\n", cur_e->engine_id);
+                return 1;
+            }
 
-            double c_filt_mbs = (double)sz_arm / (1e6 * res.c_stat.filtered_median);
-            double d_filt_mbs = (double)sz_arm / (1e6 * res.d_stat.filtered_median);
-            double c_iqr_mbs  = (res.c_stat.raw_iqr > 0) ? (res.c_stat.raw_iqr / res.c_stat.raw_median) * c_filt_mbs : 0.0;
-            double d_iqr_mbs  = (res.d_stat.raw_iqr > 0) ? (res.d_stat.raw_iqr / res.d_stat.raw_median) * d_filt_mbs : 0.0;
+            char comp_str[32];
+            if (res.has_comp_measurement) {
+                snprintf(comp_str, sizeof(comp_str), "%7.1f ± %-5.1f",
+                         res.c_stat.filtered_median_tp_mbs, res.c_stat.filtered_iqr_tp_mbs);
+            } else {
+                snprintf(comp_str, sizeof(comp_str), "      —         ");
+            }
 
             char lat_str[32];
             snprintf(lat_str, sizeof(lat_str), "%.1f / %.1f", res.lat_4k_comp_us, res.lat_4k_decomp_us);
 
-            printf("%-26s | %7.2f%%  | %7.1f ± %-5.1f   | %7.1f ± %-5.1f   | %-12s | %6zu KB | %s\n",
+            printf("%-26s | %7.2f%%  | %-17s | %7.1f ± %-5.1f   | %-12s | %6zu KB | %s\n",
                    cur_e->display_name, res.ratio_pct,
-                   c_filt_mbs, c_iqr_mbs, d_filt_mbs, d_iqr_mbs,
+                   comp_str,
+                   res.d_stat.filtered_median_tp_mbs, res.d_stat.filtered_iqr_tp_mbs,
                    lat_str, res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r1(cur_e->tier, "busybox_armv7l", cur_e->engine_id, &res, seed);
+            log_csv_record_r2(cur_e->tier, "busybox_armv7l", cur_e->engine_id, &res, seed);
         }
     }
 
@@ -1403,20 +1616,19 @@ int main(int argc, char **argv) {
         for (int e = 0; e < n_tf; e++) {
             engine_config_t *cur_e = &engines_tf[e];
             bench_result_t res;
-            run_engine_isolated(cur_e, d_tf, sz_tf, &aff, &res);
-
-            double c_filt_mbs = (double)sz_tf / (1e6 * res.c_stat.filtered_median);
-            double d_filt_mbs = (double)sz_tf / (1e6 * res.d_stat.filtered_median);
-            double c_iqr_mbs  = (res.c_stat.raw_iqr > 0) ? (res.c_stat.raw_iqr / res.c_stat.raw_median) * c_filt_mbs : 0.0;
-            double d_iqr_mbs  = (res.d_stat.raw_iqr > 0) ? (res.d_stat.raw_iqr / res.d_stat.raw_median) * d_filt_mbs : 0.0;
+            if (run_engine_isolated(cur_e, d_tf, sz_tf, &aff, &res) != 0) {
+                fprintf(stderr, "[FATAL] Execution failed for engine '%s'\n", cur_e->engine_id);
+                return 1;
+            }
 
             printf("%-26s | %7.2f%%  | %7.1f ± %-5.1f   | %7.1f ± %-5.1f   | %-12s | %6zu KB | %s\n",
                    cur_e->display_name, res.ratio_pct,
-                   c_filt_mbs, c_iqr_mbs, d_filt_mbs, d_iqr_mbs,
+                   res.c_stat.filtered_median_tp_mbs, res.c_stat.filtered_iqr_tp_mbs,
+                   res.d_stat.filtered_median_tp_mbs, res.d_stat.filtered_iqr_tp_mbs,
                    "—", res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r1(cur_e->tier, "nasa_turbofan_f32", cur_e->engine_id, &res, seed);
+            log_csv_record_r2(cur_e->tier, "nasa_turbofan_f32", cur_e->engine_id, &res, seed);
         }
 
         /* B. Single De-interleaved Channel 0 (Fair evaluation for 1D time-series codecs) */
@@ -1429,20 +1641,19 @@ int main(int argc, char **argv) {
         for (int e = 0; e < 3; e++) {
             engine_config_t *cur_e = &engines_tf_ch0[e];
             bench_result_t res;
-            run_engine_isolated(cur_e, (const uint8_t*)d_tf_ch0, sz_tf_ch0, &aff, &res);
-
-            double c_filt_mbs = (double)sz_tf_ch0 / (1e6 * res.c_stat.filtered_median);
-            double d_filt_mbs = (double)sz_tf_ch0 / (1e6 * res.d_stat.filtered_median);
-            double c_iqr_mbs  = (res.c_stat.raw_iqr > 0) ? (res.c_stat.raw_iqr / res.c_stat.raw_median) * c_filt_mbs : 0.0;
-            double d_iqr_mbs  = (res.d_stat.raw_iqr > 0) ? (res.d_stat.raw_iqr / res.d_stat.raw_median) * d_filt_mbs : 0.0;
+            if (run_engine_isolated(cur_e, (const uint8_t*)d_tf_ch0, sz_tf_ch0, &aff, &res) != 0) {
+                fprintf(stderr, "[FATAL] Execution failed for engine '%s'\n", cur_e->engine_id);
+                return 1;
+            }
 
             printf("  %-24s | %7.2f%%  | %7.1f ± %-5.1f   | %7.1f ± %-5.1f   | %-12s | %6zu KB | %s\n",
                    cur_e->display_name, res.ratio_pct,
-                   c_filt_mbs, c_iqr_mbs, d_filt_mbs, d_iqr_mbs,
+                   res.c_stat.filtered_median_tp_mbs, res.c_stat.filtered_iqr_tp_mbs,
+                   res.d_stat.filtered_median_tp_mbs, res.d_stat.filtered_iqr_tp_mbs,
                    "—", res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r1(cur_e->tier, "nasa_turbofan_ch0", cur_e->engine_id, &res, seed);
+            log_csv_record_r2(cur_e->tier, "nasa_turbofan_ch0", cur_e->engine_id, &res, seed);
         }
 
         printf("  [TIER 4B AUDIT NOTICE]: Sprintz I16 excluded from production claims (Mathematical UB quarantine).\n");
@@ -1484,23 +1695,30 @@ int main(int argc, char **argv) {
         for (int e = 0; e < n_moz; e++) {
             engine_config_t *cur_e = shuffled[e];
             bench_result_t res;
-            run_engine_isolated(cur_e, d_moz, sz_moz, &aff, &res);
+            if (run_engine_isolated(cur_e, d_moz, sz_moz, &aff, &res) != 0) {
+                fprintf(stderr, "[FATAL] Execution failed for engine '%s'\n", cur_e->engine_id);
+                return 1;
+            }
 
-            double c_filt_mbs = (double)sz_moz / (1e6 * res.c_stat.filtered_median);
-            double d_filt_mbs = (double)sz_moz / (1e6 * res.d_stat.filtered_median);
-            double c_iqr_mbs  = (res.c_stat.raw_iqr > 0) ? (res.c_stat.raw_iqr / res.c_stat.raw_median) * c_filt_mbs : 0.0;
-            double d_iqr_mbs  = (res.d_stat.raw_iqr > 0) ? (res.d_stat.raw_iqr / res.d_stat.raw_median) * d_filt_mbs : 0.0;
+            char comp_str[32];
+            if (res.has_comp_measurement) {
+                snprintf(comp_str, sizeof(comp_str), "%7.1f ± %-5.1f",
+                         res.c_stat.filtered_median_tp_mbs, res.c_stat.filtered_iqr_tp_mbs);
+            } else {
+                snprintf(comp_str, sizeof(comp_str), "      —         ");
+            }
 
             char lat_str[32];
             snprintf(lat_str, sizeof(lat_str), "%.1f / %.1f", res.lat_4k_comp_us, res.lat_4k_decomp_us);
 
-            printf("%-26s | %7.2f%%  | %7.1f ± %-5.1f   | %7.1f ± %-5.1f   | %-12s | %6zu KB | %s\n",
+            printf("%-26s | %7.2f%%  | %-17s | %7.1f ± %-5.1f   | %-12s | %6zu KB | %s\n",
                    cur_e->display_name, res.ratio_pct,
-                   c_filt_mbs, c_iqr_mbs, d_filt_mbs, d_iqr_mbs,
+                   comp_str,
+                   res.d_stat.filtered_median_tp_mbs, res.d_stat.filtered_iqr_tp_mbs,
                    lat_str, res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r1(cur_e->tier, "silesia_mozilla", cur_e->engine_id, &res, seed);
+            log_csv_record_r2(cur_e->tier, "silesia_mozilla", cur_e->engine_id, &res, seed);
         }
     }
 
@@ -1539,28 +1757,35 @@ int main(int argc, char **argv) {
         for (int e = 0; e < n_sam; e++) {
             engine_config_t *cur_e = shuffled[e];
             bench_result_t res;
-            run_engine_isolated(cur_e, d_sam, sz_sam, &aff, &res);
+            if (run_engine_isolated(cur_e, d_sam, sz_sam, &aff, &res) != 0) {
+                fprintf(stderr, "[FATAL] Execution failed for engine '%s'\n", cur_e->engine_id);
+                return 1;
+            }
 
-            double c_filt_mbs = (double)sz_sam / (1e6 * res.c_stat.filtered_median);
-            double d_filt_mbs = (double)sz_sam / (1e6 * res.d_stat.filtered_median);
-            double c_iqr_mbs  = (res.c_stat.raw_iqr > 0) ? (res.c_stat.raw_iqr / res.c_stat.raw_median) * c_filt_mbs : 0.0;
-            double d_iqr_mbs  = (res.d_stat.raw_iqr > 0) ? (res.d_stat.raw_iqr / res.d_stat.raw_median) * d_filt_mbs : 0.0;
+            char comp_str[32];
+            if (res.has_comp_measurement) {
+                snprintf(comp_str, sizeof(comp_str), "%7.1f ± %-5.1f",
+                         res.c_stat.filtered_median_tp_mbs, res.c_stat.filtered_iqr_tp_mbs);
+            } else {
+                snprintf(comp_str, sizeof(comp_str), "      —         ");
+            }
 
             char lat_str[32];
             snprintf(lat_str, sizeof(lat_str), "%.1f / %.1f", res.lat_4k_comp_us, res.lat_4k_decomp_us);
 
-            printf("%-26s | %7.2f%%  | %7.1f ± %-5.1f   | %7.1f ± %-5.1f   | %-12s | %6zu KB | %s\n",
+            printf("%-26s | %7.2f%%  | %-17s | %7.1f ± %-5.1f   | %-12s | %6zu KB | %s\n",
                    cur_e->display_name, res.ratio_pct,
-                   c_filt_mbs, c_iqr_mbs, d_filt_mbs, d_iqr_mbs,
+                   comp_str,
+                   res.d_stat.filtered_median_tp_mbs, res.d_stat.filtered_iqr_tp_mbs,
                    lat_str, res.peak_rss_kb, res.integrity_all_pass ? "PASS" : "FAIL");
             fflush(stdout);
 
-            log_csv_record_r1(cur_e->tier, "silesia_samba", cur_e->engine_id, &res, seed);
+            log_csv_record_r2(cur_e->tier, "silesia_samba", cur_e->engine_id, &res, seed);
         }
     }
 
     printf("\n==================================================================================================================================\n");
-    printf("[COMPLETE] Benchmark execution finished cleanly. Raw sample data exported to 'decisive_benchmark_raw_r1.csv'.\n");
+    printf("[COMPLETE] Benchmark execution finished cleanly. Raw sample data exported to 'decisive_benchmark_raw_r2.csv'.\n");
     printf("==================================================================================================================================\n");
     fflush(stdout);
 
