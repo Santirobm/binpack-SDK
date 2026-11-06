@@ -164,7 +164,7 @@ def fetch_all():
                     floats.append(float(val))
 
     with open(nasa_bin, "wb") as f:
-        f.write(struct.pack(f"{len(floats)}f", *floats))
+        f.write(struct.pack(f"<{len(floats)}f", *floats))
 
     # 4. BusyBox ARM
     arm_info = DATASETS["busybox_arm"]
