@@ -2044,6 +2044,7 @@ static int run_csv_safety_unit_tests(void) {
             fprintf(stderr, "[FAIL] Test 4: Failed to induce EMFILE in Windows CRT: hit=%d, n_fds=%d, last_errno=%d (%s)\n",
                     hit_exhaustion, n_fds, last_errno, strerror(last_errno));
         } else {
+            remove("test_emfile_probe.tmp");
             csv_open_result_t res_emfile = CSV_OPEN_SUCCESS;
             FILE *f_emfile = open_atomic_exclusive_csv("test_emfile_probe.tmp", &res_emfile);
             if (f_emfile != NULL) {
@@ -2106,7 +2107,10 @@ after_test_4: ;
         const char *denied_dir = "test_denied_audit_dir";
         RemoveDirectoryA(denied_dir);
         CreateDirectoryA(denied_dir, NULL);
-        system("icacls test_denied_audit_dir /deny *S-1-1-0:(W) >nul 2>nul");
+        int icacls_rc = system("icacls test_denied_audit_dir /deny *S-1-1-0:(W) >nul 2>nul");
+        if (icacls_rc != 0) {
+            fprintf(stderr, "[WARN] Test 5: icacls deny returned non-zero (%d)\n", icacls_rc);
+        }
 
         char probe_path[256];
         snprintf(probe_path, sizeof(probe_path), "%s/new_probe_target.csv", denied_dir);
