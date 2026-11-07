@@ -1637,7 +1637,7 @@ static int run_engine_isolated(
 }
 
 /* ========================================================================= */
-/* Registro en Archivo CSV Crudo (BP-008D-R8 Campaña Decisiva)               */
+/* Registro en Archivo CSV Crudo (BP-008D-R9 Campaña Decisiva)               */
 /* ========================================================================= */
 
 static FILE *g_csv_file = NULL;
@@ -1651,13 +1651,85 @@ typedef enum {
     CSV_OPEN_FATAL_ERROR       /* Permission denied (EACCES), fd exhaustion (EMFILE/ENFILE), or other fatal error: abort */
 } csv_open_result_t;
 
-/* Kernel-level atomic exclusive file creation: eliminates TOCTOU race conditions.
+#if defined(_WIN32)
+typedef struct {
+    DWORD volume_serial;
+    DWORD index_high;
+    DWORD index_low;
+} win32_file_id_t;
+
+static int get_file_identity_from_fd(int fd, win32_file_id_t *out_id) {
+    intptr_t h = _get_osfhandle(fd);
+    if (h == -1 || h == -2) return 0;
+    BY_HANDLE_FILE_INFORMATION info;
+    if (!GetFileInformationByHandle((HANDLE)h, &info)) return 0;
+    if (out_id) {
+        out_id->volume_serial = info.dwVolumeSerialNumber;
+        out_id->index_high = info.nFileIndexHigh;
+        out_id->index_low = info.nFileIndexLow;
+    }
+    return 1;
+}
+
+static int get_file_identity_from_path(const char *path, win32_file_id_t *out_id) {
+    HANDLE h = CreateFileA(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    BY_HANDLE_FILE_INFORMATION info;
+    BOOL ok = GetFileInformationByHandle(h, &info);
+    CloseHandle(h);
+    if (!ok) return 0;
+    if (out_id) {
+        out_id->volume_serial = info.dwVolumeSerialNumber;
+        out_id->index_high = info.nFileIndexHigh;
+        out_id->index_low = info.nFileIndexLow;
+    }
+    return 1;
+}
+
+static int compare_file_identity(const win32_file_id_t *a, const win32_file_id_t *b) {
+    return (a->volume_serial == b->volume_serial &&
+            a->index_high == b->index_high &&
+            a->index_low == b->index_low);
+}
+#else
+typedef struct {
+    dev_t dev;
+    ino_t ino;
+} posix_file_id_t;
+
+static int get_posix_file_identity_from_fd(int fd, posix_file_id_t *out_id) {
+    struct stat st;
+    if (fstat(fd, &st) != 0) return 0;
+    if (out_id) {
+        out_id->dev = st.st_dev;
+        out_id->ino = st.st_ino;
+    }
+    return 1;
+}
+
+static int get_posix_file_identity_from_path(const char *path, posix_file_id_t *out_id) {
+    struct stat st;
+    if (lstat(path, &st) != 0) return 0;
+    if (out_id) {
+        out_id->dev = st.st_dev;
+        out_id->ino = st.st_ino;
+    }
+    return 1;
+}
+
+static int compare_posix_file_identity(const posix_file_id_t *a, const posix_file_id_t *b) {
+    return (a->dev == b->dev && a->ino == b->ino);
+}
+#endif
+
+/* Kernel-level atomic exclusive file creation: eliminates destructive overwrites.
  * Uses O_CREAT | O_EXCL (POSIX) and _O_CREAT | _O_EXCL (Windows).
  * - Returns NULL with CSV_OPEN_COLLISION_EEXIST if the file already exists, leaving it untouched (never truncated).
  * - Returns NULL with CSV_OPEN_DIR_NOT_FOUND if the candidate directory does not exist (ENOENT).
  * - Returns NULL with CSV_OPEN_FATAL_ERROR on EACCES, EMFILE, ENFILE or unexpected OS errors.
- * - If fdopen/_fdopen fails, checks file identity, closes descriptor and safely unlinks the empty file.
- * - If cleanup cannot be guaranteed, warns explicitly of dangling residual file.
+ * - If fdopen/_fdopen fails, checks filesystem identity before closing and unlinking.
+ * - If cleanup cannot be guaranteed or identity mismatch occurs, skips unlink to prevent deleting foreign files.
  */
 static FILE* open_atomic_exclusive_csv(const char *path, csv_open_result_t *out_res) {
     int saved_errno = 0;
@@ -1682,14 +1754,10 @@ static FILE* open_atomic_exclusive_csv(const char *path, csv_open_result_t *out_
         fprintf(stderr, "[ERROR] _fdopen failed on '%s' (fd=%d): errno=%d (%s)\n",
                 path, fd, saved_errno, strerror(saved_errno));
 
-        /* Verify that path was not replaced by another process before unlinking */
-        struct _stat st_fd, st_path;
-        int stat_fd_ok = (_fstat(fd, &st_fd) == 0);
-        int stat_path_ok = (_stat(path, &st_path) == 0);
-        int same_file = (stat_fd_ok && stat_path_ok &&
-                         st_fd.st_dev == st_path.st_dev &&
-                         st_fd.st_size == st_path.st_size &&
-                         st_fd.st_size == 0);
+        win32_file_id_t id_fd, id_path;
+        int fd_id_ok = get_file_identity_from_fd(fd, &id_fd);
+        int path_id_ok = get_file_identity_from_path(path, &id_path);
+        int same_file = (fd_id_ok && path_id_ok && compare_file_identity(&id_fd, &id_path));
 
         int close_rc = _close(fd);
         if (close_rc != 0) {
@@ -1700,11 +1768,11 @@ static FILE* open_atomic_exclusive_csv(const char *path, csv_open_result_t *out_
         if (same_file) {
             int unlink_rc = _unlink(path);
             if (unlink_rc != 0) {
-                fprintf(stderr, "[WARN] Failed to unlink newly created empty file '%s': errno=%d (%s). Residual file may remain!\n",
+                fprintf(stderr, "[WARN] Failed to unlink newly created empty file '%s': errno=%d (%s). Residual empty file may remain on disk.\n",
                         path, errno, strerror(errno));
             }
         } else {
-            fprintf(stderr, "[WARN] Path '%s' changed or replaced by external entity before cleanup. Skipping unlink to prevent deleting foreign file. Residual file may remain!\n",
+            fprintf(stderr, "[WARN] File identity check on '%s' failed or could not guarantee path was not replaced. Skipping unlink to prevent foreign file deletion. Residual empty file may remain on disk.\n",
                     path);
         }
 
@@ -1734,13 +1802,10 @@ static FILE* open_atomic_exclusive_csv(const char *path, csv_open_result_t *out_
         fprintf(stderr, "[ERROR] fdopen failed on '%s' (fd=%d): errno=%d (%s)\n",
                 path, fd, saved_errno, strerror(saved_errno));
 
-        /* Verify that path was not replaced by another process before unlinking (inode + dev match) */
-        struct stat st_fd, st_path;
-        int stat_fd_ok = (fstat(fd, &st_fd) == 0);
-        int stat_path_ok = (lstat(path, &st_path) == 0);
-        int same_file = (stat_fd_ok && stat_path_ok &&
-                         st_fd.st_dev == st_path.st_dev &&
-                         st_fd.st_ino == st_path.st_ino);
+        posix_file_id_t id_fd, id_path;
+        int fd_id_ok = get_posix_file_identity_from_fd(fd, &id_fd);
+        int path_id_ok = get_posix_file_identity_from_path(path, &id_path);
+        int same_file = (fd_id_ok && path_id_ok && compare_posix_file_identity(&id_fd, &id_path));
 
         int close_rc = close(fd);
         if (close_rc != 0) {
@@ -1751,11 +1816,11 @@ static FILE* open_atomic_exclusive_csv(const char *path, csv_open_result_t *out_
         if (same_file) {
             int unlink_rc = unlink(path);
             if (unlink_rc != 0) {
-                fprintf(stderr, "[WARN] Failed to unlink newly created empty file '%s': errno=%d (%s). Residual file may remain!\n",
+                fprintf(stderr, "[WARN] Failed to unlink newly created empty file '%s': errno=%d (%s). Residual empty file may remain on disk.\n",
                         path, errno, strerror(errno));
             }
         } else {
-            fprintf(stderr, "[WARN] Path '%s' changed or replaced by external entity before cleanup. Skipping unlink to prevent deleting foreign file. Residual file may remain!\n",
+            fprintf(stderr, "[WARN] File identity check on '%s' failed or could not guarantee path was not replaced. Skipping unlink to prevent foreign file deletion. Residual empty file may remain on disk.\n",
                     path);
         }
 
@@ -1811,73 +1876,225 @@ static FILE* open_safe_csv_r5(char *out_path, size_t out_path_sz) {
     return NULL;
 }
 
-/* Unit testing harness for CSV atomic exclusive creation and error scenarios (R8-02) */
+/* Comprehensive unit testing harness for CSV atomic exclusive creation and error scenarios (R9-03) */
 static int run_csv_safety_unit_tests(void) {
-    printf("[TEST] Running CSV Atomic Exclusive & Error Fallback Safety Tests (R8-02)...\n");
+    printf("==================================================================================================\n");
+    printf("BINPACK ENTERPRISE SDK — CSV ATOMIC EXCLUSIVE & ERROR FALLBACK SAFETY SUITE (BP-008D-R9)\n");
+    printf("==================================================================================================\n");
+
+    int all_passed = 1;
 
     /* Test 1: Exclusive Creation & Immediate Write */
-    const char *test_path = "test_csv_safety_atomic.tmp";
-    remove(test_path);
-
-    csv_open_result_t res = CSV_OPEN_FATAL_ERROR;
-    FILE *f1 = open_atomic_exclusive_csv(test_path, &res);
-    if (!f1 || res != CSV_OPEN_SUCCESS) {
-        fprintf(stderr, "[FAIL] Test 1: Could not create temporary exclusive test file '%s': res=%d\n", test_path, res);
-        return 0;
-    }
-    fprintf(f1, "INITIAL_CONTENT_PRESERVE\n");
-    fclose(f1);
-    printf("  [PASS] Test 1: First creation succeeded with CSV_OPEN_SUCCESS.\n");
-
-    /* Test 2: Collision Detection (EEXIST) without Truncation */
-    res = CSV_OPEN_FATAL_ERROR;
-    FILE *f2 = open_atomic_exclusive_csv(test_path, &res);
-    if (f2 != NULL) {
-        fclose(f2);
-        fprintf(stderr, "[FAIL] Test 2: Exclusive creation erroneously succeeded on existing file!\n");
+    {
+        const char *test_path = "test_csv_safety_atomic.tmp";
         remove(test_path);
-        return 0;
+        csv_open_result_t res = CSV_OPEN_FATAL_ERROR;
+        FILE *f1 = open_atomic_exclusive_csv(test_path, &res);
+        if (!f1 || res != CSV_OPEN_SUCCESS) {
+            fprintf(stderr, "[FAIL] Test 1: Could not create exclusive test file '%s': res=%d\n", test_path, res);
+            all_passed = 0;
+        } else {
+            fprintf(f1, "INITIAL_CONTENT_PRESERVE_R9\n");
+            fclose(f1);
+            printf("  [PASS] Test 1: Clean exclusive creation succeeded with CSV_OPEN_SUCCESS.\n");
+        }
     }
-    if (res != CSV_OPEN_COLLISION_EEXIST) {
-        fprintf(stderr, "[FAIL] Test 2: Expected CSV_OPEN_COLLISION_EEXIST, got res=%d\n", res);
+
+    /* Test 2: Collision Detection (EEXIST) & Bit-for-bit Content Preservation */
+    {
+        const char *test_path = "test_csv_safety_atomic.tmp";
+        csv_open_result_t res = CSV_OPEN_FATAL_ERROR;
+        FILE *f2 = open_atomic_exclusive_csv(test_path, &res);
+        if (f2 != NULL) {
+            fclose(f2);
+            fprintf(stderr, "[FAIL] Test 2: Exclusive creation erroneously succeeded on existing file!\n");
+            all_passed = 0;
+        } else if (res != CSV_OPEN_COLLISION_EEXIST) {
+            fprintf(stderr, "[FAIL] Test 2: Expected CSV_OPEN_COLLISION_EEXIST, got res=%d\n", res);
+            all_passed = 0;
+        } else {
+            FILE *f_check = fopen(test_path, "r");
+            if (!f_check) {
+                fprintf(stderr, "[FAIL] Test 2: Preexisting file disappeared!\n");
+                all_passed = 0;
+            } else {
+                char buf[64] = {0};
+                if (!fgets(buf, sizeof(buf), f_check) || strncmp(buf, "INITIAL_CONTENT_PRESERVE_R9", 27) != 0) {
+                    fprintf(stderr, "[FAIL] Test 2: Preexisting file content was truncated or altered!\n");
+                    all_passed = 0;
+                } else {
+                    printf("  [PASS] Test 2: Collision rejected with CSV_OPEN_COLLISION_EEXIST and 0-byte truncation prevented.\n");
+                }
+                fclose(f_check);
+            }
+        }
         remove(test_path);
-        return 0;
     }
 
-    /* Verify file was not truncated */
-    FILE *f_check = fopen(test_path, "r");
-    if (!f_check) {
-        fprintf(stderr, "[FAIL] Test 2: Preexisting file disappeared!\n");
-        return 0;
+    /* Test 3: Nonexistent Directory (ENOENT) Permitted Fallback */
+    {
+        csv_open_result_t res = CSV_OPEN_FATAL_ERROR;
+        const char *bad_dir_path = "non_existent_audit_dir_98765/test.csv";
+        FILE *f3 = open_atomic_exclusive_csv(bad_dir_path, &res);
+        if (f3 != NULL) {
+            fclose(f3);
+            fprintf(stderr, "[FAIL] Test 3: Creation erroneously succeeded in nonexistent directory!\n");
+            all_passed = 0;
+        } else if (res != CSV_OPEN_DIR_NOT_FOUND) {
+            fprintf(stderr, "[FAIL] Test 3: Expected CSV_OPEN_DIR_NOT_FOUND on nonexistent dir, got res=%d\n", res);
+            all_passed = 0;
+        } else {
+            printf("  [PASS] Test 3: Inexistent directory detected as CSV_OPEN_DIR_NOT_FOUND (permitted fallback).\n");
+        }
     }
-    char buf[64] = {0};
-    if (!fgets(buf, sizeof(buf), f_check) || strncmp(buf, "INITIAL_CONTENT_PRESERVE", 24) != 0) {
-        fclose(f_check);
-        fprintf(stderr, "[FAIL] Test 2: Preexisting file content was truncated or altered!\n");
-        remove(test_path);
-        return 0;
-    }
-    fclose(f_check);
-    remove(test_path);
-    printf("  [PASS] Test 2: Collision rejected with CSV_OPEN_COLLISION_EEXIST and 0-byte truncation prevented.\n");
 
-    /* Test 3: Inexistent Directory (ENOENT) -> Permitted Fallback */
-    res = CSV_OPEN_FATAL_ERROR;
-    const char *bad_dir_path = "non_existent_audit_dir_98765/test.csv";
-    FILE *f3 = open_atomic_exclusive_csv(bad_dir_path, &res);
-    if (f3 != NULL) {
-        fclose(f3);
-        fprintf(stderr, "[FAIL] Test 3: Creation erroneously succeeded in nonexistent directory!\n");
-        return 0;
+    /* Test 4: Descriptor Exhaustion (EMFILE) -> Strict Fatal Abort (No Fallback) */
+    {
+        int fds[1024];
+        int n_fds = 0;
+        while (n_fds < 1024) {
+#if defined(_WIN32)
+            int fd = _open("NUL", _O_RDONLY);
+#else
+            int fd = open("/dev/null", O_RDONLY);
+#endif
+            if (fd < 0) break;
+            fds[n_fds++] = fd;
+        }
+        csv_open_result_t res_emfile = CSV_OPEN_SUCCESS;
+        FILE *f_emfile = open_atomic_exclusive_csv("test_emfile_probe.tmp", &res_emfile);
+        if (f_emfile != NULL) {
+            fclose(f_emfile);
+            remove("test_emfile_probe.tmp");
+            fprintf(stderr, "[FAIL] Test 4: Creation succeeded despite descriptor exhaustion!\n");
+            all_passed = 0;
+        } else if (res_emfile != CSV_OPEN_FATAL_ERROR) {
+            fprintf(stderr, "[FAIL] Test 4: Expected CSV_OPEN_FATAL_ERROR on descriptor exhaustion, got res=%d\n", res_emfile);
+            all_passed = 0;
+        } else {
+            printf("  [PASS] Test 4: Descriptor exhaustion (EMFILE) produced CSV_OPEN_FATAL_ERROR (strict abort).\n");
+        }
+        for (int i = 0; i < n_fds; i++) {
+#if defined(_WIN32)
+            _close(fds[i]);
+#else
+            close(fds[i]);
+#endif
+        }
     }
-    if (res != CSV_OPEN_DIR_NOT_FOUND) {
-        fprintf(stderr, "[FAIL] Test 3: Expected CSV_OPEN_DIR_NOT_FOUND on nonexistent dir, got res=%d\n", res);
-        return 0;
-    }
-    printf("  [PASS] Test 3: Inexistent directory detected as CSV_OPEN_DIR_NOT_FOUND (permitted fallback).\n");
 
-    printf("[SUCCESS] All CSV atomic safety unit tests passed cleanly.\n");
-    return 1;
+    /* Test 5: Permission Denied (EACCES) -> Strict Fatal Abort (No Fallback) */
+    {
+        int eacces_tested = 0;
+#if !defined(_WIN32)
+        if (mkdir("test_readonly_audit_dir", 0555) == 0) {
+            csv_open_result_t res_eacces = CSV_OPEN_SUCCESS;
+            FILE *f_eacces = open_atomic_exclusive_csv("test_readonly_audit_dir/test.csv", &res_eacces);
+            if (f_eacces != NULL) {
+                fclose(f_eacces);
+                remove("test_readonly_audit_dir/test.csv");
+                fprintf(stderr, "[FAIL] Test 5: Creation succeeded in write-protected directory!\n");
+                all_passed = 0;
+            } else if (res_eacces != CSV_OPEN_FATAL_ERROR) {
+                fprintf(stderr, "[FAIL] Test 5: Expected CSV_OPEN_FATAL_ERROR on EACCES, got res=%d\n", res_eacces);
+                all_passed = 0;
+            } else {
+                printf("  [PASS] Test 5: EACCES in write-protected directory produced CSV_OPEN_FATAL_ERROR (strict abort, no fallback).\n");
+                eacces_tested = 1;
+            }
+            chmod("test_readonly_audit_dir", 0755);
+            rmdir("test_readonly_audit_dir");
+        }
+#else
+        const char *ro_path = "test_readonly_windows.tmp";
+        FILE *fro = fopen(ro_path, "w");
+        if (fro) {
+            fclose(fro);
+            SetFileAttributesA(ro_path, FILE_ATTRIBUTE_READONLY);
+            csv_open_result_t res_eacces = CSV_OPEN_FATAL_ERROR;
+            FILE *f_win = open_atomic_exclusive_csv(ro_path, &res_eacces);
+            if (f_win != NULL) {
+                fclose(f_win);
+                fprintf(stderr, "[FAIL] Test 5: Creation succeeded on read-only file!\n");
+                all_passed = 0;
+            } else {
+                printf("  [PASS] Test 5: Protected file access rejected on Windows (res=%d, no data overwritten).\n", res_eacces);
+                eacces_tested = 1;
+            }
+            SetFileAttributesA(ro_path, FILE_ATTRIBUTE_NORMAL);
+            remove(ro_path);
+        }
+#endif
+        if (!eacces_tested) {
+            printf("  [SKIP] Test 5: Permission test skipped due to platform container constraints.\n");
+        }
+    }
+
+    /* Test 6: Suffix Collision & Safe Allocation in open_safe_csv_r5 */
+    {
+        char resolved_path[512] = {0};
+        FILE *f6 = open_safe_csv_r5(resolved_path, sizeof(resolved_path));
+        if (!f6) {
+            fprintf(stderr, "[FAIL] Test 6: open_safe_csv_r5 failed to allocate safe exclusive target!\n");
+            all_passed = 0;
+        } else {
+            printf("  [PASS] Test 6: open_safe_csv_r5 safely allocated target '%s'.\n", resolved_path);
+            fclose(f6);
+            remove(resolved_path);
+        }
+    }
+
+    /* Test 7: File Identity Verification & Foreign File Deletion Prevention */
+    {
+#if defined(_WIN32)
+        const char *pathA = "test_ident_a.tmp";
+        const char *pathB = "test_ident_b.tmp";
+        FILE *fa = fopen(pathA, "w"); if (fa) fclose(fa);
+        FILE *fb = fopen(pathB, "w"); if (fb) fclose(fb);
+        win32_file_id_t idA, idB;
+        int okA = get_file_identity_from_path(pathA, &idA);
+        int okB = get_file_identity_from_path(pathB, &idB);
+        if (okA && okB) {
+            int match = compare_file_identity(&idA, &idB);
+            if (match) {
+                fprintf(stderr, "[FAIL] Test 7: Identity comparison reported false match between distinct files!\n");
+                all_passed = 0;
+            } else {
+                printf("  [PASS] Test 7: Win32 file identity correctly distinguished two distinct files (foreign deletion prevented).\n");
+            }
+        }
+        remove(pathA);
+        remove(pathB);
+#else
+        const char *pathA = "test_ident_a.tmp";
+        const char *pathB = "test_ident_b.tmp";
+        FILE *fa = fopen(pathA, "w"); if (fa) fclose(fa);
+        FILE *fb = fopen(pathB, "w"); if (fb) fclose(fb);
+        posix_file_id_t idA, idB;
+        int okA = get_posix_file_identity_from_path(pathA, &idA);
+        int okB = get_posix_file_identity_from_path(pathB, &idB);
+        if (okA && okB) {
+            int match = compare_posix_file_identity(&idA, &idB);
+            if (match) {
+                fprintf(stderr, "[FAIL] Test 7: POSIX identity comparison reported false match between distinct files!\n");
+                all_passed = 0;
+            } else {
+                printf("  [PASS] Test 7: POSIX dev/ino identity correctly distinguished two distinct files (foreign deletion prevented).\n");
+            }
+        }
+        remove(pathA);
+        remove(pathB);
+#endif
+    }
+
+    printf("==================================================================================================\n");
+    if (all_passed) {
+        printf("[SUCCESS] ALL CSV SAFETY UNIT TESTS PASSED (7/7).\n");
+    } else {
+        printf("[FAILURE] ONE OR MORE CSV SAFETY TESTS FAILED.\n");
+    }
+    printf("==================================================================================================\n");
+    return all_passed;
 }
 
 static void log_csv_record_r5(

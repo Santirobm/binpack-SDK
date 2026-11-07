@@ -1,51 +1,53 @@
-# Protocolo de Reproducibilidad Experimental, Trazabilidad Metodológica y Baselines — Hito BP-008D (Revisión R8)
+# Protocolo de Reproducibilidad Experimental, Trazabilidad Metodológica y Baselines — Hito BP-008D (Revisión R9)
 
-**Expediente:** BP-008D-R8 — Subsanaciones Exhaustivas de Auditoría: Endurecimiento de Inspección ISA con Exigencia de Código de Salida Cero y Registro Completo de Entorno (Compilador, Target, Flags y Desensamblador), Creación Atómica Exclusiva CSV con Política Estricta de Fallback (Restringido Únicamente a `ENOENT`), Validación de Identidad de Inodo y Reporte de Limpieza Post-Fallo, Corrección Aritmética Exacta de Memoria BinPack (50.757.632 B) y Contexto Streaming Zstandard (`ZSTD_estimateCStreamSize`), Deslinde Taxonómico Cuatripartito de Memoria (Propias, Estimaciones API, Asignaciones SO y Peak RSS) y Suite Unitaria de Pruebas CSV.  
+**Expediente:** BP-008D-R9 — Corrección Final de Trazabilidad ISA y Validación Adversarial CSV: Sincronización Estricta 1:1 de Banderas de Compilación (`PORTABLE_CFLAGS` y `AVX2_CFLAGS`), Eliminación de `continue` Inválido en Bash, Validación de Identidad por Handle Win32 (`BY_HANDLE_FILE_INFORMATION`) y `fstat`/`lstat` POSIX, Política Defensiva de Limpieza Post-Fallo sin Suposiciones Incondicionales de Cero-TOCTOU, Suite Adversarial de 7 Casos de Error CSV y Verificación Multiplataforma en CI (Linux y Windows).  
 **Proyecto:** BinPack Enterprise SDK  
 **Ramas Auditadas:** `audit/bp1-core-safety`  
-**Hito Previo:** BP-008C-R6 (Cierre Técnico Aprobado — Commit `4dc098dd7a6c38fc39d0a411b24114e27231bd97`) / BP-008D-R7 (Commit `4da885b1f3ad9469a7b3b5cd5f057a67d56d0cc8`)  
-**Fecha:** 6 de Noviembre de 2026  
+**Hito Previo:** BP-008D-R8 (Commit `1f2b3215a1f50382d4d193e953290790c952363a`)  
+**Fecha:** 7 de Noviembre de 2026  
 **Autor:** Santiago Robledo (<santiagorobledo198@gmail.com>)  
 **Responsable Técnico:** Antigravity AI — Advanced Agentic Coding & Systems Architecture  
 
 ---
 
-## 1. Resumen Ejecutivo y Respuesta a la Auditoría BP-008D-R7
+## 1. Resumen Ejecutivo y Respuesta a la Auditoría BP-008D-R8
 
-El presente documento constituye la **Revisión R8 del Expediente BP-008D**, formalizada en estricta y rigurosa respuesta a las observaciones y requerimientos del Dictamen Técnico de Auditoría R7.
+El presente documento constituye la **Revisión R9 del Expediente BP-008D**, formalizada en estricta y rigurosa respuesta a las observaciones y requerimientos del Dictamen Técnico de Auditoría R8.
 
-En esta revisión, se subsanan de manera integral y reproducible todas las deficiencias señaladas:
-1. **Endurecimiento de Auditoría ISA (R8-01):** En [`scripts/audit_isa_isolation.sh`](file:///C:/Users/usuario/Desktop/binpack/scripts/audit_isa_isolation.sh):
-   - Se eliminó la supresión de errores (`2>/dev/null || true`), exigiendo formalmente que el desensamblador retorne **código de salida cero (`exit code 0`)**.
-   - Se rechaza categóricamente cualquier salida vacía, incompleta o trunca.
-   - Se preserva la validación forzada de bytes de instrucción crudos (`^\s*[0-9a-f]+:\s+[0-9a-f]{2}\s+`), impidiendo falsos negativos de opcodes VEX (`0xC4`/`0xC5`) y EVEX (`0x62`).
-   - Se registra exhaustivamente en el reporte: compilador y versión, arquitectura y tripleta target, flags portables y flags AVX2, desensamblador y versión, SHA-256 completo de 64 caracteres hex y conteos VEX/EVEX por objeto.
-   - Se establece la diferenciación ontológica entre el informe estático de referencia versionado en el árbol ([`docs/audit/isa_verification_report.log`](file:///C:/Users/usuario/Desktop/binpack/docs/audit/isa_verification_report.log)) y el artefacto dinámico probatorio producido en cada ejecución de CI (`isa-verification-report`).
-2. **Creación Atómica Exclusiva CSV Robusta y Política Estricta de Fallback (R8-02):** En [`tests/benchmarks/benchmark_decisive_suite.c`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c):
-   - Se mantiene la creación atómica exclusiva en kernel vía `O_CREAT | O_EXCL` (`_O_CREAT | _O_EXCL`), eliminando cualquier apertura destructiva o truncamiento accidental de CSV preexistentes.
-   - **Política Estricta de Fallback:** Se restringe el fallback de directorio **exclusivamente al código de error `ENOENT`** (directorio candidato inexistente). Ante `EEXIST`, se prueban secuencialmente los sufijos de corrida (`_run1.._run999`). Ante errores operativos (`EACCES`, `EMFILE`, `ENFILE`, etc.), la función **aborta inmediatamente sin intentar directorios alternativos**.
-   - **Limpieza Post-Fallo y Preservación de Inodo:** Ante un fallo de conversión a `FILE*` (`fdopen` / `_fdopen`), se verifica la identidad del inodo/dispositivo (`fstat` vs `stat`/`lstat`) para garantizar que la ruta no haya sido sustituida por otro proceso. Se comprueban los resultados de `close()` y `unlink()`, emitiendo una advertencia explícita si la desvinculación falla y pudiera quedar un archivo residual.
-   - **Aborto Obligatorio:** Si `open_safe_csv_r5()` no logra abrir un archivo CSV exclusivo, el harness aborta inmediatamente con código de error fatal (`exit 1`), garantizando que jamás se ejecute un benchmark sin persistencia de datos.
-   - **Suite Unitaria de Pruebas CSV:** Se incorporó la función `run_csv_safety_unit_tests()`, ejecutable sin correr la campaña de benchmarking mediante `--test-csv-errors` y validada automáticamente en los pre-flight checks.
-3. **Corrección Aritmética Exacta de Memoria y Taxonomía Cuatripartita (R8-03):**
-   - Se corrigió el cálculo de `ZSTD_compressBound(16.777.216) = 16.842.752\text{ bytes}` y la reserva `cmp_bound = 16.842.752 + 65.536 = 16.908.288\text{ bytes}`.
-   - Los 2 búferes de entrada/salida y la reserva comprimida suman $2(16.777.216) + 16.908.288 = 50.462.720\text{ bytes}$.
-   - Sumando la tabla de índices ($8192 \times 36 = 294.912\text{ bytes}$), la memoria propia de trabajo de BinPack se cuantifica con exactitud en **$50.757.632\text{ bytes}$** ($48.406\text{ MiB}$ / $50.76\text{ MB}$).
-   - **Estimador Streaming Pertinente:** Se designa formalmente a `ZSTD_estimateCStreamSize()` como el único estimador aplicable al camino de streaming (`ZSTD_compressStream2()`), resultando en $52.383.744\text{ B}$ ($49.96\text{ MiB} \le 64\text{ MB}$) para Nivel 4 y $117.870.592\text{ B}$ ($112.41\text{ MiB} \le 128\text{ MB}$) para Nivel 19.
-   - `ZSTD_estimateCCtxSize()` se mantiene exclusivamente a título informativo, declarado no aplicable al flujo de streaming del harness.
-   - Se establece la separación categórica formal entre: (1) Memoria propia de BinPack, (2) Memoria estimada para el contexto Zstandard streaming, (3) Memoria asignada por el proceso y (4) Peak RSS medido.
-4. **Evidencia y Trazabilidad de CI (R8-04):**
-   - El commit de R8 se somete a validación multiplataforma en GitHub Actions con `head_sha` coincidente.
-   - Se conserva y publica el artefacto de auditoría ISA emitido en silicio.
-   - Se documenta el pase de las pruebas unitarias de error CSV.
+En esta revisión se abordan y subsanan integralmente las cuatro observaciones técnicas formuladas:
 
-### Matriz Consolidada de Subsanaciones R8:
-| Control de Auditoría | Estado en R7 | Subsanación Efectiva en R8 | Evidencia en Código / Repositorio |
+1. **Trazabilidad Estricta de Flags ISA y Corrección del Script de Desensamblado (R9-01):**
+   - En [`.github/workflows/build-multiplatform.yml`](file:///C:/Users/usuario/Desktop/binpack/.github/workflows/build-multiplatform.yml), el paso de compilación de Linux exporta explícitamente las variables de entorno `PORTABLE_CFLAGS="-O3 -march=x86-64 -mno-avx -mno-avx2 -fPIC"` y `AVX2_CFLAGS="-O3 -mavx2 -fPIC"`, pasándolas idénticas tanto al comando de compilación `gcc` como al script [`scripts/audit_isa_isolation.sh`](file:///C:/Users/usuario/Desktop/binpack/scripts/audit_isa_isolation.sh).
+   - Se eliminó del script y del reporte la declaración espuria de banderas no pasadas (`-Wall -Wextra`), garantizando una correspondencia 1:1 verificable con el flujo de CI.
+   - En [`scripts/audit_isa_isolation.sh`](file:///C:/Users/usuario/Desktop/binpack/scripts/audit_isa_isolation.sh), se corrigió el error sintáctico de Bash originado por el uso de `continue` fuera de un bucle en el bloque de inspección del objeto AVX2 (`binpack_core_avx2.o`), reestructurándolo con ramificaciones condicionales limpias (`if/else`) que preservan el código de retorno cero y evitan advertencias en `stderr`.
+2. **Identidad de Archivo Robusta y Política Defensiva de Limpieza Post-Fallo (R9-02):**
+   - En [`tests/benchmarks/benchmark_decisive_suite.c`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c), se implementó una verificación de identidad de archivo a nivel de kernel tanto para Windows como para POSIX:
+     - **Windows Nativo:** Se consulta el descriptor de archivo subyacente mediante `_get_osfhandle(fd)` y la API Win32 `GetFileInformationByHandle()`, comparando `dwVolumeSerialNumber`, `nFileIndexHigh` y `nFileIndexLow` (el File ID NTFS de 64 bits) con los metadatos de un handle abierto concurrentemente sobre la ruta con `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`.
+     - **POSIX / Linux / macOS:** Se comparan `st_dev` y `st_ino` obtenidos mediante `fstat(fd)` contra los de la ruta consultada vía `lstat(path)`.
+   - **Política Defensiva:** Se reconoce formalmente que, bajo operaciones de borrado basadas en ruta (`unlink` / `_unlink`), existe una ventana teórica TOCTOU si un proceso externo reemplaza maliciosamente el enlace entre la verificación y el desvinculado. En consecuencia:
+     - Se suprime categóricamente cualquier afirmación de "cero TOCTOU incondicional".
+     - Si la identidad del archivo no puede verificarse de forma concluyente (p. ej., error al consultar metadatos), **se cancela la eliminación para proteger archivos ajenos**.
+     - Si la desvinculación falla o se cancela, se emite una advertencia formal por `stderr` indicando la presencia de un posible archivo residual inerte.
+     - En ningún caso se trunca ni se sobrescribe un archivo CSV preexistente.
+3. **Suite Unitaria Adversarial de 7 Casos de Error CSV (R9-03):**
+   - La suite [`run_csv_safety_unit_tests()`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c) se expandió de 3 a **7 casos exhaustivos**:
+     - **Caso 1:** Creación exclusiva en ruta limpia (`CSV_OPEN_SUCCESS`).
+     - **Caso 2:** Detección de colisión `EEXIST` y preservación bit a bit del archivo previo sin truncamiento.
+     - **Caso 3:** Detección de directorio inexistente `ENOENT` y autorización de fallback (`CSV_OPEN_DIR_NOT_FOUND`).
+     - **Caso 4:** Agotamiento de descriptores de archivo (`EMFILE`) mediante loop controlado; confirmación de aborto fatal (`CSV_OPEN_FATAL_ERROR`).
+     - **Caso 5:** Permiso denegado (`EACCES`) en directorio sin permisos de escritura; confirmación de aborto fatal (`CSV_OPEN_FATAL_ERROR`).
+     - **Caso 6:** Manejo de colisión de sufijos (`_run1`..`_run999`) y asignación segura en `open_safe_csv_r5()`.
+     - **Caso 7:** Verificación de identidad distinguiendo archivos distintos (prevención de borrado accidental de archivos ajenos).
+4. **Integración Continua Multiplataforma de la Suite CSV (R9-04):**
+   - En [`.github/workflows/build-multiplatform.yml`](file:///C:/Users/usuario/Desktop/binpack/.github/workflows/build-multiplatform.yml), se integró la compilación de `benchmark_decisive_suite.c` y la ejecución del flag `--test-csv-errors` tanto en el runner **Linux x86_64** como en el runner **Windows x86_64**, garantizando que el comportamiento ante errores atómicos se valide en ambos sistemas operativos antes de autorizar cualquier benchmark.
+
+### Matriz Consolidada de Subsanaciones R9:
+| Control de Auditoría | Estado en R8 | Subsanación Efectiva en R9 | Evidencia en Código / Repositorio |
 | :--- | :--- | :--- | :--- |
-| **R8-01 — Endurecimiento de Auditoría ISA** | Desensamblado con `2>/dev/null \|\| true` | **SUBSANADO**: Exigencia obligatoria de exit code 0 del desensamblador. Rechazo de salidas vacías. Registro de compilador, arquitectura/target, flags y desensamblador. Distinción explícita de informe estático vs artefacto runtime. | [`scripts/audit_isa_isolation.sh:22-35,100-118,178-196`](file:///C:/Users/usuario/Desktop/binpack/scripts/audit_isa_isolation.sh) + [`docs/audit/isa_verification_report.log`](file:///C:/Users/usuario/Desktop/binpack/docs/audit/isa_verification_report.log) |
-| **R8-02 — Creación CSV Robusta y Fallback Controlado** | Fallback permisivo ante cualquier error que no fuera EEXIST | **SUBSANADO EN CÓDIGO**: Fallback restringido estrictamente a `ENOENT`. Aborto inmediato ante `EACCES`, `EMFILE`, `ENFILE`. Comprobación de identidad de inodo (`fstat` vs `stat`) antes de `unlink`. Control de fallos de conversion y advertencia de residuales. Suite `--test-csv-errors`. Aborto fatal en `main()` si no hay CSV. | [`tests/benchmarks/benchmark_decisive_suite.c:1645-1820,1940-2015`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c) |
-| **R8-03 — Corrección Aritmética y Taxonomía de Memoria** | `cmp_bound` sobredimensionado y uso dual no deslindado | **SUBSANADO**: Cálculo exacto: $ZSTD\_compressBound(16\text{M}) = 16.842.752\text{ B}$, $cmp\_bound = 16.908.288\text{ B}$. Total propio: $\mathbf{50.757.632\text{ B}}$. Estimador aplicable: `ZSTD_estimateCStreamSize` ($52.383.744\text{ B}$ para L4 y $117.870.592\text{ B}$ para L19). Deslinde formal de 4 categorías. | Sección 4.2 + [`benchmark_decisive_suite.c:1960-1980`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c) |
-| **R8-04 — Trazabilidad y Evidencia de CI** | Workflow R7 requería actualización de commit documental | **SUBSANADO**: Sincronización 1:1 de commit auditado con `head_sha` de CI. Publicación del artefacto `isa-verification-report`. Diferenciación de plantilla estática vs artefacto dinámico. | [`.github/workflows/build-multiplatform.yml`](file:///C:/Users/usuario/Desktop/binpack/.github/workflows/build-multiplatform.yml) + Sección 8 |
+| **R9-01 — Trazabilidad de Flags y Bash sin Errores** | Flags hardcodeadas `-Wall -Wextra`; `continue` fuera de loop en Bash | **SUBSANADO**: Sincronización 1:1 de `PORTABLE_CFLAGS` y `AVX2_CFLAGS` en CI y script. Eliminación de flags espurias. Reemplazo de `continue` por condicionales `if/else` limpios. | [`scripts/audit_isa_isolation.sh:22-38,180-210`](file:///C:/Users/usuario/Desktop/binpack/scripts/audit_isa_isolation.sh) + [`.github/workflows/build-multiplatform.yml`](file:///C:/Users/usuario/Desktop/binpack/.github/workflows/build-multiplatform.yml) |
+| **R9-02 — Identidad de Handle Win32 y Política Defensiva** | Identidad Win32 limitada; afirmación imprudente de inmunidad TOCTOU | **SUBSANADO**: `BY_HANDLE_FILE_INFORMATION` en Windows (`dwVolumeSerialNumber`, File Index 64-bit) y `fstat`/`lstat` en POSIX. Política defensiva: supresión de borrado ante duda, advertencia de residuales, sin truncamiento. | [`tests/benchmarks/benchmark_decisive_suite.c:1660-1790`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c) |
+| **R9-03 — Suite Adversarial de 7 Casos CSV** | Suite limitada a 3 pruebas | **SUBSANADO**: 7 casos completos cubriendo `EEXIST`, `ENOENT`, `EMFILE`, `EACCES`, rotación de sufijos, creación limpia y validación de identidad. | [`tests/benchmarks/benchmark_decisive_suite.c:1980-2140`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c) |
+| **R9-04 — CI Multiplataforma de Pruebas CSV** | Solo validación de compilación sin `--test-csv-errors` en CI | **SUBSANADO**: Compilación y ejecución de `--test-csv-errors` integradas en GitHub Actions en Linux (`gcc`) y Windows (`zig cc`). | [`.github/workflows/build-multiplatform.yml`](file:///C:/Users/usuario/Desktop/binpack/.github/workflows/build-multiplatform.yml) |
 
 ---
 
@@ -57,14 +59,14 @@ En esta revisión, se subsanan de manera integral y reproducible todas las defic
 * **Aislamiento de Memoria:** Subprocesos independientes instanciados vía `fork()` y sincronizados mediante `wait4()` en Linux / WSL2, con monitoreo del consumo de memoria residente (*Peak RSS*) vía `struct rusage`.
 * **Temporización de Alta Resolución:** `clock_gettime(CLOCK_MONOTONIC)` en sistemas POSIX / Linux, con resolución de nanosegundos; `QueryPerformanceCounter` / `QueryPerformanceFrequency` en Windows nativo.
 
-### 2.2. Aislamiento de ISA y Procedimiento Formal de Inspección (R8-01)
+### 2.2. Aislamiento de ISA y Procedimiento Formal de Inspección (R9-01)
 
 La arquitectura de compilación garantiza que los módulos portables se generen con banderas estrictamente escalares, impidiendo que el compilador autovectorice bucles utilizando extensiones AVX/AVX2/AVX-512:
 
 ```
 [ UNIDADES PORTABLES (TU 1..8) ]              [ UNIDAD SIMD AISLADA (TU 9) ]
 gcc -O3 -march=x86-64 -fPIC                   gcc -O3 -mavx2 -fPIC
-    -mno-avx -mno-avx2 -Wall -Wextra                (binpack_core_avx2.c)
+    -mno-avx -mno-avx2                              (binpack_core_avx2.c)
 (binpack_core.c, cpu, eval, stream, etc.)                     |
              |                                                |
              +-----------------------+------------------------+
@@ -74,35 +76,37 @@ gcc -O3 -march=x86-64 -fPIC                   gcc -O3 -mavx2 -fPIC
 ```
 
 #### Reglas de Validación Estricta en [`scripts/audit_isa_isolation.sh`](file:///C:/Users/usuario/Desktop/binpack/scripts/audit_isa_isolation.sh):
-1. **Exigencia de Código de Retorno Cero:**
+1. **Trazabilidad 1:1 de Flags de Compilación:**
+   El script consume `PORTABLE_CFLAGS` y `AVX2_CFLAGS` provistas por el pipeline de CI:
    ```bash
-   if ! "$DISASSEMBLER" -d "$OBJ_PATH" >"$DISASM_TMP" 2>"$DISASM_ERR"; then
-       echo "[FALLO CRITICO] El desensamblador $DISASSEMBLER falló al procesar $obj_name (exit code no cero)." >> "$REPORT"
-       OVERALL_PASS=0
-       continue
-   fi
+   PORTABLE_CFLAGS="${PORTABLE_CFLAGS:--O3 -march=x86-64 -mno-avx -mno-avx2 -fPIC}"
+   AVX2_CFLAGS="${AVX2_CFLAGS:--O3 -mavx2 -fPIC}"
    ```
-2. **Rechazo de Salidas Truncas o Vacías:** Se valida que la salida desensamblada posea longitud mayor a cero y contenga bytes de codificación antes de efectuar el conteo.
-3. **Validación Obligatoria de Bytes Crudos:**
+2. **Exigencia de Código de Retorno Cero:**
+   El script exige formalmente que el desensamblador retorne `exit code 0`. Si falla, aborta inmediatamente con fallo crítico.
+3. **Rechazo de Salidas Truncas o Vacías:** Se valida que la salida desensamblada posea longitud mayor a cero y contenga bytes de codificación antes de efectuar el conteo.
+4. **Validación Obligatoria de Bytes Crudos:**
    ```bash
    HAS_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+[0-9a-f]{2}" | head -n 1 || true)
    ```
    Si la herramienta no emite bytes hexadecimales junto a los mnemónicos, el script emite `[FALLO CRITICO]` y aborta con código de salida `exit 1`.
-4. **Inspección Simétrica de 4 Capas:**
+5. **Inspección Simétrica de 4 Capas:**
    - Capa 1: Mnemónicos VEX (`v[a-z0-9]+`).
    - Capa 2: Opcodes binarios x86-64 VEX (`0xC4`, `0xC5`).
    - Capa 3: Mnemónicos y decoradores EVEX (`zmm`, `%k[0-7]`, `{1toN}`, `{z}`).
    - Capa 4: Opcodes binarios x86-64 EVEX (`0x62`).
-5. **Diferenciación entre Informe Estático y Artefacto Runtime:**
+6. **Estructura de Ejecución Limpia:**
+   Se eliminaron sentencias de control de flujo no válidas (`continue` fuera de bucles), garantizando que el análisis de `binpack_core_avx2.o` concluya sin advertencias ni códigos de error espurios.
+7. **Diferenciación entre Informe Estático y Artefacto Runtime:**
    - **Informe Estático Versionado ([`docs/audit/isa_verification_report.log`](file:///C:/Users/usuario/Desktop/binpack/docs/audit/isa_verification_report.log)):** Documento de referencia base que describe el formato esperado y los estándares de certificación del repositorio.
    - **Artefacto Runtime de CI (`isa-verification-report`):** Informe emitido dinámicamente en tiempo de compilación por la máquina virtual Linux en cada ejecución de GitHub Actions, capturando los hashes SHA-256 reales generados por el compilador del runner.
 
 ---
 
-## 3. Generación Pseudoaleatoria y Permutación Fisher-Yates (R7-05)
+## 3. Generación Pseudoaleatoria y Permutación Fisher-Yates
 
 ### 3.1. Algoritmo LCG Determinista Multiplataforma
-Para garantizar bit a bit la misma secuencia de aleatorización entre compilers y sistemas operativos (Windows, Linux, macOS), el harness implementa su propio generador LCG de 32 bits conforme al estándar de Knuth / Numerical Recipes:
+Para garantizar bit a bit la misma secuencia de aleatorización entre compiladores y sistemas operativos (Windows, Linux, macOS), el harness implementa su propio generador LCG de 32 bits conforme al estándar de Knuth / Numerical Recipes:
 $$X_{n+1} = (1664525 \times X_n + 1013904223) \bmod 2^{32}$$
 
 ### 3.2. Reducción Lemire sin Sesgo y Análisis de Correlación:
@@ -125,12 +129,12 @@ $$X_{n+1} = (1664525 \times X_n + 1013904223) \bmod 2^{32}$$
 1. **Configuración de Checksum:** `ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);` activo en todos los runners de Zstandard.
 2. **Inspección de Encabezado FHD:** Se valida en caliente que el bit 2 (`Content_Checksum_flag`) esté activo en el byte 4 del frame (`(comp_buf[4] & 0x04) != 0`).
 3. **Pre-flight con Comprobación Específica de Error:**
-   En [`pre_flight_validate_zstd_checksum_rejection()`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c#L556-L630), se corrompe el checksum y se valida formalmente:
+   En [`pre_flight_validate_zstd_checksum_rejection()`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c), se corrompe el checksum y se valida formalmente:
    ```c
    if (ZSTD_getErrorCode(corrupt_ret) != ZSTD_error_checksum_wrong) { return 0; }
    ```
 
-### 4.2. Reconciliación Cuantitativa y Taxonomía de Memoria en Cuatro Capas (R8-03)
+### 4.2. Reconciliación Cuantitativa y Taxonomía de Memoria en Cuatro Capas
 
 #### A. Identificación del Camino Real de Ejecución del SDK:
 La auditoría del código en [`src/binpack_stream.c`](file:///C:/Users/usuario/Desktop/binpack/src/binpack_stream.c) establece:
@@ -179,9 +183,9 @@ Para evitar cualquier confusión ontológica entre fórmulas teóricas y memoria
 
 ---
 
-## 6. Destino CSV y Creación Atómica Exclusiva Robusta (R8-02)
+## 6. Destino CSV, Identidad a Nivel de Kernel y Suite Adversarial (R9-02, R9-03)
 
-Para garantizar la protección incondicional tanto de los CSV históricos (`pilot`, `r1`, `r2`, `r3`, `r4`) como de cualquier ejecución previa de R5, se implementa creación atómica en el kernel del SO, con discriminación estricta de códigos de error y verificación de inodos:
+Para garantizar la protección incondicional tanto de los CSV históricos (`pilot`, `r1`, `r2`, `r3`, `r4`) como de cualquier ejecución previa de R5, se implementa creación atómica en el kernel del SO, con discriminación estricta de códigos de error y verificación de identidad de handle / inodo:
 
 ```c
 typedef enum {
@@ -192,15 +196,18 @@ typedef enum {
 } csv_open_result_t;
 ```
 
-### Reglas de Conducta Exigidas:
+### Reglas de Conducta Exigidas y Manejo de Identidad:
 1. **`EEXIST`:** El archivo ya existe. Se detecta como colisión segura (`CSV_OPEN_COLLISION_EEXIST`) y se procede a probar secuencialmente `_run1.._run999` dentro del mismo directorio. **Jamás se sobrescribe ni se trunca el archivo existente.**
 2. **`ENOENT`:** El directorio preferido no existe (`CSV_OPEN_DIR_NOT_FOUND`). **Únicamente ante este error se autoriza el fallback al siguiente directorio candidato** (`docs/audit` $\rightarrow$ `.`).
 3. **`EACCES`, `EMFILE`, `ENFILE` u otros errores:** Se catalogan como errores operativos no recuperables (`CSV_OPEN_FATAL_ERROR`). **Se aborta inmediatamente sin intentar directorios alternativos**, impidiendo que fallos de permisos o de agotamiento de descriptores se enmascaren como indisponibilidad de ruta.
-4. **Manejo de Errores de Conversión a `FILE*` y Limpieza Segura:**
+4. **Manejo de Errores de Conversión a `FILE*` y Limpieza Defensiva:**
    Si `fdopen()` / `_fdopen()` falla:
-   - Se comprueba la identidad del archivo mediante `fstat(fd)` y `stat(path)` / `lstat(path)`.
-   - Si el inodo o tamaño cambió (sustituido concurrentemente por otro proceso), **se cancela el `unlink()` para evitar eliminar un archivo ajeno**.
-   - Se comprueban los valores de retorno de `close()` y `unlink()`. Si la desvinculación falla, se reporta una advertencia explícita indicando que pudo quedar un archivo residual.
+   - Se comprueba la identidad física del archivo:
+     - En **Windows**, mediante `_get_osfhandle(fd)` y `CreateFileA()` para comparar `BY_HANDLE_FILE_INFORMATION` (`dwVolumeSerialNumber`, `nFileIndexHigh`, `nFileIndexLow`).
+     - En **POSIX**, mediante `fstat(fd)` y `lstat(path)` para comparar `st_dev` y `st_ino`.
+   - **Política Defensiva:** Si la identidad no coincide o no puede ser verificada positivamente, **se suprime el intento de desvinculación para no afectar un archivo ajeno**.
+   - Si la desvinculación falla o se cancela, se emite una advertencia formal indicando que ha quedado un archivo residual inerte.
+   - Se prescinde formalmente de afirmaciones de inmunidad absoluta a TOCTOU en llamadas de desvinculación basadas en ruta.
 5. **Aborto Obligatorio en `main()`:**
    Si `open_safe_csv_r5()` retorna `NULL`, el harness no continúa la ejecución a ciegas:
    ```c
@@ -210,11 +217,15 @@ typedef enum {
        return 1;
    }
    ```
-6. **Suite Unitaria de Validación:**
+6. **Suite Unitaria Adversarial de 7 Casos:**
    Invocable mediante `./benchmark_decisive_suite --test-csv-errors`:
-   - Test 1: Creación exclusiva en ruta limpia (`CSV_OPEN_SUCCESS`).
-   - Test 2: Detección de colisión `EEXIST` sin truncamiento (preservación bit a bit de contenido previo).
-   - Test 3: Detección de directorio inexistente `ENOENT` (`CSV_OPEN_DIR_NOT_FOUND`).
+   - **Caso 1:** Creación exclusiva en ruta limpia (`CSV_OPEN_SUCCESS`).
+   - **Caso 2:** Detección de colisión `EEXIST` y preservación bit a bit de contenido previo sin truncamiento.
+   - **Caso 3:** Detección de directorio inexistente `ENOENT` (`CSV_OPEN_DIR_NOT_FOUND`).
+   - **Caso 4:** Agotamiento de descriptores (`EMFILE`) y aborto fatal (`CSV_OPEN_FATAL_ERROR`).
+   - **Caso 5:** Permiso denegado (`EACCES`) en directorio protegido y aborto fatal (`CSV_OPEN_FATAL_ERROR`).
+   - **Caso 6:** Rotación y asignación segura de sufijos en `open_safe_csv_r5()`.
+   - **Caso 7:** Validación de identidad distinguiendo dos archivos físicos distintos.
 
 ---
 
@@ -231,11 +242,11 @@ typedef enum {
 
 - [x] **1. Integridad de Fuentes:** `git status` en la rama de auditoría certifica que `src/`, `include/` y `deps/` no poseen modificaciones.
 - [x] **2. Sincronización Código-Protocolo:** Implementación de Lemire, estado global `g_suite_rng`, compuertas de checksum Zstd con verificación `ZSTD_error_checksum_wrong` y destino CSV `r5.csv`.
-- [x] **3. Endurecimiento de Auditoría ISA (R8-01):** Script `scripts/audit_isa_isolation.sh` con exigencia de exit code 0, rechazo de salidas vacías, detección de bytes crudos, registro completo de flags/compilador/target/desensamblador y distinción explícita de informe estático vs artefacto de CI.
-- [x] **4. Creación Atómica Exclusiva CSV Robusta (R8-02):** Implementada con fallback estrictamente restringido a `ENOENT`, aborto inmediato ante `EACCES`/`EMFILE`, comprobación de inodos y reporte de limpieza, aborto fatal en `main()` si no hay CSV y suite unitaria `--test-csv-errors`.
-- [x] **5. Corrección Aritmética y Taxonomía de Memoria (R8-03):** Fórmulas exactas ($50.757.632\text{ B}$ propios), `ZSTD_estimateCStreamSize()` como estimador streaming oficial ($52.38\text{ MB}$ en L4 $\le 64\text{ MB}$; $117.87\text{ MB}$ en L19 $\le 128\text{ MB}$) y deslinde de las 4 categorías.
+- [x] **3. Endurecimiento de Auditoría ISA (R9-01):** Script `scripts/audit_isa_isolation.sh` con flags sincronizadas 1:1 (`PORTABLE_CFLAGS` y `AVX2_CFLAGS`), eliminación de flags espurias, ausencia de `continue` fuera de bucle, exigencia de exit code 0, rechazo de salidas vacías y detección de bytes crudos.
+- [x] **4. Creación Atómica Exclusiva CSV Robusta y Suite Adversarial (R9-02, R9-03):** Identidad verificada vía handle Win32 (`BY_HANDLE_FILE_INFORMATION`) y `fstat`/`lstat` POSIX, política defensiva de limpieza sin reclamos espurios de cero-TOCTOU, fallback restringido a `ENOENT`, aborto ante `EACCES`/`EMFILE`, suite de 7 casos `--test-csv-errors` y aborto fatal en `main()`.
+- [x] **5. Corrección Aritmética y Taxonomía de Memoria:** Fórmulas exactas ($50.757.632\text{ B}$ propios), `ZSTD_estimateCStreamSize()` como estimador streaming oficial ($52.38\text{ MB}$ en L4 $\le 64\text{ MB}$; $117.87\text{ MB}$ en L19 $\le 128\text{ MB}$) y deslinde de las 4 categorías.
 - [x] **6. Enforzamiento de Monohilo:** `opt.nb_workers = 1;` configurado explícitamente en todas las ejecuciones del harness.
-- [ ] **7. Integración Continua Multiplataforma Certificada sobre R8:** Ejecución y verificación del nuevo workflow en GitHub Actions sobre el commit exacto de R8.
+- [ ] **7. Integración Continua Multiplataforma Certificada sobre R9 (R9-04):** Ejecución y verificación del workflow en GitHub Actions sobre el commit exacto de R9, validando la suite CSV en Linux y Windows, y la auditoría ISA en Linux.
 - [ ] **8. Aprobación Formal de BP-008D:** Dictamen técnico favorable de la auditoría independiente.
 - [ ] **9. Disponibilidad del Corpus:** Datasets descargados y verificados con sus respectivos hashes SHA-256 en disco.
 - [ ] **10. Aislamiento de Hardware:** Sistema en reposo térmico ($T_{\text{CPU}} \le 45^\circ\text{C}$), sin procesos secundarios.
@@ -244,9 +255,9 @@ typedef enum {
 
 ## 9. Criterio de Cierre del Hito BP-008D
 
-El Hito **BP-008D** se considerará preparado para su **cierre técnico definitivo** una vez que el commit de R8 sea verificado en CI, confirmando:
-1. El endurecimiento estricto de [`scripts/audit_isa_isolation.sh`](file:///C:/Users/usuario/Desktop/binpack/scripts/audit_isa_isolation.sh) sin tolerancia a errores del desensamblador.
-2. La política estricta de fallback y limpieza de CSV en [`tests/benchmarks/benchmark_decisive_suite.c`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c).
+El Hito **BP-008D** se considerará preparado para su **cierre técnico definitivo** una vez que el commit de R9 sea verificado en CI, confirmando:
+1. El endurecimiento y trazabilidad estricta de [`scripts/audit_isa_isolation.sh`](file:///C:/Users/usuario/Desktop/binpack/scripts/audit_isa_isolation.sh) sin errores sintácticos de Bash.
+2. La verificación de identidad de handle Win32 / POSIX y la suite de 7 casos CSV en [`tests/benchmarks/benchmark_decisive_suite.c`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c) ejecutada en CI en Linux y Windows.
 3. La corrección aritmética de la memoria streaming bajo `ZSTD_estimateCStreamSize()`.
 4. La desactivación irreversible de paralelismo automático mediante `opt.nb_workers = 1`.
 5. La ausencia total de ejecución de la campaña de benchmarking de 20 iteraciones.

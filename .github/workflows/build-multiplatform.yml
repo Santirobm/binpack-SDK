@@ -23,6 +23,12 @@ jobs:
         shell: cmd
         run: .\build.bat
 
+      - name: Verify CSV Atomic Exclusive Safety Tests (Windows)
+        shell: cmd
+        run: |
+          zig cc -O3 -march=x86_64 -mno-avx -mno-avx2 -Iinclude -Ideps/include -Ideps/lzma tests/benchmarks/benchmark_decisive_suite.c deps/lz4_src/lz4.c binpack.lib deps/lib/libzstd_static.lib deps/lib/liblzma_static.lib -o bench_suite.exe
+          bench_suite.exe --test-csv-errors
+
       - name: Run Python Integration Suite
         run: python tests/test_python.py
 
@@ -43,16 +49,19 @@ jobs:
 
       - name: Compile LZMA Core & libbinpack.so
         run: |
+          PORTABLE_CFLAGS="-O3 -march=x86-64 -mno-avx -mno-avx2 -fPIC"
+          AVX2_CFLAGS="-O3 -mavx2 -fPIC"
+          export PORTABLE_CFLAGS AVX2_CFLAGS
           gcc -O3 -fPIC -D_7ZIP_ST -Ideps/lzma -c \
             deps/lzma/Alloc.c deps/lzma/LzFind.c deps/lzma/LzmaDec.c \
             deps/lzma/LzmaEnc.c deps/lzma/LzmaLib.c deps/lzma/Bra86.c deps/lzma/Bra.c
           ar rcs liblzma_local.a Alloc.o LzFind.o LzmaDec.o LzmaEnc.o LzmaLib.o Bra86.o Bra.o
-          gcc -O3 -march=x86-64 -mno-avx -mno-avx2 -fPIC -c -Iinclude -Ideps/lzma \
+          gcc $PORTABLE_CFLAGS -c -Iinclude -Ideps/lzma \
             src/binpack_core.c src/binpack_cpu.c src/binpack_eval.c src/binpack_stream.c \
             src/binpack_sdk.c src/binpack_dict.c src/binpack_patch.c src/binpack_archive.c
-          gcc -O3 -mavx2 -fPIC -c -Iinclude -Ideps/lzma src/binpack_core_avx2.c -o binpack_core_avx2.o
+          gcc $AVX2_CFLAGS -c -Iinclude -Ideps/lzma src/binpack_core_avx2.c -o binpack_core_avx2.o
           gcc -shared -DBINPACK_BUILD_DLL *.o liblzma_local.a -lzstd -o libbinpack.so
-          gcc -O3 -march=x86-64 -mno-avx -mno-avx2 -Iinclude -Ideps/lzma \
+          gcc $PORTABLE_CFLAGS -Iinclude -Ideps/lzma \
             tests/test_sdk.c -L. -lbinpack liblzma_local.a -lzstd -Wl,-rpath,. -o test_sdk
           LD_LIBRARY_PATH=. ./test_sdk
           LD_LIBRARY_PATH=. BINPACK_DISABLE_AVX2=1 ./test_sdk
@@ -60,7 +69,16 @@ jobs:
       - name: Verify Strict ISA Isolation (VEX / EVEX Audit)
         run: |
           chmod +x scripts/audit_isa_isolation.sh
+          PORTABLE_CFLAGS="-O3 -march=x86-64 -mno-avx -mno-avx2 -fPIC" \
+          AVX2_CFLAGS="-O3 -mavx2 -fPIC" \
           bash scripts/audit_isa_isolation.sh
+
+      - name: Verify CSV Atomic Exclusive Safety Tests (Linux)
+        run: |
+          gcc -O3 -march=x86-64 -mno-avx -mno-avx2 -Iinclude -Ideps/include -Ideps/lzma \
+            tests/benchmarks/benchmark_decisive_suite.c deps/lz4_src/lz4.c \
+            -L. -lbinpack liblzma_local.a -lzstd -lm -Wl,-rpath,. -o bench_suite
+          LD_LIBRARY_PATH=. ./bench_suite --test-csv-errors
 
       - name: Upload ISA Verification Audit Report
         if: always()

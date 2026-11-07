@@ -15,13 +15,16 @@ mkdir -p "$(dirname "$REPORT")"
 
 echo "================================================================================" > "$REPORT"
 echo "BINPACK ENTERPRISE SDK — AUDITORIA FORMAL DE AISLAMIENTO ISA (VEX / EVEX)" >> "$REPORT"
-echo "Expediente: BP-008D-R8 | Verificación Automática de Compilación y Opcodes" >> "$REPORT"
+echo "Expediente: BP-008D-R9 | Verificación Automática de Compilación y Opcodes" >> "$REPORT"
 echo "Fecha de Ejecución (UTC): $(date -u '+%Y-%m-%d %H:%M:%SZ')" >> "$REPORT"
 echo "Sistema Host: $(uname -srm 2>/dev/null || echo 'Unknown')" >> "$REPORT"
 echo "Arquitectura / Target: $(uname -m 2>/dev/null || echo 'x86_64') ($(gcc -dumpmachine 2>/dev/null || echo 'x86_64-linux-gnu'))" >> "$REPORT"
 echo "Compilador: $(gcc --version 2>/dev/null | head -n 1 || echo 'gcc (GCC)')" >> "$REPORT"
-echo "Flags Portables: -O3 -march=x86-64 -mno-avx -mno-avx2 -fPIC -Wall -Wextra" >> "$REPORT"
-echo "Flags AVX2:      -O3 -mavx2 -fPIC -Wall -Wextra" >> "$REPORT"
+
+PORTABLE_CFLAGS="${PORTABLE_CFLAGS:--O3 -march=x86-64 -mno-avx -mno-avx2 -fPIC}"
+AVX2_CFLAGS="${AVX2_CFLAGS:--O3 -mavx2 -fPIC}"
+echo "Flags Portables: $PORTABLE_CFLAGS" >> "$REPORT"
+echo "Flags AVX2:      $AVX2_CFLAGS" >> "$REPORT"
 
 DISASSEMBLER=""
 if command -v objdump &>/dev/null; then
@@ -183,57 +186,56 @@ else
             cat "$DISASM_ERR" >> "$REPORT"
             rm -f "$DISASM_TMP" "$DISASM_ERR"
             OVERALL_PASS=0
-            continue
-        fi
-        rm -f "$DISASM_ERR"
-        DISASM=$(cat "$DISASM_TMP")
-        rm -f "$DISASM_TMP"
-
-        # Rechazo de salida vacía o truncada
-        if [[ -z "$DISASM" ]]; then
-            echo "[FALLO CRITICO] Salida vacía o incompleta del desensamblador para $AVX2_OBJ." >> "$REPORT"
-            OVERALL_PASS=0
-            continue
-        fi
-        
-        # Validación estricta de presencia de bytes crudos en la salida
-        HAS_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+[0-9a-f]{2}" | head -n 1 || true)
-        if [[ -z "$HAS_BYTES" ]]; then
-            echo "[FALLO CRITICO] El desensamblador $DISASSEMBLER no emitió bytes crudos de instrucción para $AVX2_OBJ." >> "$REPORT"
-            echo "[FALLO CRITICO] Inspección binaria abortada para prevenir falsos negativos de opcodes." >> "$REPORT"
-            OVERALL_PASS=0
         else
-            # Capa 1: Inspección de Mnemónicos vectoriales AVX2
-            VEX_MNEM=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+([0-9a-f]{2}[[:space:]]+)+[[:space:]]*v[a-z0-9]+" || true)
-            VEX_MNEM_COUNT=0
-            [[ -n "$VEX_MNEM" ]] && VEX_MNEM_COUNT=$(echo "$VEX_MNEM" | wc -l)
-            
-            # Capa 2: Inspección de Opcodes binarios x86-64 para prefijos VEX (C4/C5)
-            VEX_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+(c4|c5)[[:space:]]+" || true)
-            VEX_BYTES_COUNT=0
-            [[ -n "$VEX_BYTES" ]] && VEX_BYTES_COUNT=$(echo "$VEX_BYTES" | wc -l)
-            TOTAL_VEX=$(( VEX_MNEM_COUNT > VEX_BYTES_COUNT ? VEX_MNEM_COUNT : VEX_BYTES_COUNT ))
+            rm -f "$DISASM_ERR"
+            DISASM=$(cat "$DISASM_TMP")
+            rm -f "$DISASM_TMP"
 
-            # Capa 3: Inspección de Mnemónicos y decoradores EVEX (AVX-512)
-            EVEX_MNEM=$(echo "$DISASM" | grep -E "(zmm[0-9]+|%k[0-7]|\{k[0-7]\}|\{1to[0-9]+\}|\{z\})" || true)
-            EVEX_MNEM_COUNT=0
-            [[ -n "$EVEX_MNEM" ]] && EVEX_MNEM_COUNT=$(echo "$EVEX_MNEM" | wc -l)
-            
-            # Capa 4: Inspección de Opcodes binarios para prefijo EVEX (0x62)
-            EVEX_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+62[[:space:]]+" || true)
-            EVEX_BYTES_COUNT=0
-            [[ -n "$EVEX_BYTES" ]] && EVEX_BYTES_COUNT=$(echo "$EVEX_BYTES" | wc -l)
-            TOTAL_EVEX=$(( EVEX_MNEM_COUNT > EVEX_BYTES_COUNT ? EVEX_MNEM_COUNT : EVEX_BYTES_COUNT ))
-
-            if [[ "$TOTAL_VEX" -gt 0 && "$TOTAL_EVEX" -eq 0 ]]; then
-                STATUS="PASS (AVX2 Vectorization Verified, EVEX=0)"
-            else
-                STATUS="FAIL (Inconsistencia SIMD: VEX=$TOTAL_VEX, EVEX=$TOTAL_EVEX)"
+            # Rechazo de salida vacía o truncada
+            if [[ -z "$DISASM" ]]; then
+                echo "[FALLO CRITICO] Salida vacía o incompleta del desensamblador para $AVX2_OBJ." >> "$REPORT"
                 OVERALL_PASS=0
+            else
+                # Validación estricta de presencia de bytes crudos en la salida
+                HAS_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+[0-9a-f]{2}" | head -n 1 || true)
+                if [[ -z "$HAS_BYTES" ]]; then
+                    echo "[FALLO CRITICO] El desensamblador $DISASSEMBLER no emitió bytes crudos de instrucción para $AVX2_OBJ." >> "$REPORT"
+                    echo "[FALLO CRITICO] Inspección binaria abortada para prevenir falsos negativos de opcodes." >> "$REPORT"
+                    OVERALL_PASS=0
+                else
+                    # Capa 1: Inspección de Mnemónicos vectoriales AVX2
+                    VEX_MNEM=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+([0-9a-f]{2}[[:space:]]+)+[[:space:]]*v[a-z0-9]+" || true)
+                    VEX_MNEM_COUNT=0
+                    [[ -n "$VEX_MNEM" ]] && VEX_MNEM_COUNT=$(echo "$VEX_MNEM" | wc -l)
+                    
+                    # Capa 2: Inspección de Opcodes binarios x86-64 para prefijos VEX (C4/C5)
+                    VEX_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+(c4|c5)[[:space:]]+" || true)
+                    VEX_BYTES_COUNT=0
+                    [[ -n "$VEX_BYTES" ]] && VEX_BYTES_COUNT=$(echo "$VEX_BYTES" | wc -l)
+                    TOTAL_VEX=$(( VEX_MNEM_COUNT > VEX_BYTES_COUNT ? VEX_MNEM_COUNT : VEX_BYTES_COUNT ))
+
+                    # Capa 3: Inspección de Mnemónicos y decoradores EVEX (AVX-512)
+                    EVEX_MNEM=$(echo "$DISASM" | grep -E "(zmm[0-9]+|%k[0-7]|\{k[0-7]\}|\{1to[0-9]+\}|\{z\})" || true)
+                    EVEX_MNEM_COUNT=0
+                    [[ -n "$EVEX_MNEM" ]] && EVEX_MNEM_COUNT=$(echo "$EVEX_MNEM" | wc -l)
+                    
+                    # Capa 4: Inspección de Opcodes binarios para prefijo EVEX (0x62)
+                    EVEX_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+62[[:space:]]+" || true)
+                    EVEX_BYTES_COUNT=0
+                    [[ -n "$EVEX_BYTES" ]] && EVEX_BYTES_COUNT=$(echo "$EVEX_BYTES" | wc -l)
+                    TOTAL_EVEX=$(( EVEX_MNEM_COUNT > EVEX_BYTES_COUNT ? EVEX_MNEM_COUNT : EVEX_BYTES_COUNT ))
+
+                    if [[ "$TOTAL_VEX" -gt 0 && "$TOTAL_EVEX" -eq 0 ]]; then
+                        STATUS="PASS (AVX2 Vectorization Verified, EVEX=0)"
+                    else
+                        STATUS="FAIL (Inconsistencia SIMD: VEX=$TOTAL_VEX, EVEX=$TOTAL_EVEX)"
+                        OVERALL_PASS=0
+                    fi
+                    
+                    printf "%-22s | SHA256: %s | VEX: %3d | EVEX: %3d | %s\n" \
+                        "$AVX2_OBJ" "$SHA" "$TOTAL_VEX" "$TOTAL_EVEX" "$STATUS" >> "$REPORT"
+                fi
             fi
-            
-            printf "%-22s | SHA256: %s | VEX: %3d | EVEX: %3d | %s\n" \
-                "$AVX2_OBJ" "$SHA" "$TOTAL_VEX" "$TOTAL_EVEX" "$STATUS" >> "$REPORT"
         fi
     fi
 fi
