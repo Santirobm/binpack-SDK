@@ -2026,7 +2026,7 @@ static int run_csv_safety_unit_tests(void) {
         int orig_max = _getmaxstdio();
         _setmaxstdio(512);
 
-        int fds[2500];
+        static int fds[8300];
         int n_fds = 0;
         int hit_exhaustion = 0;
         int last_errno = 0;
