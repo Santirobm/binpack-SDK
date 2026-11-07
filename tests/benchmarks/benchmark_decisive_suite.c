@@ -2105,48 +2105,29 @@ after_test_4: ;
 #else
         const char *denied_dir = "test_denied_audit_dir";
         RemoveDirectoryA(denied_dir);
+        CreateDirectoryA(denied_dir, NULL);
+        system("icacls test_denied_audit_dir /deny *S-1-1-0:(W) >nul 2>nul");
 
-        BYTE acl_buf[sizeof(ACL) + 32];
-        PACL pacl = (PACL)acl_buf;
-        InitializeAcl(pacl, sizeof(acl_buf), ACL_REVISION);
-
-        SECURITY_DESCRIPTOR sd;
-        InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION);
-        SetSecurityDescriptorDacl(&sd, TRUE, pacl, FALSE);
-
-        SECURITY_ATTRIBUTES sa;
-        sa.nLength = sizeof(sa);
-        sa.lpSecurityDescriptor = &sd;
-        sa.bInheritHandle = FALSE;
-
-        if (!CreateDirectoryA(denied_dir, &sa)) {
-            fprintf(stderr, "[FAIL] Test 5: Failed to create write-denied directory on Windows: err=%lu\n", GetLastError());
+        char probe_path[256];
+        snprintf(probe_path, sizeof(probe_path), "%s/new_probe_target.csv", denied_dir);
+        csv_open_result_t res_eacces = CSV_OPEN_SUCCESS;
+        FILE *f_win = open_atomic_exclusive_csv(probe_path, &res_eacces);
+        if (f_win != NULL) {
+            fclose(f_win);
+            remove(probe_path);
+            fprintf(stderr, "[FAIL] Test 5: Creation succeeded in write-denied directory on Windows!\n");
+            tests_failed++;
+        } else if (res_eacces != CSV_OPEN_FATAL_ERROR) {
+            fprintf(stderr, "[FAIL] Test 5: Expected CSV_OPEN_FATAL_ERROR on Windows access denial, got res=%d\n", res_eacces);
             tests_failed++;
         } else {
-            char probe_path[256];
-            snprintf(probe_path, sizeof(probe_path), "%s/new_probe_target.csv", denied_dir);
-            csv_open_result_t res_eacces = CSV_OPEN_SUCCESS;
-            FILE *f_win = open_atomic_exclusive_csv(probe_path, &res_eacces);
-            if (f_win != NULL) {
-                fclose(f_win);
-                remove(probe_path);
-                fprintf(stderr, "[FAIL] Test 5: Creation succeeded in write-denied directory on Windows!\n");
-                tests_failed++;
-            } else if (res_eacces != CSV_OPEN_FATAL_ERROR) {
-                fprintf(stderr, "[FAIL] Test 5: Expected CSV_OPEN_FATAL_ERROR on Windows access denial, got res=%d\n", res_eacces);
-                tests_failed++;
-            } else {
-                printf("  [PASS] Test 5: Real access denial verified on Windows (CSV_OPEN_FATAL_ERROR, strict abort, no fallback).\n");
-                eacces_ok = 1;
-                tests_passed++;
-            }
-
-            SECURITY_DESCRIPTOR sd_open;
-            InitializeSecurityDescriptor(&sd_open, SECURITY_DESCRIPTOR_REVISION);
-            SetSecurityDescriptorDacl(&sd_open, TRUE, NULL, FALSE);
-            SetFileSecurityA(denied_dir, DACL_SECURITY_INFORMATION, &sd_open);
-            RemoveDirectoryA(denied_dir);
+            printf("  [PASS] Test 5: Real access denial verified on Windows (CSV_OPEN_FATAL_ERROR, strict abort, no fallback).\n");
+            eacces_ok = 1;
+            tests_passed++;
         }
+
+        system("icacls test_denied_audit_dir /remove:d *S-1-1-0 >nul 2>nul");
+        RemoveDirectoryA(denied_dir);
 #endif
     }
 
