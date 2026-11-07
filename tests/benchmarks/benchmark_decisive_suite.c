@@ -1638,7 +1638,7 @@ static int run_engine_isolated(
 }
 
 /* ========================================================================= */
-/* Registro en Archivo CSV Crudo (BP-008D-R11 Campaña Decisiva)              */
+/* Registro en Archivo CSV Crudo (BP-008D-R12 Campaña Decisiva)              */
 /* ========================================================================= */
 
 static FILE *g_csv_file = NULL;
@@ -1724,7 +1724,7 @@ static int compare_posix_file_identity(const posix_file_id_t *a, const posix_fil
 }
 #endif
 
-/* Shared defensive cleanup function for failed exclusive file creation (BP-008D-R11).
+/* Shared defensive cleanup function for failed exclusive file creation (BP-008D-R12).
  * Verifies kernel-level filesystem identity (volume serial + index on Win32, dev + ino on POSIX)
  * before closing and unlinking a newly created file.
  * If identities match, closes fd and unlinks path safely, returning 1.
@@ -1914,10 +1914,10 @@ static FILE* open_safe_csv_r5(char *out_path, size_t out_path_sz) {
     return open_safe_csv_r5_ex(base_dirs, 2, "decisive_benchmark_raw_r5", out_path, out_path_sz, 999);
 }
 
-/* Comprehensive unit testing harness for CSV atomic exclusive creation and error scenarios (BP-008D-R11) */
+/* Comprehensive unit testing harness for CSV atomic exclusive creation and error scenarios (BP-008D-R12) */
 static int run_csv_safety_unit_tests(void) {
     printf("==================================================================================================\n");
-    printf("BINPACK ENTERPRISE SDK — CSV ATOMIC EXCLUSIVE & ERROR FALLBACK SAFETY SUITE (BP-008D-R11)\n");
+    printf("BINPACK ENTERPRISE SDK — CSV ATOMIC EXCLUSIVE & ERROR FALLBACK SAFETY SUITE (BP-008D-R12)\n");
     printf("==================================================================================================\n");
 
     int tests_passed = 0;
@@ -1934,10 +1934,14 @@ static int run_csv_safety_unit_tests(void) {
             fprintf(stderr, "[FAIL] Test 1: Could not create exclusive test file '%s': res=%d\n", test_path, res);
             tests_failed++;
         } else {
-            fprintf(f1, "INITIAL_CONTENT_PRESERVE_R11\n");
-            fclose(f1);
-            printf("  [PASS] Test 1: Clean exclusive creation succeeded with CSV_OPEN_SUCCESS.\n");
-            tests_passed++;
+            fprintf(f1, "INITIAL_CONTENT_PRESERVE_R12\n");
+            if (fclose(f1) != 0) {
+                fprintf(stderr, "[FAIL] Test 1: fclose failed on '%s'\n", test_path);
+                tests_failed++;
+            } else {
+                printf("  [PASS] Test 1: Clean exclusive creation succeeded with CSV_OPEN_SUCCESS.\n");
+                tests_passed++;
+            }
         }
     }
 
@@ -1960,14 +1964,16 @@ static int run_csv_safety_unit_tests(void) {
                 tests_failed++;
             } else {
                 char buf[64] = {0};
-                if (!fgets(buf, sizeof(buf), f_check) || strncmp(buf, "INITIAL_CONTENT_PRESERVE_R11", 28) != 0) {
+                if (!fgets(buf, sizeof(buf), f_check) || strncmp(buf, "INITIAL_CONTENT_PRESERVE_R12", 28) != 0) {
                     fprintf(stderr, "[FAIL] Test 2: Preexisting file content was truncated or altered!\n");
                     tests_failed++;
                 } else {
                     printf("  [PASS] Test 2: Collision rejected with CSV_OPEN_COLLISION_EEXIST and 0-byte truncation prevented.\n");
                     tests_passed++;
                 }
-                fclose(f_check);
+                if (fclose(f_check) != 0) {
+                    fprintf(stderr, "[FAIL] Test 2: fclose failed during check\n");
+                }
             }
         }
         remove(test_path);
@@ -2025,9 +2031,11 @@ static int run_csv_safety_unit_tests(void) {
         }
 
         if (!hit_exhaustion || last_errno != EMFILE) {
-            fprintf(stderr, "[FAIL] Test 4: Could not induce EMFILE: hit=%d, last_errno=%d (%s)\n",
-                    hit_exhaustion, last_errno, strerror(last_errno));
+            fprintf(stderr, "[FAIL] Test 4: Could not induce EMFILE: hit=%d, n_fds=%d, last_errno=%d (%s)\n",
+                    hit_exhaustion, n_fds, last_errno, strerror(last_errno));
         } else {
+            printf("  [INFO] Test 4: POSIX soft rlimit reached at n_fds=%d (rlim_cur=40), failing_errno=%d (%s).\n",
+                   n_fds, last_errno, strerror(last_errno));
             csv_open_result_t res_emfile = CSV_OPEN_SUCCESS;
             errno = 0;
             FILE *f_emfile = open_atomic_exclusive_csv("test_emfile_probe.tmp", &res_emfile);
@@ -2040,7 +2048,8 @@ static int run_csv_safety_unit_tests(void) {
                 fprintf(stderr, "[FAIL] Test 4: Expected CSV_OPEN_FATAL_ERROR and errno=EMFILE (%d), got res=%d, errno=%d (%s)\n",
                         EMFILE, res_emfile, probe_errno, strerror(probe_errno));
             } else {
-                printf("  [PASS] Test 4: Descriptor exhaustion (EMFILE) verified deterministically (CSV_OPEN_FATAL_ERROR, errno=%d, strict abort).\n", probe_errno);
+                printf("  [PASS] Test 4: Descriptor exhaustion (EMFILE) verified deterministically (exhausted_at_fds=%d, CSV_OPEN_FATAL_ERROR, probe_errno=%d, strict abort).\n",
+                       n_fds, probe_errno);
                 emfile_ok = 1;
             }
         }
@@ -2054,6 +2063,15 @@ static int run_csv_safety_unit_tests(void) {
             emfile_ok = 0;
         }
 #else
+        /* In Microsoft Windows CRT / UCRT:
+         * 1. _setmaxstdio() sets the stream-level limit for stdio streams (FILE*), with default 512, maximum 2048.
+         * 2. In contrast, low-level POSIX-like I/O (_open, _close) operates on an internal CRT descriptor table
+         *    (_pioinfo) with a maximum capacity of 8,192 descriptors in the modern Universal CRT.
+         * We validate both:
+         * - _setmaxstdio(512) configures and validates the stream-level capacity.
+         * - An array of 8,300 descriptors exhausts the 8,192 low-level descriptor pool at runtime,
+         *   logging the exact descriptor count (n_fds) where _open fails with EMFILE (24).
+         */
         int orig_max = _getmaxstdio();
         int set_res = _setmaxstdio(512);
         if (set_res != 512) {
@@ -2080,6 +2098,8 @@ static int run_csv_safety_unit_tests(void) {
             fprintf(stderr, "[FAIL] Test 4: Failed to induce EMFILE in Windows CRT: hit=%d, n_fds=%d, last_errno=%d (%s)\n",
                     hit_exhaustion, n_fds, last_errno, strerror(last_errno));
         } else {
+            printf("  [INFO] Test 4: Low-level CRT descriptor pool exhausted at n_fds=%d (capacity=8192, limit=8300), failing_errno=%d (%s).\n",
+                   n_fds, last_errno, strerror(last_errno));
             remove("test_emfile_probe.tmp");
             csv_open_result_t res_emfile = CSV_OPEN_SUCCESS;
             errno = 0;
@@ -2093,7 +2113,8 @@ static int run_csv_safety_unit_tests(void) {
                 fprintf(stderr, "[FAIL] Test 4: Expected CSV_OPEN_FATAL_ERROR and errno=EMFILE (%d), got res=%d, errno=%d (%s)\n",
                         EMFILE, res_emfile, probe_errno, strerror(probe_errno));
             } else {
-                printf("  [PASS] Test 4: Descriptor exhaustion (EMFILE) verified deterministically on Windows (CSV_OPEN_FATAL_ERROR, errno=%d, strict abort).\n", probe_errno);
+                printf("  [PASS] Test 4: Descriptor exhaustion (EMFILE) verified deterministically on Windows (exhausted_at_fds=%d, CSV_OPEN_FATAL_ERROR, probe_errno=%d, strict abort).\n",
+                       n_fds, probe_errno);
                 emfile_ok = 1;
             }
         }
@@ -2146,14 +2167,24 @@ after_test_4: ;
                 eacces_ok = 1;
                 tests_passed++;
             }
-            chmod(denied_dir, 0755);
-            rmdir(denied_dir);
+            if (chmod(denied_dir, 0755) != 0) {
+                fprintf(stderr, "[FAIL] Test 5: chmod 0755 restoration failed on '%s': errno=%d (%s)\n",
+                        denied_dir, errno, strerror(errno));
+                tests_failed++;
+            }
+            if (rmdir(denied_dir) != 0) {
+                fprintf(stderr, "[FAIL] Test 5: rmdir cleanup failed on '%s': errno=%d (%s)\n",
+                        denied_dir, errno, strerror(errno));
+                tests_failed++;
+            }
         }
 #else
         const char *denied_dir = "test_denied_audit_dir";
+        /* 1. Ensure clean directory state: remove any stale directory from previous runs */
         RemoveDirectoryA(denied_dir);
-        if (!CreateDirectoryA(denied_dir, NULL) && GetLastError() != ERROR_ALREADY_EXISTS) {
-            fprintf(stderr, "[FAIL] Test 5: Could not create test directory '%s'\n", denied_dir);
+        /* Strictly require creating a fresh new directory without accepting pre-existing directory */
+        if (!CreateDirectoryA(denied_dir, NULL)) {
+            fprintf(stderr, "[FAIL] Test 5: Could not create fresh test directory '%s': err=%lu\n", denied_dir, GetLastError());
             tests_failed++;
             goto after_test_5;
         }
@@ -2166,25 +2197,35 @@ after_test_4: ;
 
         char cmd_deny[256] = "C:\\Windows\\System32\\icacls.exe test_denied_audit_dir /deny *S-1-1-0:(W)";
         BOOL cp_deny_ok = CreateProcessA(NULL, cmd_deny, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si_deny, &pi_deny);
-        DWORD icacls_deny_exit = 1;
         if (!cp_deny_ok) {
             fprintf(stderr, "[FAIL] Test 5: Failed to launch icacls to set write-deny ACE: err=%lu\n", GetLastError());
             tests_failed++;
             RemoveDirectoryA(denied_dir);
             goto after_test_5;
         }
-        WaitForSingleObject(pi_deny.hProcess, INFINITE);
-        GetExitCodeProcess(pi_deny.hProcess, &icacls_deny_exit);
+        DWORD wait_deny = WaitForSingleObject(pi_deny.hProcess, 10000);
+        if (wait_deny != WAIT_OBJECT_0) {
+            fprintf(stderr, "[FAIL] Test 5: WaitForSingleObject on icacls deny timed out or failed: wait=%lu, err=%lu\n",
+                    wait_deny, GetLastError());
+            CloseHandle(pi_deny.hProcess);
+            CloseHandle(pi_deny.hThread);
+            tests_failed++;
+            RemoveDirectoryA(denied_dir);
+            goto after_test_5;
+        }
+        DWORD icacls_deny_exit = 1;
+        BOOL exit_deny_ok = GetExitCodeProcess(pi_deny.hProcess, &icacls_deny_exit);
         CloseHandle(pi_deny.hProcess);
         CloseHandle(pi_deny.hThread);
 
-        if (icacls_deny_exit != 0) {
-            fprintf(stderr, "[FAIL] Test 5: icacls returned failure exit code %lu\n", icacls_deny_exit);
+        if (!exit_deny_ok || icacls_deny_exit != 0) {
+            fprintf(stderr, "[FAIL] Test 5: icacls deny process failed: ok=%d, exitCode=%lu\n", exit_deny_ok, icacls_deny_exit);
             tests_failed++;
             RemoveDirectoryA(denied_dir);
             goto after_test_5;
         }
 
+        /* 2. Probe access denial on non-existent file */
         char probe_path[256];
         snprintf(probe_path, sizeof(probe_path), "%s/new_probe_target.csv", denied_dir);
         csv_open_result_t res_eacces = CSV_OPEN_SUCCESS;
@@ -2206,6 +2247,7 @@ after_test_4: ;
             tests_passed++;
         }
 
+        /* 3. ACE removal and validated directory cleanup */
         STARTUPINFOA si_clean;
         PROCESS_INFORMATION pi_clean;
         memset(&si_clean, 0, sizeof(si_clean));
@@ -2213,12 +2255,27 @@ after_test_4: ;
         memset(&pi_clean, 0, sizeof(pi_clean));
 
         char cmd_clean[256] = "C:\\Windows\\System32\\icacls.exe test_denied_audit_dir /remove:d *S-1-1-0";
-        if (CreateProcessA(NULL, cmd_clean, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si_clean, &pi_clean)) {
-            WaitForSingleObject(pi_clean.hProcess, INFINITE);
+        BOOL cp_clean_ok = CreateProcessA(NULL, cmd_clean, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si_clean, &pi_clean);
+        if (!cp_clean_ok) {
+            fprintf(stderr, "[FAIL] Test 5: Failed to launch icacls to remove ACE: err=%lu\n", GetLastError());
+            tests_failed++;
+        } else {
+            DWORD wait_clean = WaitForSingleObject(pi_clean.hProcess, 10000);
+            DWORD icacls_clean_exit = 1;
+            BOOL exit_clean_ok = GetExitCodeProcess(pi_clean.hProcess, &icacls_clean_exit);
             CloseHandle(pi_clean.hProcess);
             CloseHandle(pi_clean.hThread);
+            if (wait_clean != WAIT_OBJECT_0 || !exit_clean_ok || icacls_clean_exit != 0) {
+                fprintf(stderr, "[FAIL] Test 5: icacls remove ACE failed: wait=%lu, ok=%d, exitCode=%lu\n",
+                        wait_clean, exit_clean_ok, icacls_clean_exit);
+                tests_failed++;
+            }
         }
-        RemoveDirectoryA(denied_dir);
+        BOOL rem_dir_ok = RemoveDirectoryA(denied_dir);
+        if (!rem_dir_ok) {
+            fprintf(stderr, "[FAIL] Test 5: RemoveDirectoryA failed on '%s': err=%lu\n", denied_dir, GetLastError());
+            tests_failed++;
+        }
 after_test_5: ;
 #endif
     }
@@ -2228,9 +2285,17 @@ after_test_5: ;
         int test6_ok = 1;
         const char *t6_dir = "test_suffix_rotation_dir";
 #if defined(_WIN32)
-        CreateDirectoryA(t6_dir, NULL);
+        RemoveDirectoryA(t6_dir);
+        if (!CreateDirectoryA(t6_dir, NULL)) {
+            fprintf(stderr, "[FAIL] Test 6: Could not create test directory '%s'\n", t6_dir);
+            test6_ok = 0;
+        }
 #else
-        mkdir(t6_dir, 0755);
+        rmdir(t6_dir);
+        if (mkdir(t6_dir, 0755) != 0) {
+            fprintf(stderr, "[FAIL] Test 6: Could not create test directory '%s'\n", t6_dir);
+            test6_ok = 0;
+        }
 #endif
         const char *t6_base_dirs[] = { t6_dir };
         const char *stem = "sample_dataset";
@@ -2245,7 +2310,7 @@ after_test_5: ;
             run_patterns[2][i] = (uint8_t)((i * 41 + 0x33) & 0xFF);
         }
 
-        /* Step B: Pre-create base binary file */
+        /* Step B: Pre-create base binary file with full I/O validation */
         char base_file[256];
         snprintf(base_file, sizeof(base_file), "%s/%s.csv", t6_dir, stem);
         FILE *fb = fopen(base_file, "wb");
@@ -2253,11 +2318,18 @@ after_test_5: ;
             fprintf(stderr, "[FAIL] Test 6: Could not pre-create base file '%s'\n", base_file);
             test6_ok = 0;
         } else {
-            fwrite(base_pattern, 1, sizeof(base_pattern), fb);
-            fclose(fb);
+            size_t nw = fwrite(base_pattern, 1, sizeof(base_pattern), fb);
+            if (nw != sizeof(base_pattern)) {
+                fprintf(stderr, "[FAIL] Test 6: fwrite failed on base file: wrote %zu of %zu bytes\n", nw, sizeof(base_pattern));
+                test6_ok = 0;
+            }
+            if (fclose(fb) != 0) {
+                fprintf(stderr, "[FAIL] Test 6: fclose failed on base file\n");
+                test6_ok = 0;
+            }
         }
 
-        /* Step C: Pre-create consecutive suffixes: _run1, _run2, _run3 with distinct binary payloads */
+        /* Step C: Pre-create consecutive suffixes: _run1, _run2, _run3 with distinct binary payloads and full I/O validation */
         for (int r = 1; r <= 3; r++) {
             char rfile[256];
             snprintf(rfile, sizeof(rfile), "%s/%s_run%d.csv", t6_dir, stem, r);
@@ -2266,8 +2338,15 @@ after_test_5: ;
                 fprintf(stderr, "[FAIL] Test 6: Could not pre-create run file '%s'\n", rfile);
                 test6_ok = 0;
             } else {
-                fwrite(run_patterns[r - 1], 1, sizeof(run_patterns[r - 1]), fr);
-                fclose(fr);
+                size_t nw = fwrite(run_patterns[r - 1], 1, sizeof(run_patterns[r - 1]), fr);
+                if (nw != sizeof(run_patterns[r - 1])) {
+                    fprintf(stderr, "[FAIL] Test 6: fwrite failed on run file '%s': wrote %zu of %zu bytes\n", rfile, nw, sizeof(run_patterns[r - 1]));
+                    test6_ok = 0;
+                }
+                if (fclose(fr) != 0) {
+                    fprintf(stderr, "[FAIL] Test 6: fclose failed on run file '%s'\n", rfile);
+                    test6_ok = 0;
+                }
             }
         }
 
@@ -2285,23 +2364,40 @@ after_test_5: ;
             fclose(f_chosen);
             test6_ok = 0;
         } else {
-            fprintf(f_chosen, "RUN4_NEW_EXPERIMENT_DATA_BP008D_R11\n");
-            fclose(f_chosen);
+            const char *r4_msg = "RUN4_NEW_EXPERIMENT_DATA_BP008D_R12\n";
+            size_t nw = fwrite(r4_msg, 1, strlen(r4_msg), f_chosen);
+            if (nw != strlen(r4_msg)) {
+                fprintf(stderr, "[FAIL] Test 6: fwrite failed on run4 file\n");
+                test6_ok = 0;
+            }
+            if (fclose(f_chosen) != 0) {
+                fprintf(stderr, "[FAIL] Test 6: fclose failed on run4 file\n");
+                test6_ok = 0;
+            }
         }
 
-        /* Step E: Binary-level verification: base and 3 pre-existing run files preserved bit-for-bit & size */
+        /* Step E: Binary-level verification: base and 3 pre-existing run files preserved bit-for-bit & size (validated I/O) */
         {
             FILE *f_chk_base = fopen(base_file, "rb");
             if (!f_chk_base) {
                 fprintf(stderr, "[FAIL] Test 6: Base file could not be opened for binary validation!\n");
                 test6_ok = 0;
             } else {
-                fseek(f_chk_base, 0, SEEK_END);
+                if (fseek(f_chk_base, 0, SEEK_END) != 0) {
+                    fprintf(stderr, "[FAIL] Test 6: fseek SEEK_END failed on base file\n");
+                    test6_ok = 0;
+                }
                 long sz = ftell(f_chk_base);
-                fseek(f_chk_base, 0, SEEK_SET);
+                if (fseek(f_chk_base, 0, SEEK_SET) != 0) {
+                    fprintf(stderr, "[FAIL] Test 6: fseek SEEK_SET failed on base file\n");
+                    test6_ok = 0;
+                }
                 uint8_t read_buf[256];
                 size_t nread = fread(read_buf, 1, sizeof(read_buf), f_chk_base);
-                fclose(f_chk_base);
+                if (fclose(f_chk_base) != 0) {
+                    fprintf(stderr, "[FAIL] Test 6: fclose failed during check on base file\n");
+                    test6_ok = 0;
+                }
                 if (sz != 256 || nread != 256 || memcmp(read_buf, base_pattern, 256) != 0) {
                     fprintf(stderr, "[FAIL] Test 6: Base file binary content was altered or truncated! sz=%ld, nread=%zu\n", sz, nread);
                     test6_ok = 0;
@@ -2316,12 +2412,21 @@ after_test_5: ;
                     fprintf(stderr, "[FAIL] Test 6: Run file '%s' could not be opened for binary validation!\n", rfile);
                     test6_ok = 0;
                 } else {
-                    fseek(f_chk_run, 0, SEEK_END);
+                    if (fseek(f_chk_run, 0, SEEK_END) != 0) {
+                        fprintf(stderr, "[FAIL] Test 6: fseek SEEK_END failed on '%s'\n", rfile);
+                        test6_ok = 0;
+                    }
                     long sz = ftell(f_chk_run);
-                    fseek(f_chk_run, 0, SEEK_SET);
+                    if (fseek(f_chk_run, 0, SEEK_SET) != 0) {
+                        fprintf(stderr, "[FAIL] Test 6: fseek SEEK_SET failed on '%s'\n", rfile);
+                        test6_ok = 0;
+                    }
                     uint8_t read_buf[256];
                     size_t nread = fread(read_buf, 1, sizeof(read_buf), f_chk_run);
-                    fclose(f_chk_run);
+                    if (fclose(f_chk_run) != 0) {
+                        fprintf(stderr, "[FAIL] Test 6: fclose failed during check on '%s'\n", rfile);
+                        test6_ok = 0;
+                    }
                     if (sz != 256 || nread != 256 || memcmp(read_buf, run_patterns[r - 1], 256) != 0) {
                         fprintf(stderr, "[FAIL] Test 6: Run file '%s' binary content was altered or truncated! sz=%ld, nread=%zu\n", rfile, sz, nread);
                         test6_ok = 0;
@@ -2362,7 +2467,7 @@ after_test_5: ;
         }
     }
 
-    /* Test 7: Kernel-Level Identity Verification & Foreign File Deletion Prevention Under Path Substitution (BP-008D-R11) */
+    /* Test 7: Kernel-Level Identity Verification & Foreign File Deletion Prevention Under Path Substitution (BP-008D-R12) */
     {
         int test7_ok = 1;
         const char *target_path = "test_substitution_probe.tmp";
@@ -2384,7 +2489,10 @@ after_test_5: ;
             test7_ok = 0;
         } else {
             ssize_t nw = write(orig_fd, orig_canary, sizeof(orig_canary));
-            (void)nw;
+            if (nw != sizeof(orig_canary)) {
+                fprintf(stderr, "[FAIL] Test 7: write failed on original file\n");
+                test7_ok = 0;
+            }
 
             /* Step 2: Verify identity MATCHES when fd and path point to the exact same file */
             posix_file_id_t id_fd_init, id_path_init;
@@ -2407,8 +2515,15 @@ after_test_5: ;
                 fprintf(stderr, "[FAIL] Test 7: Failed to create substitute foreign file at '%s'!\n", target_path);
                 test7_ok = 0;
             } else {
-                fwrite(foreign_canary, 1, sizeof(foreign_canary), f_foreign);
-                fclose(f_foreign);
+                size_t nw_f = fwrite(foreign_canary, 1, sizeof(foreign_canary), f_foreign);
+                if (nw_f != sizeof(foreign_canary)) {
+                    fprintf(stderr, "[FAIL] Test 7: fwrite failed on foreign substitute file\n");
+                    test7_ok = 0;
+                }
+                if (fclose(f_foreign) != 0) {
+                    fprintf(stderr, "[FAIL] Test 7: fclose failed on foreign substitute file\n");
+                    test7_ok = 0;
+                }
             }
 
             /* Step 4: Validate that kernel identity check detects MISMATCH between orig_fd and target_path */
@@ -2440,12 +2555,21 @@ after_test_5: ;
                     fprintf(stderr, "[FAIL] Test 7: Foreign substitute file was erroneously deleted!\n");
                     test7_ok = 0;
                 } else {
-                    fseek(f_check_foreign, 0, SEEK_END);
+                    if (fseek(f_check_foreign, 0, SEEK_END) != 0) {
+                        fprintf(stderr, "[FAIL] Test 7: fseek SEEK_END failed on foreign file\n");
+                        test7_ok = 0;
+                    }
                     long sz = ftell(f_check_foreign);
-                    fseek(f_check_foreign, 0, SEEK_SET);
+                    if (fseek(f_check_foreign, 0, SEEK_SET) != 0) {
+                        fprintf(stderr, "[FAIL] Test 7: fseek SEEK_SET failed on foreign file\n");
+                        test7_ok = 0;
+                    }
                     uint8_t fbuf[256];
                     size_t nread = fread(fbuf, 1, sizeof(fbuf), f_check_foreign);
-                    fclose(f_check_foreign);
+                    if (fclose(f_check_foreign) != 0) {
+                        fprintf(stderr, "[FAIL] Test 7: fclose failed during check on foreign file\n");
+                        test7_ok = 0;
+                    }
                     if (sz != 256 || nread != 256 || memcmp(fbuf, foreign_canary, 256) != 0) {
                         fprintf(stderr, "[FAIL] Test 7: Foreign substitute file was corrupted or altered! sz=%ld, nread=%zu\n", sz, nread);
                         test7_ok = 0;
@@ -2475,7 +2599,10 @@ after_test_5: ;
                 test7_ok = 0;
             } else {
                 int nw = _write(orig_fd, orig_canary, sizeof(orig_canary));
-                (void)nw;
+                if (nw != sizeof(orig_canary)) {
+                    fprintf(stderr, "[FAIL] Test 7: _write failed on original file\n");
+                    test7_ok = 0;
+                }
 
                 /* Step 2: Verify identity MATCHES when fd and path point to the exact same file */
                 win32_file_id_t id_fd_init, id_path_init;
@@ -2499,8 +2626,15 @@ after_test_5: ;
                     fprintf(stderr, "[FAIL] Test 7: Failed to create substitute foreign file at '%s'!\n", target_path);
                     test7_ok = 0;
                 } else {
-                    fwrite(foreign_canary, 1, sizeof(foreign_canary), f_foreign);
-                    fclose(f_foreign);
+                    size_t nw_f = fwrite(foreign_canary, 1, sizeof(foreign_canary), f_foreign);
+                    if (nw_f != sizeof(foreign_canary)) {
+                        fprintf(stderr, "[FAIL] Test 7: fwrite failed on foreign substitute file\n");
+                        test7_ok = 0;
+                    }
+                    if (fclose(f_foreign) != 0) {
+                        fprintf(stderr, "[FAIL] Test 7: fclose failed on foreign substitute file\n");
+                        test7_ok = 0;
+                    }
                 }
 
                 /* Step 4: Validate that kernel identity check detects MISMATCH between orig_fd and target_path */
@@ -2532,12 +2666,21 @@ after_test_5: ;
                         fprintf(stderr, "[FAIL] Test 7: Foreign substitute file was erroneously deleted!\n");
                         test7_ok = 0;
                     } else {
-                        fseek(f_check_foreign, 0, SEEK_END);
+                        if (fseek(f_check_foreign, 0, SEEK_END) != 0) {
+                            fprintf(stderr, "[FAIL] Test 7: fseek SEEK_END failed on foreign file\n");
+                            test7_ok = 0;
+                        }
                         long sz = ftell(f_check_foreign);
-                        fseek(f_check_foreign, 0, SEEK_SET);
+                        if (fseek(f_check_foreign, 0, SEEK_SET) != 0) {
+                            fprintf(stderr, "[FAIL] Test 7: fseek SEEK_SET failed on foreign file\n");
+                            test7_ok = 0;
+                        }
                         uint8_t fbuf[256];
                         size_t nread = fread(fbuf, 1, sizeof(fbuf), f_check_foreign);
-                        fclose(f_check_foreign);
+                        if (fclose(f_check_foreign) != 0) {
+                            fprintf(stderr, "[FAIL] Test 7: fclose failed during check on foreign file\n");
+                            test7_ok = 0;
+                        }
                         if (sz != 256 || nread != 256 || memcmp(fbuf, foreign_canary, 256) != 0) {
                             fprintf(stderr, "[FAIL] Test 7: Foreign substitute file was corrupted or altered! sz=%ld, nread=%zu\n", sz, nread);
                             test7_ok = 0;
@@ -2561,7 +2704,7 @@ after_test_5: ;
     }
 
     printf("==================================================================================================\n");
-    printf("CSV SAFETY UNIT TESTS SUMMARY (BP-008D-R11):\n");
+    printf("CSV SAFETY UNIT TESTS SUMMARY (BP-008D-R12):\n");
     printf("  Total Required Cases: 7\n");
     printf("  Passed:               %d\n", tests_passed);
     printf("  Failed:               %d\n", tests_failed);
@@ -2654,7 +2797,7 @@ int main(int argc, char **argv) {
     }
 
     printf("==================================================================================================================================\n");
-    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008D-R11)\n");
+    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008D-R12)\n");
     if (aff.core_id >= 0) {
         printf("Hardware Topology: Logical Core %d (Core ID %d) | %s [Physical Verified: %s | Topology Gate: %s]\n",
                aff.logical_id, aff.core_id, aff.description,
