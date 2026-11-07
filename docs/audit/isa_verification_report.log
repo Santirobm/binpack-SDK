@@ -1,6 +1,6 @@
 ================================================================================
 BINPACK ENTERPRISE SDK — AUDITORIA FORMAL DE AISLAMIENTO ISA (VEX / EVEX)
-Expediente: BP-008D-R9 | Plantilla de Referencia / Informe Estático Versionado
+Expediente: BP-008D-R10 | Plantilla de Referencia / Informe Estático Versionado
 Nota Canónica: Este archivo versionado constituye la referencia documental base del
 repositorio. La evidencia probatoria canónica de ejecución en silicio se genera
 automáticamente en runtime durante el flujo de CI y se publica como artefacto
