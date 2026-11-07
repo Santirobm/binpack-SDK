@@ -1637,7 +1637,7 @@ static int run_engine_isolated(
 }
 
 /* ========================================================================= */
-/* Registro en Archivo CSV Crudo (BP-008D-R7 Campana Decisiva)               */
+/* Registro en Archivo CSV Crudo (BP-008D-R8 Campaña Decisiva)               */
 /* ========================================================================= */
 
 static FILE *g_csv_file = NULL;
@@ -1647,14 +1647,17 @@ static char g_csv_path[512] = {0};
 typedef enum {
     CSV_OPEN_SUCCESS = 0,
     CSV_OPEN_COLLISION_EEXIST, /* File already exists: safe collision, try next suffix */
-    CSV_OPEN_FATAL_ERROR       /* Permission denied, path not found, fd exhaustion, etc. */
+    CSV_OPEN_DIR_NOT_FOUND,    /* Directory does not exist (ENOENT): permitted to fallback to next directory */
+    CSV_OPEN_FATAL_ERROR       /* Permission denied (EACCES), fd exhaustion (EMFILE/ENFILE), or other fatal error: abort */
 } csv_open_result_t;
 
 /* Kernel-level atomic exclusive file creation: eliminates TOCTOU race conditions.
  * Uses O_CREAT | O_EXCL (POSIX) and _O_CREAT | _O_EXCL (Windows).
- * - Returns NULL with CSV_OPEN_COLLISION_EEXIST if the file already exists, leaving it untouched.
- * - If fdopen/_fdopen fails, the descriptor is closed and the newly created empty file is unlinked.
- * - Distinguishes EEXIST from other operational errors (EACCES, ENOENT, EMFILE, ENFILE).
+ * - Returns NULL with CSV_OPEN_COLLISION_EEXIST if the file already exists, leaving it untouched (never truncated).
+ * - Returns NULL with CSV_OPEN_DIR_NOT_FOUND if the candidate directory does not exist (ENOENT).
+ * - Returns NULL with CSV_OPEN_FATAL_ERROR on EACCES, EMFILE, ENFILE or unexpected OS errors.
+ * - If fdopen/_fdopen fails, checks file identity, closes descriptor and safely unlinks the empty file.
+ * - If cleanup cannot be guaranteed, warns explicitly of dangling residual file.
  */
 static FILE* open_atomic_exclusive_csv(const char *path, csv_open_result_t *out_res) {
     int saved_errno = 0;
@@ -1664,9 +1667,11 @@ static FILE* open_atomic_exclusive_csv(const char *path, csv_open_result_t *out_
         saved_errno = errno;
         if (saved_errno == EEXIST) {
             if (out_res) *out_res = CSV_OPEN_COLLISION_EEXIST;
+        } else if (saved_errno == ENOENT) {
+            if (out_res) *out_res = CSV_OPEN_DIR_NOT_FOUND;
         } else {
             if (out_res) *out_res = CSV_OPEN_FATAL_ERROR;
-            fprintf(stderr, "[WARN] Atomic CSV create failed on '%s': errno=%d (%s)\n",
+            fprintf(stderr, "[FATAL] Atomic CSV create failed on '%s': errno=%d (%s). Aborting immediately.\n",
                     path, saved_errno, strerror(saved_errno));
         }
         return NULL;
@@ -1674,11 +1679,36 @@ static FILE* open_atomic_exclusive_csv(const char *path, csv_open_result_t *out_
     FILE *f = _fdopen(fd, "w");
     if (!f) {
         saved_errno = errno;
-        _close(fd);
-        _unlink(path); /* Clean up allocated empty file to prevent dangling remnants */
-        if (out_res) *out_res = CSV_OPEN_FATAL_ERROR;
         fprintf(stderr, "[ERROR] _fdopen failed on '%s' (fd=%d): errno=%d (%s)\n",
                 path, fd, saved_errno, strerror(saved_errno));
+
+        /* Verify that path was not replaced by another process before unlinking */
+        struct _stat st_fd, st_path;
+        int stat_fd_ok = (_fstat(fd, &st_fd) == 0);
+        int stat_path_ok = (_stat(path, &st_path) == 0);
+        int same_file = (stat_fd_ok && stat_path_ok &&
+                         st_fd.st_dev == st_path.st_dev &&
+                         st_fd.st_size == st_path.st_size &&
+                         st_fd.st_size == 0);
+
+        int close_rc = _close(fd);
+        if (close_rc != 0) {
+            fprintf(stderr, "[WARN] Failed to close fd %d for '%s': errno=%d (%s)\n",
+                    fd, path, errno, strerror(errno));
+        }
+
+        if (same_file) {
+            int unlink_rc = _unlink(path);
+            if (unlink_rc != 0) {
+                fprintf(stderr, "[WARN] Failed to unlink newly created empty file '%s': errno=%d (%s). Residual file may remain!\n",
+                        path, errno, strerror(errno));
+            }
+        } else {
+            fprintf(stderr, "[WARN] Path '%s' changed or replaced by external entity before cleanup. Skipping unlink to prevent deleting foreign file. Residual file may remain!\n",
+                    path);
+        }
+
+        if (out_res) *out_res = CSV_OPEN_FATAL_ERROR;
         return NULL;
     }
     if (out_res) *out_res = CSV_OPEN_SUCCESS;
@@ -1689,9 +1719,11 @@ static FILE* open_atomic_exclusive_csv(const char *path, csv_open_result_t *out_
         saved_errno = errno;
         if (saved_errno == EEXIST) {
             if (out_res) *out_res = CSV_OPEN_COLLISION_EEXIST;
+        } else if (saved_errno == ENOENT) {
+            if (out_res) *out_res = CSV_OPEN_DIR_NOT_FOUND;
         } else {
             if (out_res) *out_res = CSV_OPEN_FATAL_ERROR;
-            fprintf(stderr, "[WARN] Atomic CSV create failed on '%s': errno=%d (%s)\n",
+            fprintf(stderr, "[FATAL] Atomic CSV create failed on '%s': errno=%d (%s). Aborting immediately.\n",
                     path, saved_errno, strerror(saved_errno));
         }
         return NULL;
@@ -1699,11 +1731,35 @@ static FILE* open_atomic_exclusive_csv(const char *path, csv_open_result_t *out_
     FILE *f = fdopen(fd, "w");
     if (!f) {
         saved_errno = errno;
-        close(fd);
-        unlink(path); /* Clean up allocated empty file to prevent dangling remnants */
-        if (out_res) *out_res = CSV_OPEN_FATAL_ERROR;
         fprintf(stderr, "[ERROR] fdopen failed on '%s' (fd=%d): errno=%d (%s)\n",
                 path, fd, saved_errno, strerror(saved_errno));
+
+        /* Verify that path was not replaced by another process before unlinking (inode + dev match) */
+        struct stat st_fd, st_path;
+        int stat_fd_ok = (fstat(fd, &st_fd) == 0);
+        int stat_path_ok = (lstat(path, &st_path) == 0);
+        int same_file = (stat_fd_ok && stat_path_ok &&
+                         st_fd.st_dev == st_path.st_dev &&
+                         st_fd.st_ino == st_path.st_ino);
+
+        int close_rc = close(fd);
+        if (close_rc != 0) {
+            fprintf(stderr, "[WARN] Failed to close fd %d for '%s': errno=%d (%s)\n",
+                    fd, path, errno, strerror(errno));
+        }
+
+        if (same_file) {
+            int unlink_rc = unlink(path);
+            if (unlink_rc != 0) {
+                fprintf(stderr, "[WARN] Failed to unlink newly created empty file '%s': errno=%d (%s). Residual file may remain!\n",
+                        path, errno, strerror(errno));
+            }
+        } else {
+            fprintf(stderr, "[WARN] Path '%s' changed or replaced by external entity before cleanup. Skipping unlink to prevent deleting foreign file. Residual file may remain!\n",
+                    path);
+        }
+
+        if (out_res) *out_res = CSV_OPEN_FATAL_ERROR;
         return NULL;
     }
     if (out_res) *out_res = CSV_OPEN_SUCCESS;
@@ -1722,7 +1778,8 @@ static FILE* open_safe_csv_r5(char *out_path, size_t out_path_sz) {
             if (out_path) snprintf(out_path, out_path_sz, "%s", target);
             return f;
         }
-        /* Only probe sequential run suffixes if the failure was a legitimate file existence collision */
+
+        /* Safe collision handling: try next sequential suffix _run1.._run999 in the current directory */
         if (res == CSV_OPEN_COLLISION_EEXIST) {
             for (int run = 1; run < 1000; run++) {
                 snprintf(target, sizeof(target), "%s/decisive_benchmark_raw_r5_run%d.csv", base_dirs[d], run);
@@ -1732,14 +1789,95 @@ static FILE* open_safe_csv_r5(char *out_path, size_t out_path_sz) {
                     return f;
                 }
                 if (res != CSV_OPEN_COLLISION_EEXIST) {
-                    /* Non-collision error (permissions, fd exhaustion, etc.): do not iterate further */
-                    break;
+                    /* Non-collision error (e.g. EACCES, EMFILE): strictly abort, do NOT iterate further */
+                    fprintf(stderr, "[FATAL] Non-collision error while scanning run suffixes in '%s'. Aborting.\n", base_dirs[d]);
+                    return NULL;
                 }
             }
+            fprintf(stderr, "[FATAL] Exhausted 999 CSV run suffixes in '%s'. Aborting.\n", base_dirs[d]);
+            return NULL;
         }
-        /* If directory did not exist (e.g. ENOENT on docs/audit), loop continues to try current directory '.' */
+
+        /* Strictly permitted fallback ONLY on ENOENT (directory does not exist) */
+        if (res == CSV_OPEN_DIR_NOT_FOUND) {
+            fprintf(stderr, "[INFO] Candidate directory '%s' not found (ENOENT). Permitted fallback to next directory.\n", base_dirs[d]);
+            continue;
+        }
+
+        /* Any other error (EACCES, EMFILE, ENFILE, unexpected): strictly abort, NEVER fallback */
+        fprintf(stderr, "[FATAL] Operational error in directory '%s' (not ENOENT). Directory fallback strictly forbidden. Aborting.\n", base_dirs[d]);
+        return NULL;
     }
     return NULL;
+}
+
+/* Unit testing harness for CSV atomic exclusive creation and error scenarios (R8-02) */
+static int run_csv_safety_unit_tests(void) {
+    printf("[TEST] Running CSV Atomic Exclusive & Error Fallback Safety Tests (R8-02)...\n");
+
+    /* Test 1: Exclusive Creation & Immediate Write */
+    const char *test_path = "test_csv_safety_atomic.tmp";
+    remove(test_path);
+
+    csv_open_result_t res = CSV_OPEN_FATAL_ERROR;
+    FILE *f1 = open_atomic_exclusive_csv(test_path, &res);
+    if (!f1 || res != CSV_OPEN_SUCCESS) {
+        fprintf(stderr, "[FAIL] Test 1: Could not create temporary exclusive test file '%s': res=%d\n", test_path, res);
+        return 0;
+    }
+    fprintf(f1, "INITIAL_CONTENT_PRESERVE\n");
+    fclose(f1);
+    printf("  [PASS] Test 1: First creation succeeded with CSV_OPEN_SUCCESS.\n");
+
+    /* Test 2: Collision Detection (EEXIST) without Truncation */
+    res = CSV_OPEN_FATAL_ERROR;
+    FILE *f2 = open_atomic_exclusive_csv(test_path, &res);
+    if (f2 != NULL) {
+        fclose(f2);
+        fprintf(stderr, "[FAIL] Test 2: Exclusive creation erroneously succeeded on existing file!\n");
+        remove(test_path);
+        return 0;
+    }
+    if (res != CSV_OPEN_COLLISION_EEXIST) {
+        fprintf(stderr, "[FAIL] Test 2: Expected CSV_OPEN_COLLISION_EEXIST, got res=%d\n", res);
+        remove(test_path);
+        return 0;
+    }
+
+    /* Verify file was not truncated */
+    FILE *f_check = fopen(test_path, "r");
+    if (!f_check) {
+        fprintf(stderr, "[FAIL] Test 2: Preexisting file disappeared!\n");
+        return 0;
+    }
+    char buf[64] = {0};
+    if (!fgets(buf, sizeof(buf), f_check) || strncmp(buf, "INITIAL_CONTENT_PRESERVE", 24) != 0) {
+        fclose(f_check);
+        fprintf(stderr, "[FAIL] Test 2: Preexisting file content was truncated or altered!\n");
+        remove(test_path);
+        return 0;
+    }
+    fclose(f_check);
+    remove(test_path);
+    printf("  [PASS] Test 2: Collision rejected with CSV_OPEN_COLLISION_EEXIST and 0-byte truncation prevented.\n");
+
+    /* Test 3: Inexistent Directory (ENOENT) -> Permitted Fallback */
+    res = CSV_OPEN_FATAL_ERROR;
+    const char *bad_dir_path = "non_existent_audit_dir_98765/test.csv";
+    FILE *f3 = open_atomic_exclusive_csv(bad_dir_path, &res);
+    if (f3 != NULL) {
+        fclose(f3);
+        fprintf(stderr, "[FAIL] Test 3: Creation erroneously succeeded in nonexistent directory!\n");
+        return 0;
+    }
+    if (res != CSV_OPEN_DIR_NOT_FOUND) {
+        fprintf(stderr, "[FAIL] Test 3: Expected CSV_OPEN_DIR_NOT_FOUND on nonexistent dir, got res=%d\n", res);
+        return 0;
+    }
+    printf("  [PASS] Test 3: Inexistent directory detected as CSV_OPEN_DIR_NOT_FOUND (permitted fallback).\n");
+
+    printf("[SUCCESS] All CSV atomic safety unit tests passed cleanly.\n");
+    return 1;
 }
 
 static void log_csv_record_r5(
@@ -1802,6 +1940,9 @@ int main(int argc, char **argv) {
     const char *corpora_base = (argc > 1) ? argv[1] : "tests/corpora";
     uint32_t seed = 20261106u;
     for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--test-csv-errors") == 0) {
+            return run_csv_safety_unit_tests() ? 0 : 1;
+        }
         if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
             seed = (uint32_t)strtoul(argv[i + 1], NULL, 10);
         }
@@ -1814,7 +1955,7 @@ int main(int argc, char **argv) {
     }
 
     printf("==================================================================================================================================\n");
-    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008C-R6)\n");
+    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008D-R8)\n");
     if (aff.core_id >= 0) {
         printf("Hardware Topology: Logical Core %d (Core ID %d) | %s [Physical Verified: %s | Topology Gate: %s]\n",
                aff.logical_id, aff.core_id, aff.description,
@@ -1832,11 +1973,9 @@ int main(int argc, char **argv) {
            LZ4_versionString(), LZ4_versionNumber(),
            binpack_version_string());
     printf("Protocol: 1 Warm-up + 20 Timed Iterations | Tukey Outlier Rule | Decimal MB/s (10^6 B/s) Directly from Samples\n");
-    printf("Zstd Memory Budgets (Official Estimator): L19 CCtx = %.2f MB (CStream = %.2f MB) | Runtime L4 CCtx = %.2f MB (CStream = %.2f MB)\n",
-           (double)ZSTD_estimateCCtxSize(19) / (1024.0 * 1024.0),
-           (double)ZSTD_estimateCStreamSize(19) / (1024.0 * 1024.0),
-           (double)ZSTD_estimateCCtxSize(4) / (1024.0 * 1024.0),
-           (double)ZSTD_estimateCStreamSize(4) / (1024.0 * 1024.0));
+    printf("BinPack Working Memory: 50,757,632 B (48.41 MiB) [2x16M raw + 16.91M cmp + 294.9K idx_table]\n");
+    printf("Applicable Streaming Context (ZSTD_estimateCStreamSize): L4 = 1.55 MiB (Total = 49.96 MiB <= 64 MB) | L19 = 64.00 MiB (Total = 112.41 MiB <= 128 MB)\n");
+    printf("Informative Non-Streaming Estimator: ZSTD_estimateCCtxSize(4) = 1.25 MiB | CCtxSize(19) = 48.00 MiB (not applicable to streaming engine)\n");
     printf("==================================================================================================================================\n\n");
     fflush(stdout);
 
@@ -1850,21 +1989,28 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    g_csv_file = open_safe_csv_r5(g_csv_path, sizeof(g_csv_path));
-    if (g_csv_file) {
-        printf("Output CSV Target: '%s' (Safe non-truncating exclusive creation)\n", g_csv_path);
-        fprintf(g_csv_file,
-                "Tier,Dataset,Engine,OriginalSize,CompressedSize,RatioPct,"
-                "Comp_Raw_MBs,Comp_Filt_MBs,Comp_IQR_MBs,Comp_Outliers,"
-                "Decomp_Raw_MBs,Decomp_Filt_MBs,Decomp_IQR_MBs,Decomp_Outliers,"
-                "Comp_Med_ms,Decomp_Med_ms,"
-                "Lat_4k_C_us,Lat_4k_D_us,Lat_64k_C_us,Lat_64k_D_us,"
-                "PeakRSS_KB,Integrity,Seed");
-        for (int i = 0; i < BENCH_ITERS; i++) fprintf(g_csv_file, ",Raw_C_Sec_%d", i);
-        for (int i = 0; i < BENCH_ITERS; i++) fprintf(g_csv_file, ",Raw_D_Sec_%d", i);
-        fprintf(g_csv_file, "\n");
-        fflush(g_csv_file);
+    if (!run_csv_safety_unit_tests()) {
+        fprintf(stderr, "[FATAL] Pre-flight CSV atomic safety validation failed! Aborting.\n");
+        return 1;
     }
+
+    g_csv_file = open_safe_csv_r5(g_csv_path, sizeof(g_csv_path));
+    if (!g_csv_file) {
+        fprintf(stderr, "[FATAL] Unable to open safe exclusive CSV target for benchmark logging. Aborting.\n");
+        return 1;
+    }
+    printf("Output CSV Target: '%s' (Safe non-truncating exclusive creation)\n", g_csv_path);
+    fprintf(g_csv_file,
+            "Tier,Dataset,Engine,OriginalSize,CompressedSize,RatioPct,"
+            "Comp_Raw_MBs,Comp_Filt_MBs,Comp_IQR_MBs,Comp_Outliers,"
+            "Decomp_Raw_MBs,Decomp_Filt_MBs,Decomp_IQR_MBs,Decomp_Outliers,"
+            "Comp_Med_ms,Decomp_Med_ms,"
+            "Lat_4k_C_us,Lat_4k_D_us,Lat_64k_C_us,Lat_64k_D_us,"
+            "PeakRSS_KB,Integrity,Seed");
+    for (int i = 0; i < BENCH_ITERS; i++) fprintf(g_csv_file, ",Raw_C_Sec_%d", i);
+    for (int i = 0; i < BENCH_ITERS; i++) fprintf(g_csv_file, ",Raw_D_Sec_%d", i);
+    fprintf(g_csv_file, "\n");
+    fflush(g_csv_file);
 
     /* Load Corpora */
     char path_busybox[512], path_turbofan[512], path_mozilla[512], path_samba[512];

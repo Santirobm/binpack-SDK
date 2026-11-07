@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # scripts/audit_isa_isolation.sh
-# BinPack Enterprise SDK — Strict ISA Isolation Verification Gate (BP-008D-R7)
+# BinPack Enterprise SDK — Strict ISA Isolation Verification Gate (BP-008D-R8)
 #
 # Inspects every compiled object file to certify that portable modules contain
 # ZERO VEX (AVX/AVX2) and ZERO EVEX (AVX-512/AVX10) instructions, and that
@@ -15,9 +15,13 @@ mkdir -p "$(dirname "$REPORT")"
 
 echo "================================================================================" > "$REPORT"
 echo "BINPACK ENTERPRISE SDK — AUDITORIA FORMAL DE AISLAMIENTO ISA (VEX / EVEX)" >> "$REPORT"
-echo "Expediente: BP-008D-R7 | Verificación Automática de Compilación y Opcodes" >> "$REPORT"
+echo "Expediente: BP-008D-R8 | Verificación Automática de Compilación y Opcodes" >> "$REPORT"
 echo "Fecha de Ejecución (UTC): $(date -u '+%Y-%m-%d %H:%M:%SZ')" >> "$REPORT"
 echo "Sistema Host: $(uname -srm 2>/dev/null || echo 'Unknown')" >> "$REPORT"
+echo "Arquitectura / Target: $(uname -m 2>/dev/null || echo 'x86_64') ($(gcc -dumpmachine 2>/dev/null || echo 'x86_64-linux-gnu'))" >> "$REPORT"
+echo "Compilador: $(gcc --version 2>/dev/null | head -n 1 || echo 'gcc (GCC)')" >> "$REPORT"
+echo "Flags Portables: -O3 -march=x86-64 -mno-avx -mno-avx2 -fPIC -Wall -Wextra" >> "$REPORT"
+echo "Flags AVX2:      -O3 -mavx2 -fPIC -Wall -Wextra" >> "$REPORT"
 
 DISASSEMBLER=""
 if command -v objdump &>/dev/null; then
@@ -92,8 +96,26 @@ for obj_name in "${MANDATORY_PORTABLE_OBJS[@]}"; do
         continue
     fi
     
-    # Desensamblado estándar verificable (sin opciones experimentales)
-    DISASM=$($DISASSEMBLER -d "$OBJ_PATH" 2>/dev/null || true)
+    # Desensamblado estricto con exigencia de código de salida 0
+    DISASM_TMP=$(mktemp)
+    DISASM_ERR=$(mktemp)
+    if ! "$DISASSEMBLER" -d "$OBJ_PATH" >"$DISASM_TMP" 2>"$DISASM_ERR"; then
+        echo "[FALLO CRITICO] El desensamblador $DISASSEMBLER falló al procesar $obj_name (exit code no cero)." >> "$REPORT"
+        cat "$DISASM_ERR" >> "$REPORT"
+        rm -f "$DISASM_TMP" "$DISASM_ERR"
+        OVERALL_PASS=0
+        continue
+    fi
+    rm -f "$DISASM_ERR"
+    DISASM=$(cat "$DISASM_TMP")
+    rm -f "$DISASM_TMP"
+
+    # Rechazo de salida vacía o truncada
+    if [[ -z "$DISASM" ]]; then
+        echo "[FALLO CRITICO] Salida vacía o incompleta del desensamblador para $obj_name." >> "$REPORT"
+        OVERALL_PASS=0
+        continue
+    fi
     
     # Validación estricta de presencia de bytes crudos en la salida
     HAS_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+[0-9a-f]{2}" | head -n 1 || true)
@@ -153,7 +175,26 @@ else
         echo "[FALLO CRITICO] Hash SHA-256 inválido para $AVX2_OBJ: '$SHA' (debe ser exactamente 64 hex)" >> "$REPORT"
         OVERALL_PASS=0
     else
-        DISASM=$($DISASSEMBLER -d "$OBJ_PATH" 2>/dev/null || true)
+        # Desensamblado estricto con exigencia de código de salida 0
+        DISASM_TMP=$(mktemp)
+        DISASM_ERR=$(mktemp)
+        if ! "$DISASSEMBLER" -d "$OBJ_PATH" >"$DISASM_TMP" 2>"$DISASM_ERR"; then
+            echo "[FALLO CRITICO] El desensamblador $DISASSEMBLER falló al procesar $AVX2_OBJ (exit code no cero)." >> "$REPORT"
+            cat "$DISASM_ERR" >> "$REPORT"
+            rm -f "$DISASM_TMP" "$DISASM_ERR"
+            OVERALL_PASS=0
+            continue
+        fi
+        rm -f "$DISASM_ERR"
+        DISASM=$(cat "$DISASM_TMP")
+        rm -f "$DISASM_TMP"
+
+        # Rechazo de salida vacía o truncada
+        if [[ -z "$DISASM" ]]; then
+            echo "[FALLO CRITICO] Salida vacía o incompleta del desensamblador para $AVX2_OBJ." >> "$REPORT"
+            OVERALL_PASS=0
+            continue
+        fi
         
         # Validación estricta de presencia de bytes crudos en la salida
         HAS_BYTES=$(echo "$DISASM" | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+[0-9a-f]{2}" | head -n 1 || true)
