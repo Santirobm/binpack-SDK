@@ -1638,7 +1638,7 @@ static int run_engine_isolated(
 }
 
 /* ========================================================================= */
-/* Registro en Archivo CSV Crudo (BP-008D-R12 Campaña Decisiva)              */
+/* Registro en Archivo CSV Crudo (BP-008D-R13 Campaña Decisiva)              */
 /* ========================================================================= */
 
 static FILE *g_csv_file = NULL;
@@ -1724,7 +1724,7 @@ static int compare_posix_file_identity(const posix_file_id_t *a, const posix_fil
 }
 #endif
 
-/* Shared defensive cleanup function for failed exclusive file creation (BP-008D-R12).
+/* Shared defensive cleanup function for failed exclusive file creation (BP-008D-R13).
  * Verifies kernel-level filesystem identity (volume serial + index on Win32, dev + ino on POSIX)
  * before closing and unlinking a newly created file.
  * If identities match, closes fd and unlinks path safely, returning 1.
@@ -1914,10 +1914,10 @@ static FILE* open_safe_csv_r5(char *out_path, size_t out_path_sz) {
     return open_safe_csv_r5_ex(base_dirs, 2, "decisive_benchmark_raw_r5", out_path, out_path_sz, 999);
 }
 
-/* Comprehensive unit testing harness for CSV atomic exclusive creation and error scenarios (BP-008D-R12) */
+/* Comprehensive unit testing harness for CSV atomic exclusive creation and error scenarios (BP-008D-R13) */
 static int run_csv_safety_unit_tests(void) {
     printf("==================================================================================================\n");
-    printf("BINPACK ENTERPRISE SDK — CSV ATOMIC EXCLUSIVE & ERROR FALLBACK SAFETY SUITE (BP-008D-R12)\n");
+    printf("BINPACK ENTERPRISE SDK — CSV ATOMIC EXCLUSIVE & ERROR FALLBACK SAFETY SUITE (BP-008D-R13)\n");
     printf("==================================================================================================\n");
 
     int tests_passed = 0;
@@ -1934,7 +1934,7 @@ static int run_csv_safety_unit_tests(void) {
             fprintf(stderr, "[FAIL] Test 1: Could not create exclusive test file '%s': res=%d\n", test_path, res);
             tests_failed++;
         } else {
-            fprintf(f1, "INITIAL_CONTENT_PRESERVE_R12\n");
+            fprintf(f1, "INITIAL_CONTENT_PRESERVE_R13\n");
             if (fclose(f1) != 0) {
                 fprintf(stderr, "[FAIL] Test 1: fclose failed on '%s'\n", test_path);
                 tests_failed++;
@@ -1951,7 +1951,9 @@ static int run_csv_safety_unit_tests(void) {
         csv_open_result_t res = CSV_OPEN_FATAL_ERROR;
         FILE *f2 = open_atomic_exclusive_csv(test_path, &res);
         if (f2 != NULL) {
-            fclose(f2);
+            if (fclose(f2) != 0) {
+                fprintf(stderr, "[FAIL] Test 2: fclose failed on erroneously created file\n");
+            }
             fprintf(stderr, "[FAIL] Test 2: Exclusive creation erroneously succeeded on existing file!\n");
             tests_failed++;
         } else if (res != CSV_OPEN_COLLISION_EEXIST) {
@@ -1964,15 +1966,20 @@ static int run_csv_safety_unit_tests(void) {
                 tests_failed++;
             } else {
                 char buf[64] = {0};
-                if (!fgets(buf, sizeof(buf), f_check) || strncmp(buf, "INITIAL_CONTENT_PRESERVE_R12", 28) != 0) {
+                int content_ok = 1;
+                if (!fgets(buf, sizeof(buf), f_check) || strncmp(buf, "INITIAL_CONTENT_PRESERVE_R13", 28) != 0) {
                     fprintf(stderr, "[FAIL] Test 2: Preexisting file content was truncated or altered!\n");
-                    tests_failed++;
-                } else {
-                    printf("  [PASS] Test 2: Collision rejected with CSV_OPEN_COLLISION_EEXIST and 0-byte truncation prevented.\n");
-                    tests_passed++;
+                    content_ok = 0;
                 }
                 if (fclose(f_check) != 0) {
                     fprintf(stderr, "[FAIL] Test 2: fclose failed during check\n");
+                    content_ok = 0;
+                }
+                if (content_ok) {
+                    printf("  [PASS] Test 2: Collision rejected with CSV_OPEN_COLLISION_EEXIST and 0-byte truncation prevented.\n");
+                    tests_passed++;
+                } else {
+                    tests_failed++;
                 }
             }
         }
@@ -1985,7 +1992,9 @@ static int run_csv_safety_unit_tests(void) {
         const char *bad_dir_path = "non_existent_audit_dir_98765/test.csv";
         FILE *f3 = open_atomic_exclusive_csv(bad_dir_path, &res);
         if (f3 != NULL) {
-            fclose(f3);
+            if (fclose(f3) != 0) {
+                fprintf(stderr, "[FAIL] Test 3: fclose failed on erroneously created file\n");
+            }
             fprintf(stderr, "[FAIL] Test 3: Creation erroneously succeeded in nonexistent directory!\n");
             tests_failed++;
         } else if (res != CSV_OPEN_DIR_NOT_FOUND) {
@@ -2041,7 +2050,9 @@ static int run_csv_safety_unit_tests(void) {
             FILE *f_emfile = open_atomic_exclusive_csv("test_emfile_probe.tmp", &res_emfile);
             int probe_errno = errno;
             if (f_emfile != NULL) {
-                fclose(f_emfile);
+                if (fclose(f_emfile) != 0) {
+                    fprintf(stderr, "[FAIL] Test 4: fclose failed on probe file\n");
+                }
                 remove("test_emfile_probe.tmp");
                 fprintf(stderr, "[FAIL] Test 4: Creation succeeded despite descriptor exhaustion!\n");
             } else if (res_emfile != CSV_OPEN_FATAL_ERROR || probe_errno != EMFILE) {
@@ -2055,7 +2066,10 @@ static int run_csv_safety_unit_tests(void) {
         }
 
         for (int i = 0; i < n_fds; i++) {
-            close(fds[i]);
+            if (close(fds[i]) != 0) {
+                fprintf(stderr, "[FAIL] Test 4: close failed on fd %d: errno=%d (%s)\n", fds[i], errno, strerror(errno));
+                emfile_ok = 0;
+            }
         }
 
         if (setrlimit(RLIMIT_NOFILE, &orig_rl) != 0) {
@@ -2106,7 +2120,9 @@ static int run_csv_safety_unit_tests(void) {
             FILE *f_emfile = open_atomic_exclusive_csv("test_emfile_probe.tmp", &res_emfile);
             int probe_errno = errno;
             if (f_emfile != NULL) {
-                fclose(f_emfile);
+                if (fclose(f_emfile) != 0) {
+                    fprintf(stderr, "[FAIL] Test 4: fclose failed on probe file\n");
+                }
                 remove("test_emfile_probe.tmp");
                 fprintf(stderr, "[FAIL] Test 4: Creation succeeded despite descriptor exhaustion!\n");
             } else if (res_emfile != CSV_OPEN_FATAL_ERROR || probe_errno != EMFILE) {
@@ -2120,7 +2136,10 @@ static int run_csv_safety_unit_tests(void) {
         }
 
         for (int i = 0; i < n_fds; i++) {
-            _close(fds[i]);
+            if (_close(fds[i]) != 0) {
+                fprintf(stderr, "[FAIL] Test 4: _close failed on fd %d: errno=%d (%s)\n", fds[i], errno, strerror(errno));
+                emfile_ok = 0;
+            }
         }
         int restore_res = _setmaxstdio(orig_max);
         if (restore_res != orig_max) {
@@ -2154,7 +2173,9 @@ after_test_4: ;
             FILE *f_eacces = open_atomic_exclusive_csv(probe_path, &res_eacces);
             int probe_errno = errno;
             if (f_eacces != NULL) {
-                fclose(f_eacces);
+                if (fclose(f_eacces) != 0) {
+                    fprintf(stderr, "[FAIL] Test 5: fclose failed on probe file\n");
+                }
                 remove(probe_path);
                 fprintf(stderr, "[FAIL] Test 5: Creation succeeded in write-protected directory!\n");
                 tests_failed++;
@@ -2233,7 +2254,9 @@ after_test_4: ;
         FILE *f_win = open_atomic_exclusive_csv(probe_path, &res_eacces);
         int probe_errno = errno;
         if (f_win != NULL) {
-            fclose(f_win);
+            if (fclose(f_win) != 0) {
+                fprintf(stderr, "[FAIL] Test 5: fclose failed on probe file\n");
+            }
             remove(probe_path);
             fprintf(stderr, "[FAIL] Test 5: Creation succeeded in write-denied directory on Windows!\n");
             tests_failed++;
@@ -2361,10 +2384,12 @@ after_test_5: ;
             test6_ok = 0;
         } else if (strcmp(chosen_path, expected_run4) != 0) {
             fprintf(stderr, "[FAIL] Test 6: Expected chosen path '%s', got '%s'\n", expected_run4, chosen_path);
-            fclose(f_chosen);
+            if (fclose(f_chosen) != 0) {
+                fprintf(stderr, "[FAIL] Test 6: fclose failed on unexpected chosen path\n");
+            }
             test6_ok = 0;
         } else {
-            const char *r4_msg = "RUN4_NEW_EXPERIMENT_DATA_BP008D_R12\n";
+            const char *r4_msg = "RUN4_NEW_EXPERIMENT_DATA_BP008D_R13\n";
             size_t nw = fwrite(r4_msg, 1, strlen(r4_msg), f_chosen);
             if (nw != strlen(r4_msg)) {
                 fprintf(stderr, "[FAIL] Test 6: fwrite failed on run4 file\n");
@@ -2439,7 +2464,9 @@ after_test_5: ;
         char exhaust_path[512] = {0};
         FILE *f_exhaust = open_safe_csv_r5_ex(t6_base_dirs, 1, stem, exhaust_path, sizeof(exhaust_path), 3);
         if (f_exhaust != NULL) {
-            fclose(f_exhaust);
+            if (fclose(f_exhaust) != 0) {
+                fprintf(stderr, "[FAIL] Test 6: fclose failed on unexpected exhaust file\n");
+            }
             fprintf(stderr, "[FAIL] Test 6: Creation erroneously succeeded when all suffixes were exhausted!\n");
             test6_ok = 0;
         } else {
@@ -2467,7 +2494,7 @@ after_test_5: ;
         }
     }
 
-    /* Test 7: Kernel-Level Identity Verification & Foreign File Deletion Prevention Under Path Substitution (BP-008D-R12) */
+    /* Test 7: Kernel-Level Identity Verification & Foreign File Deletion Prevention Under Path Substitution (BP-008D-R13) */
     {
         int test7_ok = 1;
         const char *target_path = "test_substitution_probe.tmp";
@@ -2578,7 +2605,12 @@ after_test_5: ;
                     }
                 }
             }
-            if (orig_fd >= 0) close(orig_fd);
+            if (orig_fd >= 0) {
+                if (close(orig_fd) != 0) {
+                    fprintf(stderr, "[FAIL] Test 7: close failed on orig_fd: errno=%d (%s)\n", errno, strerror(errno));
+                    test7_ok = 0;
+                }
+            }
             unlink(target_path);
         }
 #else
@@ -2689,7 +2721,12 @@ after_test_5: ;
                         }
                     }
                 }
-                if (orig_fd >= 0) _close(orig_fd);
+                if (orig_fd >= 0) {
+                    if (_close(orig_fd) != 0) {
+                        fprintf(stderr, "[FAIL] Test 7: _close failed on orig_fd: errno=%d (%s)\n", errno, strerror(errno));
+                        test7_ok = 0;
+                    }
+                }
                 DeleteFileA(target_path);
             }
         }
@@ -2704,7 +2741,7 @@ after_test_5: ;
     }
 
     printf("==================================================================================================\n");
-    printf("CSV SAFETY UNIT TESTS SUMMARY (BP-008D-R12):\n");
+    printf("CSV SAFETY UNIT TESTS SUMMARY (BP-008D-R13):\n");
     printf("  Total Required Cases: 7\n");
     printf("  Passed:               %d\n", tests_passed);
     printf("  Failed:               %d\n", tests_failed);
@@ -2797,7 +2834,7 @@ int main(int argc, char **argv) {
     }
 
     printf("==================================================================================================================================\n");
-    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008D-R12)\n");
+    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008D-R13)\n");
     if (aff.core_id >= 0) {
         printf("Hardware Topology: Logical Core %d (Core ID %d) | %s [Physical Verified: %s | Topology Gate: %s]\n",
                aff.logical_id, aff.core_id, aff.description,

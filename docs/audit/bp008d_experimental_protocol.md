@@ -1,64 +1,61 @@
-# Protocolo de Reproducibilidad Experimental, Trazabilidad Metodológica y Baselines — Hito BP-008D (Revisión R12)
+# Protocolo de Reproducibilidad Experimental, Trazabilidad Metodológica y Baselines — Hito BP-008D (Revisión R13)
 
-**Expediente:** BP-008D-R12 — Cierre Definitivo de Evidencias en Suite Adversarial CSV: Distinción Formal entre Límite de Streams (`_setmaxstdio`, 512..2048) y Límite UCRT de Descriptores de Bajo Nivel (`_open`, 8192) con Registro en Runtime de `n_fds`, Endurecimiento de `EACCES` con Validación Completa de Procesos Win32 (`WaitForSingleObject`, `GetExitCodeProcess`, Retirada Verificada de ACE y Directorio Fresco sin `ERROR_ALREADY_EXISTS`) y Verificación de Restauración POSIX (`chmod`/`rmdir`), Endurecimiento de E/S Binaria con Comprobación Exhaustiva de Retornos (`fwrite`, `fclose`, `fseek`, `ftell`, `fread`, `memcmp`), Trazabilidad Corregida de CI y Documentación Expresa de la Ventana TOCTOU Residual.  
+**Expediente:** BP-008D-R13 — Certificación Exhaustiva de E/S en Rutas de Error de la Suite CSV, Precisión Documental de CI (Eventos `push` vs `pull_request`, Matriz de Tareas Linux vs Windows), Deslinde Criptográfico de Identificación de Commits (Hash SHA-1 Inmutable vs Firmas de Autor) y Preparación para Cierre Técnico del Protocolo Experimental.  
 **Proyecto:** BinPack Enterprise SDK  
 **Ramas Auditadas:** `audit/bp1-core-safety`  
-**Hito Previo:** BP-008D-R11 (Commit `84afb61f548179fdc4d8b4c666198ef7174142b7`, Workflow Runs `42340324059` y `42340320491`)  
+**Hito Previo:** BP-008D-R12 (Commit `b9d1137edcd787b3defdd14fa17a7bf88d3a1e28`, Workflow Runs `42341269554` [evento `push`] y `42341273160` [evento `pull_request`], con 8/8 trabajos verificados exitosos en GitHub Actions)  
 **Fecha:** 7 de Noviembre de 2026  
 **Autor:** Santiago Robledo (<santiagorobledo198@gmail.com>)  
 **Responsable Técnico:** Antigravity AI — Advanced Agentic Coding & Systems Architecture  
 
 ---
 
-## 1. Resumen Ejecutivo y Respuesta a la Auditoría BP-008D-R11
+## 1. Resumen Ejecutivo y Respuesta a la Auditoría BP-008D-R12
 
-El presente documento constituye la **Revisión R12 del Expediente BP-008D**, formalizada en estricta y rigurosa respuesta a las observaciones y requerimientos del Dictamen Técnico de Auditoría R11.
+El presente documento formaliza la **Revisión R13 del Expediente BP-008D**, dando cumplimiento exhaustivo a las observaciones formuladas en el Dictamen Técnico Independiente sobre R12 (donde la implementación técnica fue declarada plenamente conforme, requiriéndose precisiones en rutas de error y trazabilidad documental).
 
-En esta revisión se subsanan los aspectos probatorios y documentales señalados en la orden de trabajo BP-008D-R12:
+En esta revisión se abordan y subsanan los siguientes aspectos requeridos por el auditor independiente:
 
-1. **Cierre de Evidencia en Agotamiento de Descriptores (`EMFILE`, R12-01):**
-   - **Distinción Formal entre Límite de Streams y Descriptores de Bajo Nivel:**
-     - En la arquitectura de Microsoft Windows Universal CRT (UCRT), la función `_setmaxstdio()` gobierna exclusivamente el límite de flujos estándar `FILE*` de alto nivel (I/O stream buffer pool), el cual posee un valor predeterminado de 512 y un techo máximo configurable de 2.048 flujos simultáneos.
-     - Por el contrario, las primitivas de E/S de bajo nivel de estilo POSIX (`_open`, `_close`, `_read`, `_write`) operan sobre una tabla interna de descriptores indexada por punteros en la estructura interna `_pioinfo` (un arreglo de punteros que aloja bloques de 32 descriptores hasta un máximo fijo de 8.192 descriptores en UCRT moderna).
-     - Por lo tanto, `_setmaxstdio(512)` configura y valida la capacidad a nivel de streams de alto nivel, mientras que el bucle de agotamiento mediante `_open("NUL", _O_RDONLY)` sobre un arreglo de 8.300 elementos agota de forma determinista el pool de 8.192 descriptores de bajo nivel.
-   - **Registro en Runtime de la Cifra Concreta de Descriptores:**
-     - Se imprime explícitamente en `stdout` el número exacto de descriptores alcanzados (`n_fds`) al momento de producirse la saturación, junto con el código de error `errno == EMFILE` (24) del descriptor que falla.
-     - Se verifica en caliente que `open_atomic_exclusive_csv()` falle retornando `CSV_OPEN_FATAL_ERROR` y `errno == EMFILE`.
-     - Se comprueba la restauración obligatoria `_setmaxstdio(orig_max) == orig_max`.
-     - En POSIX, se replica idéntica disciplina con `rlimit` (soft limit = 40) e impresión explícita de `n_fds`.
-2. **Endurecimiento del Escenario `EACCES` (R12-02):**
-   - **Windows:**
-     - Se exige la creación de un directorio de prueba completamente nuevo y limpio. Si existiera un directorio residual se elimina previamente con `RemoveDirectoryA()`, y se falla la prueba si `CreateDirectoryA()` no logra crear un directorio nuevo (se rechaza la reutilización de directorios con `ERROR_ALREADY_EXISTS`).
-     - Se valida formalmente el retorno de `WaitForSingleObject()` exigiendo `WAIT_OBJECT_0` con timeout acotado.
-     - Se comprueba que `GetExitCodeProcess()` retorne `TRUE` y que el código de terminación de `icacls.exe` sea exactamente `0`.
-     - Se intenta la creación de un archivo inexistente, verificando `CSV_OPEN_FATAL_ERROR` y `errno == EACCES` (13).
-     - Se ejecuta el proceso de desasignación de la ACE denegatoria (`icacls ... /remove:d *S-1-1-0`), validando el retorno de `WaitForSingleObject` y código de salida 0.
-     - Se valida que la eliminación final del directorio mediante `RemoveDirectoryA()` sea exitosa.
-   - **POSIX:**
-     - Se valida la creación del directorio `mkdir(denied_dir, 0555) == 0`.
-     - Tras la prueba de denegación, se comprueban obligatoriamente los retornos de restauración y limpieza: `chmod(denied_dir, 0755) == 0` y `rmdir(denied_dir) == 0`.
-3. **Endurecimiento de Operaciones de E/S Binaria (R12-03):**
-   - Se valida explícitamente el código de retorno de todas las operaciones de sistema de archivos en los casos de prueba:
-     - `fwrite()`: se comprueba que el total de bytes transferidos coincida exactamente con el tamaño del buffer (256 bytes).
-     - `fclose()`: se comprueba que el retorno sea estrictamente `0`.
-     - `fseek()`: se valida el retorno `0` tanto para `SEEK_END` como para `SEEK_SET`.
-     - `ftell()`: se comprueba que retorne un valor no negativo y exactamente igual a 256 bytes.
-     - `fread()`: se valida que lea exactamente los 256 bytes esperados.
-     - `memcmp()`: se certifica la identidad binaria bit a bit contra los patrones en memoria.
-4. **Trazabilidad Corregida y Reconocimiento de Limitación TOCTOU (R12-04):**
-   - Se subsanan los identificadores de ejecución en el expediente: el commit R11 (`84afb61f548179fdc4d8b4c666198ef7174142b7`) generó los workflow runs de GitHub Actions `42340324059` y `42340320491`, ambos finalizados con éxito pleno en sus 4 trabajos.
-   - **Limitación TOCTOU Expresa:** La rutina compartida `defensive_cleanup_failed_exclusive_fd()` compara la identidad a nivel de kernel (`fstat` en POSIX, `BY_HANDLE_FILE_INFORMATION` en Windows) garantizando que el archivo abierto no ha sido suplantado en el momento del chequeo, cancelando el borrado si detecta discrepancia. No obstante, en espacio de usuario existe inevitablemente una micro-ventana temporal entre el cierre del descriptor y la invocación de `unlink(path)` / `_unlink(path)` en la cual un atacante local concurrente podría manipular el enlace. Dicha limitación se asume formalmente en este protocolo como inherente a la semántica de borrado por ruta en sistemas de archivos.
-5. **Semántica Estricta 7/7 (R12-05):**
-   - Se mantiene la exigencia innegociable de 7 casos aprobados, 0 fallos y 0 omisiones en Linux y Windows.
+1. **R13-01 — Validación de E/S en Rutas de Error de la Suite CSV (`tests/benchmarks/benchmark_decisive_suite.c`):**
+   - **Cierre y Comprobación en Test 6:** En la prueba de rotación de sufijos, se verifica obligatoriamente el retorno de `fclose(f_chosen)` ante ruta no coincidente (`strcmp != 0`) y de `fclose(f_exhaust)` ante creación errónea cuando los sufijos están agotados (`f_exhaust != NULL`). En ambos casos, cualquier fallo de cierre reporta error en `stderr` e incrementa irreversiblemente `tests_failed++`.
+   - **Inspección Sistemática de Descriptores y Streams (Tests 1 a 7):**
+     - **Test 2:** Se comprueba `fclose(f2)` ante creación errónea sobre archivo preexistente y `fclose(f_check)` durante la comprobación de contenido, forzando `tests_failed++` ante cualquier fallo de `fclose`.
+     - **Test 3:** Se valida el retorno de `fclose(f3)` ante creación anómala en directorio inexistente.
+     - **Test 4:** Se valida `fclose(f_emfile)` en la rama de error tanto en POSIX como en Windows, y se comprueba el retorno de `close(fds[i])` (POSIX) y `_close(fds[i])` (Windows) en el bucle de liberación de descriptores auxiliares, forzando fallo si algún descriptor no se cierra limpiamente.
+     - **Test 5:** Se valida `fclose(f_eacces)` (POSIX) y `fclose(f_win)` (Windows) si la creación llegara a triunfar indebidamente en directorios protegidos.
+     - **Test 7:** Se valida explícitamente el cierre defensivo de `orig_fd` (`close(orig_fd)` en POSIX, `_close(orig_fd)` en Windows) verificando su código de salida y reportando fallo si no es `0`.
+   - Ninguna operación de cierre de archivo o descriptor queda desatendida o silenciada a lo largo de toda la suite.
 
-### Matriz Consolidada de Subsanaciones R12:
-| Control de Auditoría | Estado en R11 | Subsanación Efectiva en R12 | Evidencia en Código / Repositorio |
+2. **R13-02 — Precisión Documental, Trazabilidad de CI y Clarificación Criptográfica:**
+   - **Trazabilidad Exacta de Eventos en GitHub Actions:**
+     - En la entrega R12, el empuje a la rama `audit/bp1-core-safety` disparó dos workflow runs debido a la existencia de un Pull Request abierto sobre la misma rama:
+       - **Workflow Run `42341269554`:** Correspondiente al evento `push` sobre la rama `audit/bp1-core-safety`.
+       - **Workflow Run `42341273160`:** Correspondiente al evento `pull_request` (asociado al PR sobre la rama).
+     - Ambos runs ejecutaron la matriz completa de 4 trabajos (Linux x86_64, Windows x86_64, macOS Apple Silicon / Universal, y Unity UPM Package), completando los 8 trabajos con resultado `Success` pleno sobre el commit exacto `b9d1137edcd787b3defdd14fa17a7bf88d3a1e28`.
+   - **Descripción Precisa del Entorno de Ejecución en Linux:**
+     - Se documenta con exactitud la secuencia ejecutada en el job de Ubuntu Linux:
+       - Compilación del núcleo LZMA y generación de biblioteca compartida `libbinpack.so`.
+       - Compilación y ejecución de la suite de pruebas unitarias del SDK (`test_sdk`).
+       - Ejecución de la auditoría estricta de aislamiento ISA (`scripts/audit_isa_isolation.sh`).
+       - Compilación del harness `bench_suite` y ejecución de la suite de fallos y concurrencia CSV (`./bench_suite --test-csv-errors`).
+     - Se clarifica expresamente que el script batch de Windows (`build.bat`) y sus 14 suites de regresión C son privativas del trabajo de Windows en CI y no aplican al contenedor de Linux.
+   - **Deslinde Criptográfico: Identificación por Hash SHA vs Firmas de Autor:**
+     - Los commits del repositorio se encuentran identificados y garantizados en su inmutabilidad mediante el árbol de objetos Git y su identificador unívoco de 40 caracteres hexadecimales (hash criptográfico SHA-1).
+     - Se aclara formalmente que los commits no cuentan con firmas criptográficas de autoría (GPG/SSH commit signatures), por lo que la integridad y trazabilidad se sustentan estrictamente en la inmutabilidad matemática del grafo Git y la verificación directa contra la API de GitHub.
+
+3. **R13-03 — Verificación Final, Ejecución Multiplataforma y Cierre de Protocolo:**
+   - Ejecución de la suite CSV 7/7 en Linux y Windows, verificando 0 fallos y 0 omisiones.
+   - Se mantiene intacto el código fuente (`src/`, `include/`, `deps/`).
+   - Se declara el Hito BP-008D como preparado para cierre técnico en calidad de **protocolo experimental y de reproducibilidad certificado**, quedando su cierre formal supeditado al dictamen favorable de la auditoría técnica independiente.
+
+---
+
+### Matriz Consolidada de Subsanaciones R13:
+| Control de Auditoría | Estado en R12 | Subsanación Efectiva en R13 | Evidencia en Repositorio |
 | :--- | :--- | :--- | :--- |
-| **R12-01 — EMFILE y Límites UCRT** | Distinción documental ausente; falta imprimir `n_fds` | **SUBSANADO**: Documentación formal del límite de streams (2048) vs bajo nivel (8192). Registro explícito en `stdout` de `n_fds` en saturación, `failing_errno` y `probe_errno`. Restauración verificada. | [`tests/benchmarks/benchmark_decisive_suite.c`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c) |
-| **R12-02 — EACCES Endurecido** | `WaitForSingleObject` y `GetExitCodeProcess` sin validar; directorio reutilizable | **SUBSANADO**: Comprobación estricta de `WaitForSingleObject == WAIT_OBJECT_0` y `exitCode == 0` en aplicación y retirada de ACE. Exigencia de directorio nuevo. Comprobación de retornos de `chmod`/`rmdir` en POSIX. | [`tests/benchmarks/benchmark_decisive_suite.c`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c) |
-| **R12-03 — E/S Binaria Validada** | `fwrite`/`fclose`/`fseek`/`ftell` sin comprobación explícita de retorno | **SUBSANADO**: Validación exhaustiva de cada retorno de llamada a `fwrite`, `fclose`, `fseek` (ambos sentidos), `ftell` y `fread`, reportando fallo ante cualquier anomalía de I/O. | [`tests/benchmarks/benchmark_decisive_suite.c`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c) |
-| **R12-04 — Trazabilidad y TOCTOU** | Discrepancia de Run ID / Job IDs en informe | **SUBSANADO**: Subsanación de referencias de CI (Run `42340324059` verificado). Documentación formal de la limitación TOCTOU residual en espacio de usuario. | Secciones 1, 2 y 6 de este documento |
-| **R12-05 — Semántica Estricta 7/7** | Conforme en R11 | **MANTENIDO**: Conteo estricto 7/7 sin tolerancia a omisiones. | [`tests/benchmarks/benchmark_decisive_suite.c`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c) |
+| **R13-01 — Validación de E/S en Errores** | `fclose` no verificado en Test 6 y paths de error secundarios | **SUBSANADO**: Validación exhaustiva de `fclose`, `close`, `_close` en todas las ramas de error (Tests 1-7). Fallos incrementan `tests_failed++`. | [`tests/benchmarks/benchmark_decisive_suite.c`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c) |
+| **R13-02 — Precisión Documental CI** | Identificación genérica de runs y matriz Linux | **SUBSANADO**: Desglose formal de run `42341269554` (`push`) y run `42341273160` (`pull_request`). Descripción fiel de tareas en Linux. Deslinde entre hash SHA y firmas de autor. | Secciones 1, 2 y 6 de este documento |
+| **R13-03 — Semántica Estricta 7/7** | Conforme en R12 | **MANTENIDO**: Conteo estricto 7/7 sin skips ni fallos en Linux y Windows. | CI GitHub Actions y log de ejecución |
 
 ---
 
@@ -130,7 +127,7 @@ $$X_{n+1} = (1664525 \times X_n + 1013904223) \bmod 2^{32}$$
 
 ---
 
-## 6. Destino CSV, Identidad a Nivel de Kernel y Suite Adversarial (R12-01 a R12-05)
+## 6. Destino CSV, Identidad a Nivel de Kernel y Suite Adversarial (R13-01 a R13-03)
 
 ### Reglas de Conducta Exigidas y Manejo de Identidad:
 1. **`EEXIST`:** El archivo ya existe. Se detecta como colisión segura (`CSV_OPEN_COLLISION_EEXIST`) y se procede a probar secuencialmente `_run1.._run999` dentro del mismo directorio. **Jamás se sobrescribe ni se trunca el archivo existente.**
@@ -147,14 +144,14 @@ $$X_{n+1} = (1664525 \times X_n + 1013904223) \bmod 2^{32}$$
    - **Ventana TOCTOU Residual Documentada:** Se reconoce formalmente que la verificación de identidad del archivo abierto (`fd`) previa a `unlink(path)` / `_unlink(path)` previene el borrado ante sustituciones ya ocurridas; no obstante, subsiste una ventana atómica residual de espacio de usuario entre el cierre del descriptor y la desvinculación de la ruta, gobernada por el sistema operativo subyacente.
 5. **Aborto Obligatorio en `main()`:**
    Si `open_safe_csv_r5()` retorna `NULL`, el harness aborta fatalmente con código de salida `1`.
-6. **Suite Unitaria Adversarial de 7 Casos sin Omisiones (R12-05):**
+6. **Suite Unitaria Adversarial de 7 Casos con Cierre de E/S Exhaustivo (R13-01):**
    - **Caso 1:** Creación limpia exclusiva (`CSV_OPEN_SUCCESS`) con validación de cierre.
-   - **Caso 2:** Detección de colisión `EEXIST`, preservación bit a bit y prevención de truncamiento.
-   - **Caso 3:** Detección de directorio inexistente `ENOENT` y autorización de fallback.
-   - **Caso 4:** Agotamiento determinista de descriptores (`EMFILE`) verificado con retornos de kernel, límites restaurados, registro en runtime de `n_fds` y comprobación forzada de `errno == EMFILE`.
-   - **Caso 5:** Inducción real de `EACCES` mediante directorio nuevo con DACL restrictiva en Windows (`icacls` con exit code 0 y `WaitForSingleObject` validado) y `0555` en POSIX, con verificación forzada de `errno == EACCES` y limpieza integral certificada.
-   - **Caso 6:** Rotación verificada sobre sufijos preexistentes (`_run1.._run3`), selección de `_run4`, comprobación binaria bit a bit (`memcmp == 0`), validación estricta de retornos de E/S (`fwrite`/`fclose`/`fseek`/`ftell`/`fread`) y detección de agotamiento.
-   - **Caso 7:** Identidad a nivel de kernel y preservación demostrada de archivo ajeno ante sustitución concurrente de ruta en Windows y POSIX mediante `defensive_cleanup_failed_exclusive_fd()`.
+   - **Caso 2:** Detección de colisión `EEXIST`, preservación bit a bit, prevención de truncamiento y comprobación rigurosa de `fclose`.
+   - **Caso 3:** Detección de directorio inexistente `ENOENT`, autorización de fallback y validación de `fclose` en error.
+   - **Caso 4:** Agotamiento determinista de descriptores (`EMFILE`) verificado con retornos de kernel, límites restaurados, registro en runtime de `n_fds`, comprobación forzada de `errno == EMFILE`, y validación exhaustiva del bucle de cierre de descriptores.
+   - **Caso 5:** Inducción real de `EACCES` mediante directorio nuevo con DACL restrictiva en Windows (`icacls` con exit code 0 y `WaitForSingleObject` validado) y `0555` en POSIX, con verificación forzada de `errno == EACCES`, validación de `fclose` en error y limpieza integral certificada.
+   - **Caso 6:** Rotación verificada sobre sufijos preexistentes (`_run1.._run3`), selección de `_run4`, comprobación binaria bit a bit (`memcmp == 0`), validación estricta de retornos de E/S (`fwrite`/`fclose`/`fseek`/`ftell`/`fread`), detección de agotamiento y validación exhaustiva de `fclose(f_chosen)` y `fclose(f_exhaust)` en rutas de error.
+   - **Caso 7:** Identidad a nivel de kernel y preservación demostrada de archivo ajeno ante sustitución concurrente de ruta en Windows y POSIX mediante `defensive_cleanup_failed_exclusive_fd()`, con validación estricta del cierre de `orig_fd`.
 
 ---
 
@@ -172,10 +169,10 @@ $$X_{n+1} = (1664525 \times X_n + 1013904223) \bmod 2^{32}$$
 - [x] **1. Integridad de Fuentes:** `git status` en la rama de auditoría certifica que `src/`, `include/` y `deps/` no poseen modificaciones.
 - [x] **2. Sincronización Código-Protocolo:** Implementación de Lemire, estado global `g_suite_rng`, compuertas de checksum Zstd con verificación `ZSTD_error_checksum_wrong` y destino CSV `r5.csv`.
 - [x] **3. Aislamiento ISA Aprobado:** Script `scripts/audit_isa_isolation.sh` con flags sincronizadas 1:1 (`PORTABLE_CFLAGS` y `AVX2_CFLAGS`), sin `continue` fuera de bucle, con exigencia de exit code 0 y detección de bytes crudos.
-- [x] **4. Creación Atómica Exclusiva CSV Robusta y Suite Adversarial Estricta (R12-01 a R12-05):** Determinismo EMFILE comprobado con `n_fds` explícito y `errno == EMFILE`, EACCES real demostrado con `icacls` exit code 0, `WaitForSingleObject` validado y `errno == EACCES`, rotación y agotamiento de sufijos con integridad binaria de 256 bytes (`memcmp`) y retornos I/O validados, sustitución concurrente demostrada en Windows y POSIX con supresión de borrado de archivos ajenos vía `defensive_cleanup_failed_exclusive_fd()`, y semántica estricta 7/7 sin skips.
+- [x] **4. Creación Atómica Exclusiva CSV Robusta y Suite Adversarial Estricta (R13-01):** Validación completa de retornos de E/S y cierre de archivos/descriptores en todas las ramas de error, determinismo EMFILE comprobado con `n_fds` explícito y `errno == EMFILE`, EACCES real demostrado con `icacls` exit code 0, rotación y agotamiento de sufijos con integridad binaria de 256 bytes (`memcmp`), sustitución concurrente demostrada en Windows y POSIX con supresión de borrado de archivos ajenos vía `defensive_cleanup_failed_exclusive_fd()`, y semántica estricta 7/7 sin skips.
 - [x] **5. Corrección Aritmética y Taxonomía de Memoria:** Fórmulas exactas ($50.757.632\text{ B}$ propios), `ZSTD_estimateCStreamSize()` como estimador streaming oficial ($52.38\text{ MB}$ en L4 $\le 64\text{ MB}$; $117.87\text{ MB}$ en L19 $\le 128\text{ MB}$) y deslinde de las 4 categorías.
 - [x] **6. Enforzamiento de Monohilo:** `opt.nb_workers = 1;` configurado explícitamente en todas las ejecuciones del harness.
-- [ ] **7. Integración Continua Multiplataforma Certificada sobre R12:** Ejecución y verificación del workflow en GitHub Actions sobre el commit exacto de R12, validando la suite CSV 7/7 en Linux y Windows, y la auditoría ISA en Linux.
+- [ ] **7. Integración Continua Multiplataforma Certificada sobre R13:** Ejecución y verificación del workflow en GitHub Actions sobre el commit exacto de R13, validando la suite CSV 7/7 en Linux y Windows, y la auditoría ISA en Linux.
 - [ ] **8. Aprobación Formal de BP-008D:** Dictamen técnico favorable de la auditoría independiente.
 - [ ] **9. Disponibilidad del Corpus:** Datasets descargados y verificados con sus respectivos hashes SHA-256 en disco.
 - [ ] **10. Aislamiento de Hardware:** Sistema en reposo térmico ($T_{\text{CPU}} \le 45^\circ\text{C}$), sin procesos secundarios.
@@ -184,9 +181,12 @@ $$X_{n+1} = (1664525 \times X_n + 1013904223) \bmod 2^{32}$$
 
 ## 9. Criterio de Cierre del Hito BP-008D
 
-El Hito **BP-008D** se considerará preparado para su **cierre técnico definitivo** una vez que el commit de R12 sea verificado en CI, confirmando:
-1. El aislamiento de instrucciones SIMD verificado y aprobado.
-2. La suite adversarial CSV ejecutada y aprobada con 7/7 casos estrictos sin omisiones en Linux y Windows.
-3. La corrección aritmética de la memoria streaming bajo `ZSTD_estimateCStreamSize()`.
+El Hito **BP-008D** se considerará preparado para su **cierre técnico definitivo como fase preparatoria del protocolo experimental**, una vez que el commit de R13 sea verificado en CI, confirmando:
+1. El aislamiento estricto de instrucciones SIMD verificado y aprobado (cero emisiones VEX/EVEX en portables).
+2. La suite adversarial CSV ejecutada y aprobada con 7/7 casos estrictos sin omisiones en Linux y Windows, con validación exhaustiva de retornos y cierres en todas las rutas de error.
+3. La corrección aritmética y taxonomía de memoria streaming bajo `ZSTD_estimateCStreamSize()`.
 4. La desactivación irreversible de paralelismo automático mediante `opt.nb_workers = 1`.
 5. La ausencia total de ejecución de la campaña de benchmarking de 20 iteraciones.
+6. La preservación intacta del núcleo del SDK (`src/`, `include/`, `deps/`).
+
+El cierre definitivo queda condicionado a la emisión del dictamen formal aprobatorio por parte de la auditoría técnica independiente.

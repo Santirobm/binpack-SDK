@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # scripts/audit_isa_isolation.sh
-# BinPack Enterprise SDK — Strict ISA Isolation Verification Gate (BP-008D-R12)
+# BinPack Enterprise SDK — Strict ISA Isolation Verification Gate (BP-008D-R13)
 #
 # Inspects every compiled object file to certify that portable modules contain
 # ZERO VEX (AVX/AVX2) and ZERO EVEX (AVX-512/AVX10) instructions, and that
@@ -15,7 +15,7 @@ mkdir -p "$(dirname "$REPORT")"
 
 echo "================================================================================" > "$REPORT"
 echo "BINPACK ENTERPRISE SDK — AUDITORIA FORMAL DE AISLAMIENTO ISA (VEX / EVEX)" >> "$REPORT"
-echo "Expediente: BP-008D-R12 | Verificación Automática de Compilación y Opcodes" >> "$REPORT"
+echo "Expediente: BP-008D-R13 | Verificación Automática de Compilación y Opcodes" >> "$REPORT"
 echo "Fecha de Ejecución (UTC): $(date -u '+%Y-%m-%d %H:%M:%SZ')" >> "$REPORT"
 echo "Sistema Host: $(uname -srm 2>/dev/null || echo 'Unknown')" >> "$REPORT"
 echo "Arquitectura / Target: $(uname -m 2>/dev/null || echo 'x86_64') ($(gcc -dumpmachine 2>/dev/null || echo 'x86_64-linux-gnu'))" >> "$REPORT"
