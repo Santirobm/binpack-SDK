@@ -26,7 +26,7 @@ jobs:
       - name: Verify CSV Atomic Exclusive Safety Tests (Windows)
         shell: cmd
         run: |
-          zig cc -O3 -march=x86_64 -mno-avx -mno-avx2 -Iinclude -Ideps/include -Ideps/lzma tests/benchmarks/benchmark_decisive_suite.c deps/lz4_src/lz4.c binpack.lib deps/lib/libzstd_static.lib deps/lib/liblzma_static.lib -o bench_suite.exe
+          zig cc -O3 -march=x86_64 -mno-avx -mno-avx2 -Iinclude -Ideps/include -Ideps/lzma tests/benchmarks/benchmark_decisive_suite.c deps/lz4_src/lz4.c binpack.lib deps/lib/libzstd_static.lib deps/lib/liblzma_static.lib -lpsapi -o bench_suite.exe
           bench_suite.exe --test-csv-errors
 
       - name: Run Python Integration Suite

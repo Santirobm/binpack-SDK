@@ -1950,30 +1950,52 @@ static int run_csv_safety_unit_tests(void) {
 
     /* Test 4: Descriptor Exhaustion (EMFILE) -> Strict Fatal Abort (No Fallback) */
     {
-        int fds[1024];
+#if !defined(_WIN32)
+        struct rlimit orig_rl, test_rl;
+        int has_rl = (getrlimit(RLIMIT_NOFILE, &orig_rl) == 0);
+        if (has_rl) {
+            test_rl = orig_rl;
+            test_rl.rlim_cur = 32; /* Limit process to 32 file descriptors */
+            setrlimit(RLIMIT_NOFILE, &test_rl);
+        }
+#else
+        _setmaxstdio(512);
+#endif
+
+        int fds[2048];
         int n_fds = 0;
-        while (n_fds < 1024) {
+        int hit_exhaustion = 0;
+        while (n_fds < (int)(sizeof(fds)/sizeof(fds[0]))) {
 #if defined(_WIN32)
             int fd = _open("NUL", _O_RDONLY);
 #else
             int fd = open("/dev/null", O_RDONLY);
 #endif
-            if (fd < 0) break;
+            if (fd < 0) {
+                hit_exhaustion = 1;
+                break;
+            }
             fds[n_fds++] = fd;
         }
-        csv_open_result_t res_emfile = CSV_OPEN_SUCCESS;
-        FILE *f_emfile = open_atomic_exclusive_csv("test_emfile_probe.tmp", &res_emfile);
-        if (f_emfile != NULL) {
-            fclose(f_emfile);
-            remove("test_emfile_probe.tmp");
-            fprintf(stderr, "[FAIL] Test 4: Creation succeeded despite descriptor exhaustion!\n");
-            all_passed = 0;
-        } else if (res_emfile != CSV_OPEN_FATAL_ERROR) {
-            fprintf(stderr, "[FAIL] Test 4: Expected CSV_OPEN_FATAL_ERROR on descriptor exhaustion, got res=%d\n", res_emfile);
-            all_passed = 0;
+
+        if (hit_exhaustion) {
+            csv_open_result_t res_emfile = CSV_OPEN_SUCCESS;
+            FILE *f_emfile = open_atomic_exclusive_csv("test_emfile_probe.tmp", &res_emfile);
+            if (f_emfile != NULL) {
+                fclose(f_emfile);
+                remove("test_emfile_probe.tmp");
+                fprintf(stderr, "[FAIL] Test 4: Creation succeeded despite descriptor exhaustion!\n");
+                all_passed = 0;
+            } else if (res_emfile != CSV_OPEN_FATAL_ERROR) {
+                fprintf(stderr, "[FAIL] Test 4: Expected CSV_OPEN_FATAL_ERROR on descriptor exhaustion, got res=%d\n", res_emfile);
+                all_passed = 0;
+            } else {
+                printf("  [PASS] Test 4: Descriptor exhaustion (EMFILE) produced CSV_OPEN_FATAL_ERROR (strict abort).\n");
+            }
         } else {
-            printf("  [PASS] Test 4: Descriptor exhaustion (EMFILE) produced CSV_OPEN_FATAL_ERROR (strict abort).\n");
+            printf("  [SKIP] Test 4: Descriptor exhaustion could not be induced in this container environment (n_fds=%d).\n", n_fds);
         }
+
         for (int i = 0; i < n_fds; i++) {
 #if defined(_WIN32)
             _close(fds[i]);
@@ -1981,6 +2003,11 @@ static int run_csv_safety_unit_tests(void) {
             close(fds[i]);
 #endif
         }
+#if !defined(_WIN32)
+        if (has_rl) {
+            setrlimit(RLIMIT_NOFILE, &orig_rl);
+        }
+#endif
     }
 
     /* Test 5: Permission Denied (EACCES) -> Strict Fatal Abort (No Fallback) */
