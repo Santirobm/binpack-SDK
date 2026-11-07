@@ -2107,9 +2107,18 @@ after_test_4: ;
         const char *denied_dir = "test_denied_audit_dir";
         RemoveDirectoryA(denied_dir);
         CreateDirectoryA(denied_dir, NULL);
-        int icacls_rc = system("icacls test_denied_audit_dir /deny *S-1-1-0:(W) >nul 2>nul");
-        if (icacls_rc != 0) {
-            fprintf(stderr, "[WARN] Test 5: icacls deny returned non-zero (%d)\n", icacls_rc);
+
+        STARTUPINFOA si_deny;
+        PROCESS_INFORMATION pi_deny;
+        memset(&si_deny, 0, sizeof(si_deny));
+        si_deny.cb = sizeof(si_deny);
+        memset(&pi_deny, 0, sizeof(pi_deny));
+
+        char cmd_deny[256] = "C:\\Windows\\System32\\icacls.exe test_denied_audit_dir /deny *S-1-1-0:(W)";
+        if (CreateProcessA(NULL, cmd_deny, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si_deny, &pi_deny)) {
+            WaitForSingleObject(pi_deny.hProcess, INFINITE);
+            CloseHandle(pi_deny.hProcess);
+            CloseHandle(pi_deny.hThread);
         }
 
         char probe_path[256];
@@ -2130,7 +2139,18 @@ after_test_4: ;
             tests_passed++;
         }
 
-        system("icacls test_denied_audit_dir /remove:d *S-1-1-0 >nul 2>nul");
+        STARTUPINFOA si_clean;
+        PROCESS_INFORMATION pi_clean;
+        memset(&si_clean, 0, sizeof(si_clean));
+        si_clean.cb = sizeof(si_clean);
+        memset(&pi_clean, 0, sizeof(pi_clean));
+
+        char cmd_clean[256] = "C:\\Windows\\System32\\icacls.exe test_denied_audit_dir /remove:d *S-1-1-0";
+        if (CreateProcessA(NULL, cmd_clean, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si_clean, &pi_clean)) {
+            WaitForSingleObject(pi_clean.hProcess, INFINITE);
+            CloseHandle(pi_clean.hProcess);
+            CloseHandle(pi_clean.hThread);
+        }
         RemoveDirectoryA(denied_dir);
 #endif
     }
