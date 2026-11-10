@@ -151,3 +151,16 @@ Resultados certificados obtenidos tras la ejecución aleatorizada bajo semilla r
 - **`docs/audit/decisive_benchmark_raw_r1.csv`:** Preservado intacto como registro histórico previo.
 - **`docs/audit/decisive_benchmark_raw_pilot.csv`:** Preservado intacto como registro histórico previo.
 - **`src/`, `include/`, `deps/`:** Estrictamente congelados y sin modificación alguna.
+
+---
+
+## 5. Formalización de Cierre Definitivo — Hito BP-008C
+
+- **Estado Administrativo:** **CERRADO Y CERTIFICADO**
+- **Dictamen de Auditoría:** Aprobado sin observaciones bloqueantes tras la verificación del diff de la Revisión R6.
+- **Compromisos Técnicos Auditados:**
+  1. *Frontera de Virtualización:* Ningún entorno virtualizado puede atribuirse certificación de silicio físico (`physical_core_verified = 0`). La precedencia de comprobación de hipervisor es absoluta e inviolable tanto en Linux como en Windows.
+  2. *Robustez del Instrumento de Medición:* Manejo seguro con verificación de punteros nulos y retornos en contextos Zstandard (`ZSTD_CCtx_reset`), temporización aritmética sin riesgo de desbordamiento, y aislamiento total por subproceso (`fork` / `wait4`).
+  3. *Integridad Criptográfica de Baselines:* Registro auditable con doble vector de 20 muestras crudas y filtradas Tukey IQR, cálculo directo en MB/s decimales y comprobación bit a bit en cada descompresión.
+  4. *Preservación del Alcance del Proyecto:* Congelación absoluta de `src/`, `include/` y `deps/`.
+- **Hito Siguiente Habilitado:** **BP-008D** (Protocolo de reproducibilidad, preparación de baselines certificados y validación de comparabilidad experimental).
