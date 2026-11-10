@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     BinPack Enterprise SDK - Deterministic Multi-Corpus Acquisition & Preparation Harness
-    Milestone: BP-009 / Work Order 02 - Revision R10 (Audit Submission Artifact)
+    Milestone: BP-009 / Work Order 02 - Revision R11 (Audit Submission Artifact)
     Target Environment: Windows PowerShell 5.1 / .NET Framework 4.8 (x86_64)
 
 .DESCRIPTION
@@ -69,44 +69,29 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
     using System.Threading;
 
     namespace BinPack.Audit {
-        public class StallingHttpServer : IDisposable {
-            private TcpListener _listener;
-            private Thread _thread;
-            public int Port { get; private set; }
+        public class TimeoutAwareStream : MemoryStream {
+            private int _readTimeout = -1;
+            public int LastConfiguredReadTimeout { get { return _readTimeout; } }
+            public bool SimulateTimeoutOnRead { get; set; }
 
-            public StallingHttpServer() {
-                _listener = new TcpListener(IPAddress.Loopback, 0);
-                _listener.Start();
-                Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
-                _thread = new Thread(Run);
-                _thread.IsBackground = true;
-                _thread.Start();
+            public TimeoutAwareStream(byte[] data) : base(data) {
+                SimulateTimeoutOnRead = false;
             }
 
-            private void Run() {
-                try {
-                    using (TcpClient client = _listener.AcceptTcpClient())
-                    using (NetworkStream stream = client.GetStream()) {
-                        byte[] buf = new byte[2048];
-                        stream.Read(buf, 0, buf.Length);
-                        // Send HTTP headers declaring 100KB body, send 4 bytes, then stall
-                        string header = "HTTP/1.1 200 OK\r\nContent-Length: 100000\r\nContent-Type: application/octet-stream\r\n\r\n";
-                        byte[] hdrBytes = Encoding.ASCII.GetBytes(header);
-                        stream.Write(hdrBytes, 0, hdrBytes.Length);
-                        stream.Write(new byte[] { 1, 2, 3, 4 }, 0, 4);
-                        stream.Flush();
-
-                        // Deliberately hold socket open without transmitting remaining body
-                        Thread.Sleep(5000);
-                    }
-                } catch {}
+            public override bool CanTimeout {
+                get { return true; }
             }
 
-            public void Dispose() {
-                try { _listener.Stop(); } catch {}
-                if (_thread != null && _thread.IsAlive) {
-                    try { _thread.Join(1000); } catch {}
+            public override int ReadTimeout {
+                get { return _readTimeout; }
+                set { _readTimeout = value; }
+            }
+
+            public override int Read(byte[] buffer, int offset, int count) {
+                if (SimulateTimeoutOnRead) {
+                    throw new IOException("The stream read operation timed out.", new TimeoutException());
                 }
+                return base.Read(buffer, offset, count);
             }
         }
 
@@ -162,35 +147,133 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
             }
         }
 
-        public class TimeoutAwareStream : MemoryStream {
-            private int _readTimeout = -1;
-            public int LastConfiguredReadTimeout { get { return _readTimeout; } }
-            public bool SimulateTimeoutOnRead { get; set; }
+        public class StallingHttpServer : IDisposable {
+            private TcpListener _listener;
+            private Thread _thread;
+            private ManualResetEvent _stopEvent;
+            public int Port { get; private set; }
+            public bool ConnectionAccepted { get; private set; }
+            public bool PartialDataSent { get; private set; }
 
-            public TimeoutAwareStream(byte[] data) : base(data) {
-                SimulateTimeoutOnRead = false;
+            public StallingHttpServer() {
+                _stopEvent = new ManualResetEvent(false);
+                ConnectionAccepted = false;
+                PartialDataSent = false;
+                _listener = new TcpListener(IPAddress.Loopback, 0);
+                _listener.Start();
+                Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+                _thread = new Thread(Run);
+                _thread.IsBackground = true;
+                _thread.Start();
             }
 
-            public override bool CanTimeout {
-                get { return true; }
+            private void Run() {
+                try {
+                    using (TcpClient client = _listener.AcceptTcpClient()) {
+                        ConnectionAccepted = true;
+                        using (NetworkStream stream = client.GetStream()) {
+                            byte[] buf = new byte[2048];
+                            stream.Read(buf, 0, buf.Length);
+                            string header = "HTTP/1.1 200 OK\r\nContent-Length: 100000\r\nContent-Type: application/octet-stream\r\n\r\n";
+                            byte[] hdrBytes = Encoding.ASCII.GetBytes(header);
+                            stream.Write(hdrBytes, 0, hdrBytes.Length);
+                            stream.Write(new byte[] { 1, 2, 3, 4 }, 0, 4);
+                            stream.Flush();
+                            PartialDataSent = true;
+
+                            // Immediate wake-up on Dispose() via ManualResetEvent
+                            _stopEvent.WaitOne(5000);
+                        }
+                    }
+                } catch {}
             }
 
-            public override int ReadTimeout {
-                get { return _readTimeout; }
-                set { _readTimeout = value; }
+            public void Dispose() {
+                try { _stopEvent.Set(); } catch {}
+                try { _listener.Stop(); } catch {}
+                if (_thread != null && _thread.IsAlive) {
+                    bool finished = _thread.Join(2000);
+                    if (!finished) {
+                        try { _thread.Abort(); } catch {}
+                        throw new InvalidOperationException("StallingHttpServer worker thread failed to terminate cleanly within timeout.");
+                    }
+                }
+                try { _stopEvent.Close(); } catch {}
+            }
+        }
+
+        public class FaultStream : MemoryStream {
+            private int _maxBytesBeforeThrow;
+            private int _bytesReadSoFar;
+
+            public FaultStream(byte[] data, int maxBytesBeforeThrow) : base(data) {
+                _maxBytesBeforeThrow = maxBytesBeforeThrow;
+                _bytesReadSoFar = 0;
             }
 
             public override int Read(byte[] buffer, int offset, int count) {
-                if (SimulateTimeoutOnRead) {
-                    throw new IOException("The stream read operation timed out.", new TimeoutException());
+                if (_bytesReadSoFar >= _maxBytesBeforeThrow) {
+                    throw new IOException("Simulated mid-stream network abort after partial transmission.");
                 }
-                return base.Read(buffer, offset, count);
+                int toRead = count;
+                if (_bytesReadSoFar + toRead > _maxBytesBeforeThrow) {
+                    toRead = _maxBytesBeforeThrow - _bytesReadSoFar;
+                }
+                int read = base.Read(buffer, offset, count);
+                _bytesReadSoFar += read;
+                return read;
+            }
+        }
+
+        public class MockHttpServer : IDisposable {
+            private TcpListener _listener;
+            private Thread _thread;
+            private ManualResetEvent _stopEvent;
+            private string _response;
+            public int Port { get; private set; }
+
+            public MockHttpServer(string rawHttpResponse) {
+                _response = rawHttpResponse;
+                _stopEvent = new ManualResetEvent(false);
+                _listener = new TcpListener(IPAddress.Loopback, 0);
+                _listener.Start();
+                Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+                _thread = new Thread(Run);
+                _thread.IsBackground = true;
+                _thread.Start();
+            }
+
+            private void Run() {
+                try {
+                    using (TcpClient client = _listener.AcceptTcpClient())
+                    using (NetworkStream stream = client.GetStream()) {
+                        byte[] buf = new byte[2048];
+                        stream.Read(buf, 0, buf.Length);
+                        byte[] respBytes = Encoding.ASCII.GetBytes(_response);
+                        stream.Write(respBytes, 0, respBytes.Length);
+                        stream.Flush();
+                    }
+                } catch {}
+            }
+
+            public void Dispose() {
+                try { _stopEvent.Set(); } catch {}
+                try { _listener.Stop(); } catch {}
+                if (_thread != null && _thread.IsAlive) {
+                    bool finished = _thread.Join(2000);
+                    if (!finished) {
+                        try { _thread.Abort(); } catch {}
+                        throw new InvalidOperationException("MockHttpServer worker thread failed to terminate cleanly within timeout.");
+                    }
+                }
+                try { _stopEvent.Close(); } catch {}
             }
         }
 
         public class MockHttpsServer : IDisposable {
             private TcpListener _listener;
             private Thread _thread;
+            private ManualResetEvent _stopEvent;
             private string _response;
             private X509Certificate2 _cert;
             public int Port { get; private set; }
@@ -198,6 +281,7 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
             public MockHttpsServer(string rawHttpResponse, X509Certificate2 cert) {
                 _response = rawHttpResponse;
                 _cert = cert;
+                _stopEvent = new ManualResetEvent(false);
                 _listener = new TcpListener(IPAddress.Loopback, 0);
                 _listener.Start();
                 Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
@@ -221,70 +305,16 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
             }
 
             public void Dispose() {
+                try { _stopEvent.Set(); } catch {}
                 try { _listener.Stop(); } catch {}
                 if (_thread != null && _thread.IsAlive) {
-                    try { _thread.Join(1000); } catch {}
-                }
-            }
-        }
-        
-        public class FaultStream : MemoryStream {
-            private int _maxBytesBeforeThrow;
-            private int _bytesReadSoFar;
-
-            public FaultStream(byte[] data, int maxBytesBeforeThrow) : base(data) {
-                _maxBytesBeforeThrow = maxBytesBeforeThrow;
-                _bytesReadSoFar = 0;
-            }
-
-            public override int Read(byte[] buffer, int offset, int count) {
-                if (_bytesReadSoFar >= _maxBytesBeforeThrow) {
-                    throw new IOException("Simulated mid-stream network abort after partial transmission.");
-                }
-                int toRead = count;
-                if (_bytesReadSoFar + toRead > _maxBytesBeforeThrow) {
-                    toRead = _maxBytesBeforeThrow - _bytesReadSoFar;
-                }
-                int read = base.Read(buffer, offset, toRead);
-                _bytesReadSoFar += read;
-                return read;
-            }
-        }
-
-        public class MockHttpServer : IDisposable {
-            private TcpListener _listener;
-            private Thread _thread;
-            private string _response;
-            public int Port { get; private set; }
-
-            public MockHttpServer(string rawHttpResponse) {
-                _response = rawHttpResponse;
-                _listener = new TcpListener(IPAddress.Loopback, 0);
-                _listener.Start();
-                Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
-                _thread = new Thread(Run);
-                _thread.IsBackground = true;
-                _thread.Start();
-            }
-
-            private void Run() {
-                try {
-                    using (TcpClient client = _listener.AcceptTcpClient())
-                    using (NetworkStream stream = client.GetStream()) {
-                        byte[] buf = new byte[2048];
-                        stream.Read(buf, 0, buf.Length);
-                        byte[] respBytes = Encoding.ASCII.GetBytes(_response);
-                        stream.Write(respBytes, 0, respBytes.Length);
-                        stream.Flush();
+                    bool finished = _thread.Join(2000);
+                    if (!finished) {
+                        try { _thread.Abort(); } catch {}
+                        throw new InvalidOperationException("MockHttpsServer worker thread failed to terminate cleanly within timeout.");
                     }
-                } catch {}
-            }
-
-            public void Dispose() {
-                try { _listener.Stop(); } catch {}
-                if (_thread != null && _thread.IsAlive) {
-                    try { _thread.Join(1000); } catch {}
                 }
+                try { _stopEvent.Close(); } catch {}
             }
         }
     }
@@ -1412,7 +1442,7 @@ function Test-Scenario13-DeadlineBudgetCalculation {
 }
 
 function Test-Scenario14-StreamTimeoutEnforcement {
-    # R10-01 & R10-02: Real wire network transport read timeout and explicit pre-cleanup partial verification
+    # R11-01 & R11-02: Real wire network transport read timeout with signals, specific exception check, duration bounds, and pre-cleanup verification
     $fixture = New-IsolatedTestFixture
     $server = $null
     try {
@@ -1446,12 +1476,15 @@ function Test-Scenario14-StreamTimeoutEnforcement {
             throw "Configured ReadTimeout ($($timeoutStream.LastConfiguredReadTimeout)ms) exceeded 30000ms clamp bound!"
         }
 
-        # Part B: Real wire network transport read timeout against stalling HTTP server (R10-01)
+        # Part B: Real wire network transport read timeout against stalling HTTP server (R11-01)
         $server = New-Object BinPack.Audit.StallingHttpServer
         $destNetwork = [System.IO.Path]::Combine($fixture, "stalled_network_dest.bin")
 
         $swBlock = [System.Diagnostics.Stopwatch]::StartNew()
-        $threwRealTimeout = $false
+        $threwSpecificTimeout = $false
+        $caughtExType = ""
+        $caughtExStatus = ""
+
         try {
             # Deadline 1 second configures ReadWriteTimeout / ReadTimeout to 1000ms on the real socket
             Download-FileSecurely -Url "http://127.0.0.1:$($server.Port)/stalled_stream" `
@@ -1460,17 +1493,43 @@ function Test-Scenario14-StreamTimeoutEnforcement {
                                  -DeadlineSeconds 1 `
                                  -AllowInsecureLocalLoopbackForTest | Out-Null
         } catch [System.Net.WebException] {
-            $threwRealTimeout = $true
+            $caughtExType = $_.Exception.GetType().FullName
+            $caughtExStatus = [string]$_.Exception.Status
+            if ($_.Exception.Status -eq [System.Net.WebExceptionStatus]::Timeout -or $_.Exception.Message -match "time.*out|espera") {
+                $threwSpecificTimeout = $true
+            }
         } catch [System.IO.IOException] {
-            $threwRealTimeout = $true
+            $caughtExType = $_.Exception.GetType().FullName
+            $inner = $_.Exception.InnerException
+            if ($inner -ne $null -and ($inner -is [System.Net.Sockets.SocketException] -or $inner -is [System.TimeoutException] -or $inner.Message -match "time.*out|espera")) {
+                $threwSpecificTimeout = $true
+                $caughtExStatus = $inner.GetType().Name
+            }
         }
         $swBlock.Stop()
 
-        if (-not $threwRealTimeout) {
-            throw "Engine failed to throw WebException / IOException on real stalling socket read timeout!"
+        # R11-01 Assertion 1: Server connection and partial payload send signals
+        if (-not $server.ConnectionAccepted) {
+            throw "Stalling server failed to register accepted client connection!"
+        }
+        if (-not $server.PartialDataSent) {
+            throw "Stalling server failed to send HTTP 200 headers and initial partial payload!"
         }
 
-        # Part C: Rigorous verification of partial file deletion BEFORE fixture removal (R10-02)
+        # R11-01 Assertion 2: Specific timeout exception verification
+        if (-not $threwSpecificTimeout) {
+            throw "Engine did not throw an identifiable network timeout exception! Caught: $caughtExType ($caughtExStatus)"
+        }
+
+        # R11-01 Assertion 3: Measured duration compatible with timeout deadline (~1000ms bound)
+        if ($swBlock.ElapsedMilliseconds -lt 800) {
+            throw "Stalled read returned too early ($($swBlock.ElapsedMilliseconds)ms), failing to respect ~1000ms ReadTimeout!"
+        }
+        if ($swBlock.ElapsedMilliseconds -gt 5000) {
+            throw "Stalled read took too long ($($swBlock.ElapsedMilliseconds)ms), exceeding reasonable timeout upper bound!"
+        }
+
+        # R11-02: Rigorous verification of partial file deletion BEFORE fixture removal
         if ([System.IO.File]::Exists($destNetwork)) {
             throw "Destination file exists after real network read timeout!"
         }
@@ -1479,7 +1538,7 @@ function Test-Scenario14-StreamTimeoutEnforcement {
             throw "Engine failed to delete partial temporary file before fixture removal: $($orphanedParts[0])"
         }
 
-        return "PASS: Dual verification: Dynamic ReadTimeout clamped to $($timeoutStream.LastConfiguredReadTimeout)ms (Part A) & real wire network socket timeout aborted after $($swBlock.ElapsedMilliseconds)ms with partial .tmp verified deleted before fixture removal (Part B & C)."
+        return "PASS: Real wire socket connected (Accepted=True, Sent=True), timeout caught ($caughtExType/$caughtExStatus in $($swBlock.ElapsedMilliseconds)ms), and partial .tmp verified deleted before fixture removal."
     } finally {
         if ($server -ne $null) {
             try { $server.Dispose() } catch {}
@@ -1833,8 +1892,17 @@ function Invoke-SelfTestSuite {
 
     Write-Host ""
     Write-Host "================================================================================" -ForegroundColor Cyan
-    Write-Host "  BinPack Enterprise SDK - Automated Self-Test Suite (BP-009 / Order 02-R10)     " -ForegroundColor Cyan
+    Write-Host "  BinPack Enterprise SDK - Automated Self-Test Suite (BP-009 / Order 02-R11)     " -ForegroundColor Cyan
     Write-Host "================================================================================" -ForegroundColor Cyan
+
+    $selfPath = $PSCommandPath
+    if ([string]::IsNullOrEmpty($selfPath)) { $selfPath = $MyInvocation.MyCommand.Path }
+    if (-not [string]::IsNullOrEmpty($selfPath) -and (Test-Path -LiteralPath $selfPath)) {
+        $selfItem = Get-Item -LiteralPath $selfPath
+        $selfHash = (Get-FileHash -LiteralPath $selfPath -Algorithm SHA256).Hash
+        Write-Host "  Artifact: $($selfItem.FullName)" -ForegroundColor DarkGray
+        Write-Host "  Identity: $($selfItem.Length) bytes | Lines: $((Get-Content -LiteralPath $selfPath).Count) | SHA-256: $selfHash" -ForegroundColor DarkGray
+    }
 
     $meta = Get-HostEnvironmentMetadata
     Write-Host "  Platform: $($meta.OSName) (Build $($meta.WindowsBuild).$($meta.UBR), $($meta.DisplayVersion))"
