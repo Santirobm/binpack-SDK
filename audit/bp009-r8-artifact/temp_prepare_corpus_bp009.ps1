@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     BinPack Enterprise SDK - Deterministic Multi-Corpus Acquisition & Preparation Harness
-    Milestone: BP-009 / Work Order 02 - Revision R12 (Audit Submission Artifact)
+    Milestone: BP-009 / Work Order 02 - Revision R13 (Audit Submission Artifact)
     Target Environment: Windows PowerShell 5.1 / .NET Framework 4.8 (x86_64)
 
 .DESCRIPTION
@@ -210,6 +210,10 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
         public class FaultStream : MemoryStream {
             private int _maxBytesBeforeThrow;
             private int _bytesReadSoFar;
+
+            public int BytesDelivered { get { return _bytesReadSoFar; } }
+            public int BytesReadSoFar { get { return _bytesReadSoFar; } }
+            public int MaxBytesBeforeThrow { get { return _maxBytesBeforeThrow; } }
 
             public FaultStream(byte[] data, int maxBytesBeforeThrow) : base(data) {
                 _maxBytesBeforeThrow = maxBytesBeforeThrow;
@@ -1379,7 +1383,7 @@ function Test-Scenario11-CollisionAvoidanceCreateNew {
 }
 
 function Test-Scenario12-PostCreateNewFailureCleanup {
-    # R12-04: Stream abort mid-read after CreateNew with verified partial read threshold
+    # R13-01: Stream abort mid-read after CreateNew with exact quantitative threshold verification (1024 bytes)
     $fixture = New-IsolatedTestFixture
     try {
         $dest = [System.IO.Path]::Combine($fixture, "aborted_stream.bin")
@@ -1407,6 +1411,12 @@ function Test-Scenario12-PostCreateNewFailureCleanup {
         if (-not $threwIO) {
             throw "Failed to trigger post-CreateNew read failure exception."
         }
+
+        # R13-01: Strict quantitative verification of exact partial delivered bytes (1024 bytes)
+        if ($faultStream.BytesDelivered -ne 1024) {
+            throw "FaultStream did not deliver exactly 1024 bytes before throwing! Actual delivered: $($faultStream.BytesDelivered) bytes."
+        }
+
         if ([System.IO.File]::Exists($dest)) {
             throw "Destination file exists after mid-stream abort!"
         }
@@ -1420,7 +1430,7 @@ function Test-Scenario12-PostCreateNewFailureCleanup {
         [System.IO.File]::WriteAllText($probe, "handle ok")
         [System.IO.File]::Delete($probe)
 
-        return "PASS: Stream failure post-CreateNew cleanly handled; partial read verified, handle closed, partial deleted."
+        return "PASS: Stream failure post-CreateNew cleanly handled; exact partial threshold verified ($($faultStream.BytesDelivered)/1024 bytes), handle closed, partial deleted."
     } finally {
         Remove-IsolatedTestFixture -FixturePath $fixture
     }
@@ -1932,7 +1942,7 @@ function Invoke-SelfTestSuite {
 
     Write-Host ""
     Write-Host "================================================================================" -ForegroundColor Cyan
-    Write-Host "  BinPack Enterprise SDK - Automated Self-Test Suite (BP-009 / Order 02-R12)     " -ForegroundColor Cyan
+    Write-Host "  BinPack Enterprise SDK - Automated Self-Test Suite (BP-009 / Order 02-R13)     " -ForegroundColor Cyan
     Write-Host "================================================================================" -ForegroundColor Cyan
 
     $selfPath = $PSCommandPath
