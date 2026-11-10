@@ -163,4 +163,4 @@ Resultados certificados obtenidos tras la ejecución aleatorizada bajo semilla r
   2. *Robustez del Instrumento de Medición:* Manejo seguro con verificación de punteros nulos y retornos en contextos Zstandard (`ZSTD_CCtx_reset`), temporización aritmética sin riesgo de desbordamiento, y aislamiento total por subproceso (`fork` / `wait4`).
   3. *Integridad Criptográfica de Baselines:* Registro auditable con doble vector de 20 muestras crudas y filtradas Tukey IQR, cálculo directo en MB/s decimales y comprobación bit a bit en cada descompresión.
   4. *Preservación del Alcance del Proyecto:* Congelación absoluta de `src/`, `include/` y `deps/`.
-- **Hito Siguiente Habilitado:** **BP-008D** (Protocolo de reproducibilidad, preparación de baselines certificados y validación de comparabilidad experimental).
+- **Hito siguiente habilitado tras BP-008C:** **BP-008D** (posteriormente completado y cerrado mediante la Revisión R14, formalizada en el commit `9afd69a1435d8bf4ac73bf8ce3ac22b35e937102`).
