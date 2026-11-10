@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     BinPack Enterprise SDK - Deterministic Multi-Corpus Acquisition & Preparation Harness
-    Milestone: BP-009 / Work Order 02 - Revision R8 (Audit Submission Artifact)
+    Milestone: BP-009 / Work Order 02 - Revision R9 (Audit Submission Artifact)
     Target Environment: Windows PowerShell 5.1 / .NET Framework 4.8 (x86_64)
 
 .DESCRIPTION
@@ -69,6 +69,58 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
     using System.Threading;
 
     namespace BinPack.Audit {
+        public class BlockingTimeoutStream : Stream {
+            private int _readTimeout = 1000;
+            private byte[] _data;
+            private int _position = 0;
+            public bool BlockUntilTimeout { get; set; }
+            public long ActualBlockedDurationMs { get; private set; }
+
+            public BlockingTimeoutStream(byte[] data) {
+                _data = data != null ? data : new byte[0];
+                BlockUntilTimeout = false;
+                ActualBlockedDurationMs = 0;
+            }
+
+            public override bool CanTimeout { get { return true; } }
+            public override int ReadTimeout {
+                get { return _readTimeout; }
+                set { _readTimeout = Math.Max(1, value); }
+            }
+            public override bool CanRead { get { return true; } }
+            public override bool CanSeek { get { return false; } }
+            public override bool CanWrite { get { return false; } }
+            public override long Length { get { return _data.Length; } }
+            public override long Position {
+                get { return _position; }
+                set { throw new NotSupportedException(); }
+            }
+            public override void Flush() {}
+            public override long Seek(long offset, SeekOrigin origin) { throw new NotSupportedException(); }
+            public override void SetLength(long value) { throw new NotSupportedException(); }
+            public override void Write(byte[] buffer, int offset, int count) { throw new NotSupportedException(); }
+
+            public override int Read(byte[] buffer, int offset, int count) {
+                if (BlockUntilTimeout) {
+                    System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+                    while (sw.ElapsedMilliseconds < _readTimeout) {
+                        Thread.Sleep(20);
+                    }
+                    sw.Stop();
+                    ActualBlockedDurationMs = sw.ElapsedMilliseconds;
+                    throw new IOException(
+                        "The stream read operation timed out after blocking for " + ActualBlockedDurationMs + "ms (configured ReadTimeout: " + _readTimeout + "ms).",
+                        new TimeoutException()
+                    );
+                }
+                if (_position >= _data.Length) return 0;
+                int available = Math.Min(count, _data.Length - _position);
+                Array.Copy(_data, _position, buffer, offset, available);
+                _position += available;
+                return available;
+            }
+        }
+
         public class TimeoutAwareStream : MemoryStream {
             private int _readTimeout = -1;
             public int LastConfiguredReadTimeout { get { return _readTimeout; } }
@@ -1313,7 +1365,7 @@ function Test-Scenario13-DeadlineBudgetCalculation {
 }
 
 function Test-Scenario14-StreamTimeoutEnforcement {
-    # R8-04: Stream timeout verification: (A) Dynamic ReadTimeout clamping and (B) Blocking read timeout enforcement
+    # R9-02: Stream timeout verification: (A) Dynamic ReadTimeout clamping and (B) Real blocking read timeout enforcement
     $fixture = New-IsolatedTestFixture
     try {
         $dest = [System.IO.Path]::Combine($fixture, "stream_timeout.bin")
@@ -1346,9 +1398,9 @@ function Test-Scenario14-StreamTimeoutEnforcement {
             throw "Configured ReadTimeout ($($timeoutStream.LastConfiguredReadTimeout)ms) exceeded 30000ms clamp bound!"
         }
 
-        # Part B: Read operation timeout enforcement (simulates network stream read timeout)
-        $blockingStream = [BinPack.Audit.TimeoutAwareStream]::new($rawBytes)
-        $blockingStream.SimulateTimeoutOnRead = $true
+        # Part B: Real blocking read timeout enforcement with actual elapsed wait
+        $blockingStream = [BinPack.Audit.BlockingTimeoutStream]::new($rawBytes)
+        $blockingStream.BlockUntilTimeout = $true
         $destBlocking = [System.IO.Path]::Combine($fixture, "blocking_timeout.bin")
 
         $mockBlockingTransport = {
@@ -1356,25 +1408,34 @@ function Test-Scenario14-StreamTimeoutEnforcement {
             return $blockingStream
         }
 
+        $swBlock = [System.Diagnostics.Stopwatch]::StartNew()
         $threwReadTimeout = $false
         try {
+            # Deadline 1 second yields a clamped ReadTimeout of ~1000ms
             Download-FileSecurely -Url "https://mock.invalid/blocking_read_timeout" `
                                  -DestinationPath $destBlocking `
                                  -ExpectedSha256 $expectedHash `
-                                 -DeadlineSeconds 30 `
+                                 -DeadlineSeconds 1 `
                                  -TransportDelegate $mockBlockingTransport | Out-Null
         } catch [System.IO.IOException] {
             $threwReadTimeout = $true
         }
+        $swBlock.Stop()
 
         if (-not $threwReadTimeout) {
             throw "Engine failed to throw IOException when stream read operation timed out!"
+        }
+        if ($blockingStream.ActualBlockedDurationMs -lt 500) {
+            throw "Stream did not actually block for the configured ReadTimeout period (Elapsed: $($blockingStream.ActualBlockedDurationMs)ms)!"
+        }
+        if ($swBlock.ElapsedMilliseconds -lt $blockingStream.ActualBlockedDurationMs) {
+            throw "Wall-clock elapsed time ($($swBlock.ElapsedMilliseconds)ms) is less than blocked duration ($($blockingStream.ActualBlockedDurationMs)ms)!"
         }
         if ([System.IO.File]::Exists($destBlocking)) {
             throw "Destination file exists after stream read timeout!"
         }
 
-        return "PASS: Dual verification: Dynamic ReadTimeout configured to $($timeoutStream.LastConfiguredReadTimeout)ms (Part A) & blocking read timeout enforced with partial cleanup (Part B)."
+        return "PASS: Dual verification: Dynamic ReadTimeout configured to $($timeoutStream.LastConfiguredReadTimeout)ms (Part A) & real blocking read timeout enforced after $($blockingStream.ActualBlockedDurationMs)ms wait with partial cleanup (Part B)."
     } finally {
         Remove-IsolatedTestFixture -FixturePath $fixture
     }
@@ -1414,9 +1475,11 @@ function Test-Scenario15-AtomicPromotionIntegrity {
 }
 
 function Test-Scenario16-HTTPSDowngradeRejection {
-    # R8-01: Live TLS socket HTTPS server redirecting to HTTP downgrade (real wire HTTPS connection)
+    # R9-01 & R9-03: Live TLS socket HTTPS server with cryptographically isolated callback and explicit resource disposal
     $fixture = New-IsolatedTestFixture
     $server = $null
+    $rsa = $null
+    $serverCert = $null
     $oldCallback = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
     try {
         $dest = [System.IO.Path]::Combine($fixture, "downgrade_target.bin")
@@ -1437,14 +1500,34 @@ function Test-Scenario16-HTTPSDowngradeRejection {
             [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable
         )
 
+        $expectedThumbprint = $serverCert.Thumbprint
+
         # 2. Start live TLS socket HTTPS server returning HTTP 302 pointing to insecure HTTP endpoint
         $rawResponse = "HTTP/1.1 302 Found`r`nLocation: http://127.0.0.1/downgrade_payload.bin`r`nContent-Length: 0`r`n`r`n"
         $server = New-Object BinPack.Audit.MockHttpsServer($rawResponse, $serverCert)
+        $expectedPort = $server.Port
 
-        # Temporarily accept in-process ephemeral loopback certificate during this scenario only
+        # R9-01: Cryptographically isolated callback: strictly verifies sender endpoint AND certificate thumbprint
         [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {
             param($sender, $certificate, $chain, $sslPolicyErrors)
-            return $true
+
+            $httpReq = $sender -as [System.Net.HttpWebRequest]
+            if ($httpReq -ne $null -and $httpReq.RequestUri -ne $null) {
+                $reqUri = $httpReq.RequestUri
+                # Endpoint boundary check: strictly local loopback on specific test server port
+                if ($reqUri.Host -eq "127.0.0.1" -and $reqUri.Port -eq $expectedPort) {
+                    # Cryptographic identity check: exact SHA-1 thumbprint match against ephemeral test certificate
+                    if ($certificate -ne $null -and $certificate.GetCertHashString().Equals($expectedThumbprint, [System.StringComparison]::OrdinalIgnoreCase)) {
+                        return $true
+                    }
+                }
+            }
+
+            # Delegate any non-matching requests to original callback or reject
+            if ($oldCallback -ne $null) {
+                return & $oldCallback $sender $certificate $chain $sslPolicyErrors
+            }
+            return $false
         }
 
         # 3. Invoke Download-FileSecurely starting strictly with genuine HTTPS origin
@@ -1463,10 +1546,22 @@ function Test-Scenario16-HTTPSDowngradeRejection {
         if ([System.IO.File]::Exists($dest)) {
             throw "Destination exists after live downgrade rejection!"
         }
-        return "PASS: Real wire TLS socket completed HTTPS handshake, received HTTP 302 over TLS, and strictly blocked downgrade to HTTP."
+        return "PASS: Real wire TLS socket completed HTTPS handshake with cryptographically isolated certificate validation, received HTTP 302 over TLS, and strictly blocked downgrade to HTTP."
     } finally {
+        # R9-03: Explicit, guaranteed disposal of cryptographic keys, certificate handles, server listener, and callback restoration
         [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $oldCallback
-        if ($server -ne $null) { $server.Dispose() }
+        if ($server -ne $null) {
+            try { $server.Dispose() } catch {}
+            $server = $null
+        }
+        if ($serverCert -ne $null) {
+            try { $serverCert.Dispose() } catch {}
+            $serverCert = $null
+        }
+        if ($rsa -ne $null) {
+            try { $rsa.Dispose() } catch {}
+            $rsa = $null
+        }
         Remove-IsolatedTestFixture -FixturePath $fixture
     }
 }
@@ -1669,7 +1764,7 @@ function Invoke-SelfTestSuite {
 
     Write-Host ""
     Write-Host "================================================================================" -ForegroundColor Cyan
-    Write-Host "  BinPack Enterprise SDK - Automated Self-Test Suite (BP-009 / Order 02-R8)     " -ForegroundColor Cyan
+    Write-Host "  BinPack Enterprise SDK - Automated Self-Test Suite (BP-009 / Order 02-R9)     " -ForegroundColor Cyan
     Write-Host "================================================================================" -ForegroundColor Cyan
 
     $meta = Get-HostEnvironmentMetadata
