@@ -2,7 +2,7 @@
 """
 BinPack Enterprise SDK - Instrumento Forense de Verificación Material del Corpus
 ================================================================================
-Expediente: BP-009 / OT-03 (Revisión Estática R7)
+Expediente: BP-009 / OT-03 (Revisión Estática R7.1 — Corrección de Oráculo Aritmético)
 
 Garantías de Diseño y Matriz de Trazabilidad R7:
   - R7-B08.3 (P0): Drenaje Exhaustivo y Demostración Física Completa del Stream TAR:
@@ -13,7 +13,7 @@ Garantías de Diseño y Matriz de Trazabilidad R7:
         a los bloques nulos de terminación TAR (all(b == 0 for b in trailing_bytes)).
       * Se comprueba activamente que el descompresor subyacente gzip alcanzó EOF (gz_stream.read(1) == b""),
         validando el pie de página gzip (CRC32 e ISIZE).
-      * Se valida que la suma de bytes netos extraídos sea exactamente 2.800.784 B y que el total físico
+      * Se valida que la suma de bytes netos extraídos sea exactamente 2.810.784 B y que el total físico
         entregado por el stream TAR sea exactamente de 2.821.120 B.
   - R7-B09.2 (P1): Doble Control de Entorno Git (Pre-condición y Post-condición):
       * La certificación global final_pass exige taxativamente (initial_environment_ok and final_environment_ok).
@@ -326,15 +326,15 @@ MAX_AGGREGATE_SILESIA_DECOMPRESS = 262144000     # 250 MiB (250 * 1024 * 1024 B)
 #       11.150 (fields.c) + 3.721 (grammar.lsp) + 1.029.744 (kennedy.xls) +
 #       426.754 (lcet10.txt) + 481.861 (plrabn12.txt) + 513.216 (ptt5) +
 #       38.240 (sum) + 4.227 (xargs.1)
-#       = 2.800.784 Bytes netos (~2,67 MiB).
+#       = 2.810.784 Bytes netos (~2,68 MiB).
 #   - Stream TAR total descomprimido observado en procesamiento secuencial ("r|"):
 #       Incluye las 11 cabeceras TAR (512 B cada una = 5.632 B), el relleno a múltiplos
 #       de 512 B por cada archivo miembro (13.680 B) y dos bloques nulos EOF (1.024 B):
-#       2.800.784 B netos + 5.632 B cabeceras + 13.680 B relleno + 1.024 B EOF
+#       2.810.784 B netos + 5.632 B cabeceras + 3.680 B relleno + 1.024 B EOF
 #       = 2.821.120 Bytes de stream TAR completo (~2,69 MiB).
 #   - Presupuesto máximo asignado: 5.242.880 Bytes (5 MiB exactos).
-#   - Margen relativo sobre consumo neto (denominador = 2.800.784 B):
-#       (5.242.880 - 2.800.784) / 2.800.784 * 100 = 87,19%.
+#   - Margen relativo sobre consumo neto (denominador = 2.810.784 B):
+#       (5.242.880 - 2.810.784) / 2.810.784 * 100 = 86,53% (~86,5%).
 #   - Margen relativo sobre stream TAR total (denominador = 2.821.120 B):
 #       (5.242.880 - 2.821.120) / 2.821.120 * 100 = 85,84% (~85,8%).
 #   - Capacidad libre del presupuesto sobre stream TAR total:
@@ -774,7 +774,7 @@ def run_audit(repo_root: str, manifest_rel_path: str = CANONICAL_MANIFEST_RELPAT
     git_initial = evaluate_git_state(repo_root)
 
     print("=" * 105)
-    print("BINPACK ENTERPRISE SDK — INSTRUMENTO FORENSE DE VERIFICACIÓN MATERIAL (BP-009 / OT-03 / R7)")
+    print("BINPACK ENTERPRISE SDK — INSTRUMENTO FORENSE DE VERIFICACIÓN MATERIAL (BP-009 / OT-03 / R7.1)")
     print("=" * 105)
     print(f"Timestamp UTC:                {start_utc}")
     print(f"Versión Python:               {sys.version.splitlines()[0]}")
@@ -1136,8 +1136,8 @@ def run_audit(repo_root: str, manifest_rel_path: str = CANONICAL_MANIFEST_RELPAT
                 total_cant_decompressed = seq_stream.total_bytes_read
 
                 # Verificación de correspondencia material de la suma de bytes TAR (R6-B08.3, R7-B08.3)
-                if extracted_net_bytes != 2800784:
-                    print(f"FAIL: Suma de bytes netos extraídos ({extracted_net_bytes} B) != 2.800.784 B esperados.")
+                if extracted_net_bytes != 2810784:
+                    print(f"FAIL: Suma de bytes netos extraídos ({extracted_net_bytes} B) != 2.810.784 B esperados.")
                     cant_ok = False
 
                 if total_cant_decompressed != 2821120:
@@ -1179,7 +1179,7 @@ def run_audit(repo_root: str, manifest_rel_path: str = CANONICAL_MANIFEST_RELPAT
     material_pass = all_files_ok and silesia_ok and cant_ok
     final_pass = material_pass and initial_environment_ok and final_environment_ok
 
-    print("DIAGNÓSTICO CONSOLIDADO FINAL (REVISIÓN R7):")
+    print("DIAGNÓSTICO CONSOLIDADO FINAL (REVISIÓN R7.1):")
     print(f"  - Verificación Material de Artefactos (32/32):       {'PASS' if all_files_ok else 'FAIL'}")
     print(f"  - Trazabilidad y Correspondencia Silesia ZIP (12/12):  {'PASS' if silesia_ok else 'FAIL'}")
     print(f"  - Trazabilidad y Correspondencia Canterbury (11/11):   {'PASS' if cant_ok else 'FAIL'}")
@@ -1191,7 +1191,7 @@ def run_audit(repo_root: str, manifest_rel_path: str = CANONICAL_MANIFEST_RELPAT
     return final_pass
 
 def main():
-    parser = argparse.ArgumentParser(description="Instrumento Forense de Verificación Material (BP-009 / OT-03 / R7)")
+    parser = argparse.ArgumentParser(description="Instrumento Forense de Verificación Material (BP-009 / OT-03 / R7.1)")
     parser.add_argument("--repo-root", default=".", help="Ruta a la raíz del repositorio (default: directorio actual)")
     parser.add_argument("--manifest", default=CANONICAL_MANIFEST_RELPATH, help=f"Ruta relativa al manifiesto JSON (default: {CANONICAL_MANIFEST_RELPATH})")
     args = parser.parse_args()
