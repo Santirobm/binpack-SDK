@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     BinPack Enterprise SDK - Deterministic Multi-Corpus Acquisition & Preparation Harness
-    Milestone: BP-009 / Work Order 02 - Revision R11 (Audit Submission Artifact)
+    Milestone: BP-009 / Work Order 02 - Revision R12 (Audit Submission Artifact)
     Target Environment: Windows PowerShell 5.1 / .NET Framework 4.8 (x86_64)
 
 .DESCRIPTION
@@ -151,6 +151,7 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
             private TcpListener _listener;
             private Thread _thread;
             private ManualResetEvent _stopEvent;
+            private TcpClient _client;
             public int Port { get; private set; }
             public bool ConnectionAccepted { get; private set; }
             public bool PartialDataSent { get; private set; }
@@ -169,9 +170,9 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
 
             private void Run() {
                 try {
-                    using (TcpClient client = _listener.AcceptTcpClient()) {
+                    using (_client = _listener.AcceptTcpClient()) {
                         ConnectionAccepted = true;
-                        using (NetworkStream stream = client.GetStream()) {
+                        using (NetworkStream stream = _client.GetStream()) {
                             byte[] buf = new byte[2048];
                             stream.Read(buf, 0, buf.Length);
                             string header = "HTTP/1.1 200 OK\r\nContent-Length: 100000\r\nContent-Type: application/octet-stream\r\n\r\n";
@@ -191,11 +192,15 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
             public void Dispose() {
                 try { _stopEvent.Set(); } catch {}
                 try { _listener.Stop(); } catch {}
+                try { if (_client != null) _client.Close(); } catch {}
                 if (_thread != null && _thread.IsAlive) {
                     bool finished = _thread.Join(2000);
                     if (!finished) {
                         try { _thread.Abort(); } catch {}
-                        throw new InvalidOperationException("StallingHttpServer worker thread failed to terminate cleanly within timeout.");
+                        bool postAbortJoined = _thread.Join(1000);
+                        if (!postAbortJoined || _thread.IsAlive) {
+                            throw new InvalidOperationException("StallingHttpServer worker thread failed to terminate cleanly within timeout.");
+                        }
                     }
                 }
                 try { _stopEvent.Close(); } catch {}
@@ -219,7 +224,7 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
                 if (_bytesReadSoFar + toRead > _maxBytesBeforeThrow) {
                     toRead = _maxBytesBeforeThrow - _bytesReadSoFar;
                 }
-                int read = base.Read(buffer, offset, count);
+                int read = base.Read(buffer, offset, toRead);
                 _bytesReadSoFar += read;
                 return read;
             }
@@ -229,6 +234,7 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
             private TcpListener _listener;
             private Thread _thread;
             private ManualResetEvent _stopEvent;
+            private TcpClient _client;
             private string _response;
             public int Port { get; private set; }
 
@@ -245,13 +251,16 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
 
             private void Run() {
                 try {
-                    using (TcpClient client = _listener.AcceptTcpClient())
-                    using (NetworkStream stream = client.GetStream()) {
-                        byte[] buf = new byte[2048];
-                        stream.Read(buf, 0, buf.Length);
-                        byte[] respBytes = Encoding.ASCII.GetBytes(_response);
-                        stream.Write(respBytes, 0, respBytes.Length);
-                        stream.Flush();
+                    using (_client = _listener.AcceptTcpClient()) {
+                        _client.ReceiveTimeout = 2000;
+                        _client.SendTimeout = 2000;
+                        using (NetworkStream stream = _client.GetStream()) {
+                            byte[] buf = new byte[2048];
+                            stream.Read(buf, 0, buf.Length);
+                            byte[] respBytes = Encoding.ASCII.GetBytes(_response);
+                            stream.Write(respBytes, 0, respBytes.Length);
+                            stream.Flush();
+                        }
                     }
                 } catch {}
             }
@@ -259,11 +268,15 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
             public void Dispose() {
                 try { _stopEvent.Set(); } catch {}
                 try { _listener.Stop(); } catch {}
+                try { if (_client != null) _client.Close(); } catch {}
                 if (_thread != null && _thread.IsAlive) {
                     bool finished = _thread.Join(2000);
                     if (!finished) {
                         try { _thread.Abort(); } catch {}
-                        throw new InvalidOperationException("MockHttpServer worker thread failed to terminate cleanly within timeout.");
+                        bool postAbortJoined = _thread.Join(1000);
+                        if (!postAbortJoined || _thread.IsAlive) {
+                            throw new InvalidOperationException("MockHttpServer worker thread failed to terminate cleanly within timeout.");
+                        }
                     }
                 }
                 try { _stopEvent.Close(); } catch {}
@@ -274,6 +287,7 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
             private TcpListener _listener;
             private Thread _thread;
             private ManualResetEvent _stopEvent;
+            private TcpClient _client;
             private string _response;
             private X509Certificate2 _cert;
             public int Port { get; private set; }
@@ -292,14 +306,17 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
 
             private void Run() {
                 try {
-                    using (TcpClient client = _listener.AcceptTcpClient())
-                    using (SslStream ssl = new SslStream(client.GetStream(), false)) {
-                        ssl.AuthenticateAsServer(_cert);
-                        byte[] buf = new byte[2048];
-                        ssl.Read(buf, 0, buf.Length);
-                        byte[] respBytes = Encoding.ASCII.GetBytes(_response);
-                        ssl.Write(respBytes, 0, respBytes.Length);
-                        ssl.Flush();
+                    using (_client = _listener.AcceptTcpClient()) {
+                        _client.ReceiveTimeout = 2000;
+                        _client.SendTimeout = 2000;
+                        using (SslStream ssl = new SslStream(_client.GetStream(), false)) {
+                            ssl.AuthenticateAsServer(_cert);
+                            byte[] buf = new byte[2048];
+                            ssl.Read(buf, 0, buf.Length);
+                            byte[] respBytes = Encoding.ASCII.GetBytes(_response);
+                            ssl.Write(respBytes, 0, respBytes.Length);
+                            ssl.Flush();
+                        }
                     }
                 } catch {}
             }
@@ -307,11 +324,15 @@ if (-not ([System.Management.Automation.PSTypeName]'BinPack.Audit.FaultStream').
             public void Dispose() {
                 try { _stopEvent.Set(); } catch {}
                 try { _listener.Stop(); } catch {}
+                try { if (_client != null) _client.Close(); } catch {}
                 if (_thread != null && _thread.IsAlive) {
                     bool finished = _thread.Join(2000);
                     if (!finished) {
                         try { _thread.Abort(); } catch {}
-                        throw new InvalidOperationException("MockHttpsServer worker thread failed to terminate cleanly within timeout.");
+                        bool postAbortJoined = _thread.Join(1000);
+                        if (!postAbortJoined || _thread.IsAlive) {
+                            throw new InvalidOperationException("MockHttpsServer worker thread failed to terminate cleanly within timeout.");
+                        }
                     }
                 }
                 try { _stopEvent.Close(); } catch {}
@@ -1358,7 +1379,7 @@ function Test-Scenario11-CollisionAvoidanceCreateNew {
 }
 
 function Test-Scenario12-PostCreateNewFailureCleanup {
-    # R6-01E & R6-02: Stream abort mid-read after CreateNew
+    # R12-04: Stream abort mid-read after CreateNew with verified partial read threshold
     $fixture = New-IsolatedTestFixture
     try {
         $dest = [System.IO.Path]::Combine($fixture, "aborted_stream.bin")
@@ -1366,9 +1387,11 @@ function Test-Scenario12-PostCreateNewFailureCleanup {
         $payload = New-Object byte[] 4096
         for ($i = 0; $i -lt 4096; $i++) { $payload[$i] = [byte]($i % 250) }
 
+        $faultStream = New-Object BinPack.Audit.FaultStream($payload, 1024)
+
         $mockTransport = {
             param($url, $remainingMs, $redirectCount, $partPath)
-            return New-Object BinPack.Audit.FaultStream($payload, 1024)
+            return $faultStream
         }
 
         $threwIO = $false
@@ -1397,7 +1420,7 @@ function Test-Scenario12-PostCreateNewFailureCleanup {
         [System.IO.File]::WriteAllText($probe, "handle ok")
         [System.IO.File]::Delete($probe)
 
-        return "PASS: Stream failure post-CreateNew cleanly handled; handle closed, partial deleted."
+        return "PASS: Stream failure post-CreateNew cleanly handled; partial read verified, handle closed, partial deleted."
     } finally {
         Remove-IsolatedTestFixture -FixturePath $fixture
     }
@@ -1442,7 +1465,7 @@ function Test-Scenario13-DeadlineBudgetCalculation {
 }
 
 function Test-Scenario14-StreamTimeoutEnforcement {
-    # R11-01 & R11-02: Real wire network transport read timeout with signals, specific exception check, duration bounds, and pre-cleanup verification
+    # R12-01 & R12-02: Real wire network transport read timeout with signals, strict typed timeout verification, duration bounds, and pre-cleanup verification
     $fixture = New-IsolatedTestFixture
     $server = $null
     try {
@@ -1476,14 +1499,14 @@ function Test-Scenario14-StreamTimeoutEnforcement {
             throw "Configured ReadTimeout ($($timeoutStream.LastConfiguredReadTimeout)ms) exceeded 30000ms clamp bound!"
         }
 
-        # Part B: Real wire network transport read timeout against stalling HTTP server (R11-01)
+        # Part B: Real wire network transport read timeout against stalling HTTP server (R12-01)
         $server = New-Object BinPack.Audit.StallingHttpServer
         $destNetwork = [System.IO.Path]::Combine($fixture, "stalled_network_dest.bin")
 
         $swBlock = [System.Diagnostics.Stopwatch]::StartNew()
-        $threwSpecificTimeout = $false
+        $threwStrictTimeout = $false
         $caughtExType = ""
-        $caughtExStatus = ""
+        $caughtExDetails = ""
 
         try {
             # Deadline 1 second configures ReadWriteTimeout / ReadTimeout to 1000ms on the real socket
@@ -1493,22 +1516,39 @@ function Test-Scenario14-StreamTimeoutEnforcement {
                                  -DeadlineSeconds 1 `
                                  -AllowInsecureLocalLoopbackForTest | Out-Null
         } catch [System.Net.WebException] {
-            $caughtExType = $_.Exception.GetType().FullName
-            $caughtExStatus = [string]$_.Exception.Status
-            if ($_.Exception.Status -eq [System.Net.WebExceptionStatus]::Timeout -or $_.Exception.Message -match "time.*out|espera") {
-                $threwSpecificTimeout = $true
+            $webEx = $_.Exception -as [System.Net.WebException]
+            $caughtExType = $webEx.GetType().FullName
+            $caughtExDetails = "WebExceptionStatus: " + [string]$webEx.Status
+            # R12-01: Prefer typed WebExceptionStatus.Timeout or inspect typed inner SocketError.TimedOut
+            if ($webEx.Status -eq [System.Net.WebExceptionStatus]::Timeout) {
+                $threwStrictTimeout = $true
+            } elseif ($webEx.InnerException -is [System.Net.Sockets.SocketException]) {
+                $sockEx = $webEx.InnerException -as [System.Net.Sockets.SocketException]
+                $caughtExDetails += " | Inner SocketError: " + [string]$sockEx.SocketErrorCode + " (" + $sockEx.ErrorCode + ")"
+                if ($sockEx.SocketErrorCode -eq [System.Net.Sockets.SocketError]::TimedOut -or $sockEx.ErrorCode -eq 10060) {
+                    $threwStrictTimeout = $true
+                }
             }
         } catch [System.IO.IOException] {
-            $caughtExType = $_.Exception.GetType().FullName
-            $inner = $_.Exception.InnerException
-            if ($inner -ne $null -and ($inner -is [System.Net.Sockets.SocketException] -or $inner -is [System.TimeoutException] -or $inner.Message -match "time.*out|espera")) {
-                $threwSpecificTimeout = $true
-                $caughtExStatus = $inner.GetType().Name
+            $ioEx = $_.Exception -as [System.IO.IOException]
+            $caughtExType = $ioEx.GetType().FullName
+            $inner = $ioEx.InnerException
+            if ($inner -is [System.Net.Sockets.SocketException]) {
+                $sockEx = $inner -as [System.Net.Sockets.SocketException]
+                $caughtExDetails = "IOException with inner SocketError: " + [string]$sockEx.SocketErrorCode + " (" + $sockEx.ErrorCode + ")"
+                if ($sockEx.SocketErrorCode -eq [System.Net.Sockets.SocketError]::TimedOut -or $sockEx.ErrorCode -eq 10060) {
+                    $threwStrictTimeout = $true
+                }
+            } elseif ($inner -is [System.TimeoutException]) {
+                $caughtExDetails = "IOException with inner TimeoutException"
+                $threwStrictTimeout = $true
+            } else {
+                $caughtExDetails = "IOException: " + $ioEx.Message
             }
         }
         $swBlock.Stop()
 
-        # R11-01 Assertion 1: Server connection and partial payload send signals
+        # R12-01 Assertion 1: Server connection and partial payload send signals
         if (-not $server.ConnectionAccepted) {
             throw "Stalling server failed to register accepted client connection!"
         }
@@ -1516,12 +1556,12 @@ function Test-Scenario14-StreamTimeoutEnforcement {
             throw "Stalling server failed to send HTTP 200 headers and initial partial payload!"
         }
 
-        # R11-01 Assertion 2: Specific timeout exception verification
-        if (-not $threwSpecificTimeout) {
-            throw "Engine did not throw an identifiable network timeout exception! Caught: $caughtExType ($caughtExStatus)"
+        # R12-01 Assertion 2: Strict typed timeout exception verification
+        if (-not $threwStrictTimeout) {
+            throw "Engine did not throw a strictly verified typed timeout exception! Caught: $caughtExType ($caughtExDetails)"
         }
 
-        # R11-01 Assertion 3: Measured duration compatible with timeout deadline (~1000ms bound)
+        # R12-01 Assertion 3: Measured duration compatible with timeout deadline (~1000ms bound)
         if ($swBlock.ElapsedMilliseconds -lt 800) {
             throw "Stalled read returned too early ($($swBlock.ElapsedMilliseconds)ms), failing to respect ~1000ms ReadTimeout!"
         }
@@ -1529,7 +1569,7 @@ function Test-Scenario14-StreamTimeoutEnforcement {
             throw "Stalled read took too long ($($swBlock.ElapsedMilliseconds)ms), exceeding reasonable timeout upper bound!"
         }
 
-        # R11-02: Rigorous verification of partial file deletion BEFORE fixture removal
+        # R12-02: Rigorous verification of partial file deletion BEFORE fixture removal
         if ([System.IO.File]::Exists($destNetwork)) {
             throw "Destination file exists after real network read timeout!"
         }
@@ -1538,7 +1578,7 @@ function Test-Scenario14-StreamTimeoutEnforcement {
             throw "Engine failed to delete partial temporary file before fixture removal: $($orphanedParts[0])"
         }
 
-        return "PASS: Real wire socket connected (Accepted=True, Sent=True), timeout caught ($caughtExType/$caughtExStatus in $($swBlock.ElapsedMilliseconds)ms), and partial .tmp verified deleted before fixture removal."
+        return "PASS: Real wire socket connected (Accepted=True, Sent=True), strict typed timeout caught ($caughtExType [$caughtExDetails] in $($swBlock.ElapsedMilliseconds)ms), and partial .tmp verified deleted before fixture removal."
     } finally {
         if ($server -ne $null) {
             try { $server.Dispose() } catch {}
@@ -1892,7 +1932,7 @@ function Invoke-SelfTestSuite {
 
     Write-Host ""
     Write-Host "================================================================================" -ForegroundColor Cyan
-    Write-Host "  BinPack Enterprise SDK - Automated Self-Test Suite (BP-009 / Order 02-R11)     " -ForegroundColor Cyan
+    Write-Host "  BinPack Enterprise SDK - Automated Self-Test Suite (BP-009 / Order 02-R12)     " -ForegroundColor Cyan
     Write-Host "================================================================================" -ForegroundColor Cyan
 
     $selfPath = $PSCommandPath
