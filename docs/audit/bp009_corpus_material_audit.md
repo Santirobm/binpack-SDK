@@ -6,18 +6,19 @@
 **Commit Documental Base:** [`a9fe52e19644bbb6f30d6b485adda0ad5df46f0f`](https://github.com/Santirobm/binpack-SDK/commit/a9fe52e19644bbb6f30d6b485adda0ad5df46f0f)  
 **Manifiesto Canónico Reconciliado:** [`tests/experiments/datasets_checksums.json`](file:///C:/Users/sgi.lm/Desktop/binpack-SDK/tests/experiments/datasets_checksums.json) (32 entradas)  
 **Fecha de Apertura:** 10 de Noviembre de 2026  
-**Estado Administrativo:** **ABIERTO — EN PROCESO DE EVALUACIÓN Y CONTRASTE INDEPENDIENTE (OT-03)**  
+**Fecha de Cierre Formal:** 11 de Noviembre de 2026  
+**Estado Administrativo:** **CERRADO Y CERTIFICADO — FASE BP-009 FORMALMENTE CERRADA (OT-01, OT-02, OT-03 APROBADAS)**  
 
 ---
 
 ## 1. Resumen Ejecutivo y Marco de Apertura de la Validación Material
 
-El presente informe técnico formaliza la apertura de la fase de **Validación Material de Artefactos** correspondiente a la **Orden de Trabajo 03 (OT-03)** del hito **BP-009**.
+El presente informe técnico formaliza la conclusión y certificación de la fase de **Validación Material de Artefactos** correspondiente a la **Orden de Trabajo 03 (OT-03)** del hito **BP-009**.
 
 > [!IMPORTANT]
 > **Delimitación de Garantías Epistemológicas y Estado Probatorio:**  
-> Las mediciones de longitud en bytes y sumas criptográficas SHA-256 expuestas en este informe constituyen **evidencia técnica obtenida y reportada en el entorno de trabajo local** del ejecutor.  
-> Conforme al dictamen de auditoría, ningún resultado reportado localmente se asume como certificación definitiva o sustituto de la verificación independiente. OT-03 permanece estrictamente **abierto** hasta que la auditoría complete sus contrastes independientes y emita el dictamen final.
+> Las mediciones de longitud en bytes, sumas criptográficas SHA-256 y correspondencias de extracción expuestas en este informe constituyen **evidencia técnica obtenida y reportada en el entorno de trabajo local** del ejecutor.  
+> Conforme al dictamen formal de auditoría, las verificaciones independientes efectuadas por el Auditor Líder comprendieron la inspección estática del código, la comprobación del árbol y commits Git en GitHub, el análisis del diff de cambios y la verificación matemática y estructural de los contenedores. No se efectuó una reproducción física independiente de la ejecución en Windows ni un recálculo directo de los 32 hashes desde el disco del auditor; por ende, la conformidad material se fundamenta en la evidencia local reportada y contrastada documentalmente.
 
 ### 1.1 Parámetros del Entorno de Comprobación Local
 - **Plataforma:** Windows 10 Pro (x64) Build 19045
@@ -144,19 +145,73 @@ De acuerdo con el mandato de auditoría, se mantienen explícitamente abiertas y
 
 ---
 
-## 5. Cuadro de Situación de Hitos y Límites Operativos
+## 5. Instrumento Forense de Verificación Material (R7.1) y Resultados de Ejecución
 
-| Hito / Actividad | Estado | Observación de Auditoría |
-| :--- | :---: | :--- |
-| **BP-008C** | **Cerrado** | Formalización de cierre certificada en commit `a9fe52e` |
-| **BP-008D** | **Cerrado** | Protocolo R14 certificado en commit `9afd69a` |
-| **BP-009 / OT-02** | **Cerrado** | Arnés de adquisición R13 formalizado en commit `cb022fb` |
-| **BP-009 / OT-03** | **Abierto** | En fase de revisión del presente informe forense de validación material |
-| **BP-010** | **Congelado** | Campaña de benchmark decisiva suspendida sin autorización de apertura |
-| **Código Productivo** | **Inalterable** | `src/`, `include/` y `deps/` 100% congelados (*code freeze*) |
+Para someter el corpus a una verificación física reproducible, robusta y automatizada, se diseñó e implementó el script forense independiente [`scripts/audit_corpus_verification.py`](https://github.com/Santirobm/binpack-SDK/blob/audit/bp009-instrument-r7/scripts/audit_corpus_verification.py), sometido a rondas sucesivas de auditoría estática (R1 a R7) hasta alcanzar la versión definitiva aprobada **Revisión R7.1**.
+
+### 5.1 Identidad y Trazabilidad de la Publicación R7.1
+- **Rama de Publicación Dedicada:** [`audit/bp009-instrument-r7`](https://github.com/Santirobm/binpack-SDK/tree/audit/bp009-instrument-r7)
+- **Commit en GitHub:** [`02a41f7d8da611ad8569a38e84b27c1ed094f403`](https://github.com/Santirobm/binpack-SDK/commit/02a41f7d8da611ad8569a38e84b27c1ed094f403)
+- **Condición Git del Commit:** *Unsigned* (sin firma GPG verificada, registrado como condición de procedencia).
+- **Git Blob SHA-1:** `262137c5cab2d8bf9373f605edbdee26ff86a9a4`
+- **Dimensión del Instrumento:** `61.729 Bytes` (1.204 líneas, terminadores LF)
+- **SHA-256 Declarado del Instrumento R7.1:**  
+  `72f5002bd80939d77a1032c59771d62083571eb555d1295db14a70ff7b21d828`
+- **Verificación de Sintaxis:** Validado con `py_compile` (código de salida 0).
+
+### 5.2 Corrección Aritmética del Oráculo Canterbury (R7 $\rightarrow$ R7.1)
+En la ejecución preliminar de R7, los 32 artefactos y los 23 cotejos de extracción resultaron conformes, pero el proceso finalizó con código 1 debido a una errata de $10.000\text{ Bytes}$ en la constante de comprobación de la suma neta Canterbury (`2800784` en vez de `2810784`).  
+La Revisión R7.1 subsanó exclusivamente dicha constante, respaldada por la identidad matemática formal:
+$$\begin{aligned}
+\text{Suma neta de los 11 miembros:} & \quad 2.810.784\text{ B} \\
+11\text{ cabeceras TAR }(11 \times 512\text{ B}): & \quad 5.632\text{ B} \\
+\text{Relleno de miembros a múltiplos de } 512\text{ B}: & \quad 3.680\text{ B} \\
+\text{Dos bloques nulos de terminación EOF }(2 \times 512\text{ B}): & \quad 1.024\text{ B} \\
+\hline
+\mathbf{\text{Total Stream TAR Consumido:}} & \quad \mathbf{2.821.120\text{ Bytes}}
+\end{aligned}$$
+
+### 5.3 Resultados de la Ejecución Material Informada de R7.1
+- **Fecha y Hora UTC:** `2026-11-10T19:56:08.638593+00:00`
+- **Comando:** `python scratch/audit_corpus_verification.py --repo-root C:\Users\sgi.lm\Desktop\binpack-SDK`
+- **Código de Salida:** **`0`** (Éxito completo)
+- **Desglose de Resultados:**
+  1. **Matriz de Artefactos Físicos (32/32 PASS):** Recalculados desde sus bytes en disco, bajo control de estabilidad de descriptor `os.fstat()` (ausencia de reparse tags, invarianza de tamaño, dispositivo, inodo y marcas temporales durante la lectura). Coincidencia biyectiva con el manifiesto canónico `tests/experiments/datasets_checksums.json` (SHA-256: `2fb73af5...`).
+  2. **Extracción y Correspondencia Silesia ZIP (12/12 PASS):** Descriptor único retenido (`silesia.zip`), validación de no-directorio y atributos DOS. Descompresión agregada observada: `211.938.580 B` (dentro del presupuesto de $250\text{ MiB} = 262.144.000\text{ B}$).
+  3. **Extracción y Correspondencia Canterbury TAR.GZ (11/11 PASS):** Procesamiento secuencial sin desplazamiento (`mode="r|"`, sin métodos `seek()` ni `tell()`). Los 11 miembros coincidieron individualmente con los archivos físicos. Drenaje de búfer confirmó bytes remanentes exclusivamente nulos (`all(b == 0)`). Lectura post-terminación en `gz_stream.read(1)` retornó `b""`, validando fin de archivo y pie de página gzip (CRC32 e ISIZE). Consumo de stream TAR: `2.821.120 B` (dentro del presupuesto de $5\text{ MiB} = 5.242.880\text{ B}$).
+  4. **Entorno Git Pre y Post-Condición (PASS):** Se comprobó árbol 100% limpio (0 modificaciones, 0 untracked no ignorados) al inicio y al final, rama `audit/bp1-core-safety`, commit canónico `4500566652490b9dfcb78341d5f9a3c584060c6a`, y coincidencia estricta con `git rev-parse --show-toplevel`.
+  5. **Diagnóstico Global:** **`CONFORME AL 100% (PASS)`**.
 
 ---
 
-## 6. Dictamen Requerido
+## 6. Dictamen Formal de Cierre de Auditoría — BP-009 / OT-03 y Fase BP-009
 
-El presente documento se eleva a la auditoría independiente para su evaluación, contraste externo de evidencias y determinación de las condiciones remanentes para el cierre de la Orden de Trabajo 03 (OT-03).
+En virtud de la evidencia forense presentada y de las verificaciones independientes realizadas sobre el repositorio:
+
+### 6.1 Dictamen Emitido por el Auditor Líder
+- **Estado de OT-03:** **APROBADA — CONFORMIDAD MATERIAL INFORMADA Y CONTRASTADA DOCUMENTALMENTE**.
+- **Cierre de Fase:** **BP-009 FORMALMENTE CERRADA**.
+- **Alcance de la Verificación Independiente:**  
+  *La auditoría verificó de forma independiente la publicación en GitHub, el diff de cambios, el blob SHA-1 del instrumento R7.1 y del manifiesto, y recalculó las identidades matemáticas del stream TAR. La ejecución sobre el sistema de archivos local y el cálculo de hashes en disco quedan aceptados sobre la base de la evidencia reportada y contrastada documentalmente, sin constituir una reproducción física efectuada directamente por el auditor.*
+
+---
+
+## 7. Cuadro Consolidado de Situación de Hitos y Límites Operativos
+
+| Hito / Orden de Trabajo | Alcance y Contenido Técnico | Estado | Determinación de Auditoría |
+| :--- | :--- | :---: | :--- |
+| **BP-008C** | Arnés de benchmarking y control de fugas de memoria | **Cerrado** | Certificado en commit `a9fe52e` |
+| **BP-008D** | Protocolo experimental decisivo (R14) | **Cerrado** | Certificado en commit `9afd69a` |
+| **BP-009 / OT-01** | Diagnóstico, desvío de rutas y reconciliación de 32 artefactos | **Cerrada** | Certificada documentalmente en commit `672d4cb` |
+| **BP-009 / OT-02** | Arnés de adquisición y preparación del corpus (R13) | **Cerrada** | Certificada formalmente en commit `cb022fb` |
+| **BP-009 / OT-03** | Verificación material física del corpus e instrumento forense R7.1 | **Cerrada** | Aprobada conforme al dictamen de cierre |
+| **Fase BP-009 (Consolidado)** | **Validación Material Integral del Corpus y Arnés** | **CERRADA** | **Fase formalmente concluida y archivada** |
+| **Hito BP-010** | **Campaña Decisiva de Benchmarking (10 repeticiones)** | **ESTRICTAMENTE CONGELADO** | **No habilitado**. Requiere autorización expresa y separada |
+| **Código Productivo** | Árbol de código fuente del SDK | **Inalterable** | `src/`, `include/` y `deps/` 100% congelados (*code freeze*) |
+
+---
+
+## 8. Resolución y Próximos Pasos
+
+Con la aprobación y cierre formal de **BP-009 / OT-03**, la totalidad de los requisitos previos de integridad del corpus de prueba han quedado satisfechos y contrastados.  
+Cualquier avance hacia la apertura o planificación del **Hito BP-010 (Campaña Decisiva de Benchmarking)** queda supeditado a la autorización previa, expresa y separada del Auditor Líder.
