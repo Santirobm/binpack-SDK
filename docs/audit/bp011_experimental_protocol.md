@@ -1,35 +1,31 @@
-# Protocolo Experimental R15.3 — Hito BP-011
+# Protocolo Experimental R15.4 — Hito BP-011
 ## Industrial Time-Series Benchmark: Gorilla & Chimp vs. BinPack Transpose
 
 **Proyecto:** BinPack Enterprise SDK  
 **Hito:** BP-011  
-**Fase:** Fase A — Acta de Apertura y Protocolo Experimental (Revisión R15.3)  
+**Fase:** Fase A — Acta de Apertura y Protocolo Experimental (Revisión Definitiva R15.4)  
 **Documento Rector:** `docs/audit/bp011_experimental_protocol.md`  
 **Rama:** `audit/bp1-core-safety`  
 **Estado:** PROTOCOLO FORMAL DEFINITIVO PARA DICTAMEN DE CIERRE DE FASE A  
 
 ---
 
-## Control de Cambios y Registro de Subsanaciones
+## Control de Cambios y Registro Integral de Subsanaciones
 
-### Revisión R15.1
-- **NC-01 (Cuartiles de Tukey):** Desambiguación de base 1 ($x_{(5)}, x_{(6)}$ y $x_{(15)}, x_{(16)}$) y base 0 (`arr[4]`, `arr[5]` y `arr[14]`, `arr[15]`).
-- **NC-02 (Separación de Amplificaciones):** Definición de $A_{\text{read}}$, $A_{\text{decomp}}$ y $A_{\text{store}}$.
-- **NC-03 (Aplicabilidad de Consultas):** Regla de cardinalidad y designación de $Q_2$ como `NOT_APPLICABLE` en DS-01 ($N < 10.000$).
-- **OBS-01 a OBS-06:** Desglose en 4 componentes de tamaño, densidades (bpv, bpt, bptuple, bpc), Hot/Cold Cache, dispersión muestral y concurrencia ($Q_{\text{conc}}$).
+### Revisiones Previas (R15.1 a R15.3)
+- **NC-01 (Cuartiles de Tukey):** Desambiguación formal entre notación estadística en base 1 ($x_{(5)}, x_{(6)}$ y $x_{(15)}, x_{(16)}$) y mapeo en base 0 en C (`arr[4]`, `arr[5]` y `arr[14]`, `arr[15]`).
+- **NC-02 (Separación de Amplificaciones):** Definición independiente de $A_{\text{read}}$ (lectura física), $A_{\text{decomp}}$ (descompresión en memoria) y $A_{\text{store}}$ (relación de almacenamiento).
+- **NC-03 (Aplicabilidad de Consultas):** Regla de cardinalidad estricta y catalogación de $Q_2$ como `NOT_APPLICABLE` en DS-01 ($N < 10.000$).
+- **OBS-01 a OBS-06:** Desglose en 4 componentes de tamaño ($B_{\text{time}}$, $B_{\text{values}}$, $B_{\text{container}}$, $B_{\text{total}}$), desglose cuádruple de densidades (bpv, bpt, bptuple, bpc), separación de regímenes Hot-Cache vs. Cold-Cache, definición de memoria operativa y reserva de $Q_{\text{conc}}$.
 
-### Revisión R15.2
-- **NC-04:** Adopción del escape absoluto de 64 bits para deltas superiores a 32 bits.
-- **Unidades:** Unificación canónica a microsegundos (`int64_t`).
-- **Signo:** Especificación del mapeo offset-binary para rangos de Gorilla.
-- **Inferencia:** Incorporación de muestras emparejadas y corrección de Holm-Bonferroni.
-
-### Revisión R15.3 (Presente Documento Definitivo)
-1. **NC-04 (Máquina de Estados de Reinicio Temporal y Aritmética Segura):** Se define formalmente el contrato de transición simétrico del decodificador/codificador tras un escape absoluto, introduciendo el flag `has_prev_delta` y la codificación de transición de $\Delta t_{i+1}$. Se explicita la comprobación en 3 pasos previos de desbordamiento de `int64_t` antes de efectuar la doble diferencia.
-2. **Serialización y Endianness Bit-Exacto:** Se fija la serialización Big-Endian a nivel de bitstream y la reinterpretación estricta de bits para `int64_t` en complemento a 2, garantizando la preservación de timestamps negativos y extremos del dominio.
-3. **OBS-04 (Diseño Estadístico Emparejado, Selección de Pruebas y Orientación de Mejora):** Se define la tupla cuádruple de emparejamiento `(Dataset, Bloque, Consulta, Ronda_i)`, la convención de signo para mejora relativa $\Delta_{\text{rel}}$ según el sentido de la métrica (menor es mejor vs. mayor es mejor), la regla de selección entre prueba $t$ emparejada, Wilcoxon y Sign Test, y la fórmula del intervalo de confianza del 95% para $\Delta_{\text{rel}}$.
-4. **Delimitación de Familias Holm-Bonferroni:** Se fija la familia de hipótesis a nivel de cada terna `(Dataset, Consulta, Métrica)` para controlar la tasa de error familiar en $\alpha = 0.05$.
-5. **Rol de Chimp128 en la Clasificación Comercial:** Se establece que la "Ventaja Concluyente" requiere superar de forma obligatoria a los dos codecs canónicos de referencia primaria (Gorilla y Chimp estándar). Chimp128 se categoriza como baseline especializado con ring-buffer, cuya ventaja o paridad se cataloga como "Ventaja Especializada".
+### Revisión R15.4 (Presente Documento Definitivo)
+1. **NC-04 (Erradicación de Colisión de Prefijos en el Árbol de Códigos):** Se rediseña la tabla de prefijos para garantizar que sea estrictamente libre de prefijos (*prefix-free*). Se asigna `111110` (6 bits) al delta inicial de 64 bits y `111111` (6 bits) al escape absoluto de 64 bits, eliminando la colisión con `11110` (delta de 32 bits) y la ambigüedad en el decodificador.
+2. **Contrato de Transición y Decodificación Segura:** Se define la máquina de estados completa de codificador y decodificador con la bandera `has_prev_delta`, incluyendo la comprobación segura de adición `prev_timestamp + delta` en decodificación.
+3. **Comprobación Aritmética de 3 Pasos:** Verificación estricta de ausencia de desbordamiento en $\Delta t_i$, $\Delta t_{i-1}$ y $D = \Delta t_i - \Delta t_{i-1}$ antes de computar Delta-of-Delta.
+4. **Serialización Big-Endian y Portabilidad de `int64_t`:** Representación física bit-exacta mediante reinterpretación de memoria (`memcpy` a `uint64_t`), preservando valores negativos y extremos $[-2^{63}, 2^{63}-1]\,\mu\text{s}$.
+5. **OBS-04 (Árbol Formal de Decisión Estadística y Transformación de Intervalos):** Se establece la regla algorítmica de selección: Shapiro-Wilk $\implies$ prueba $t$ emparejada (si $p \ge 0.05$); si $p < 0.05$, evaluación de asimetría $g_1$: Wilcoxon emparejada si $|g_1| \le 0.5$, o Prueba de Signos Binomial exacta si $|g_1| > 0.5$. Se especifica la inversión estricta de extremos para el intervalo de confianza del 95% en métricas donde menor es mejor.
+6. **Balanceo de Orden y PRNG Continuo:** Flujo PRNG continuo único (sin reinicio de semilla entre rondas) acoplado a un diseño en bloques balanceados para neutralizar sesgos de deriva térmica.
+7. **Familias Holm-Bonferroni y Rol de Chimp128:** Delimitación de familias por terna $(\text{Dataset}, \text{Consulta}, \text{Métrica})$ a $\alpha = 0.05$, y fijación de Chimp128 como baseline especializado.
 
 ---
 
@@ -51,7 +47,7 @@ Para salvaguardar la integridad metodológica, BP-011 se rige por seis fases sec
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                       GOBERNANZA POR FASES — BP-011                         │
 ├─────────┬──────────────────────────────────────────┬────────────────────────┤
-│ Fase A  │ Acta y Protocolo Experimental R15.3      │ Solo Documentación     │
+│ Fase A  │ Acta y Protocolo Experimental R15.4      │ Solo Documentación     │
 │ Fase B  │ Auditoría de Codecs, Papers y Datasets   │ Solo Lectura           │
 │ Fase C  │ Diseño e Implementación del Arnés TSDB   │ Sin Ejecución          │
 │ Fase D  │ Auditoría Estática Pre-Flight del Arnés  │ Sin Compilación        │
@@ -65,7 +61,7 @@ Para salvaguardar la integridad metodológica, BP-011 se rige por seis fases sec
 2. **Code Freeze Estricto:** Cero modificaciones a `src/`, `include/`, `deps/` o arneses previos en `tests/`.
 3. **Prohibición de Ejecución:** No se permite compilar, ejecutar benchmarks, cronometrar ni descargar archivos externos.
 4. **Independencia Probatoria:** Queda expresamente prohibido reutilizar resultados de BP-010 como evidencia de superioridad en series temporales.
-5. **Transición a Fase B:** La Fase B no comenzará hasta que la presente revisión R15.3 cuente con aprobación formal de la auditoría.
+5. **Transición a Fase B:** La Fase B no comenzará hasta que la presente revisión R15.4 cuente con aprobación formal de la auditoría.
 
 ---
 
@@ -119,55 +115,69 @@ Para evitar que se atribuya injustamente a Chimp el coste del codec temporal o q
 | **$B_{\text{container}}$** | Bytes de cabeceras (*headers*), tablas de saltos (*jump tables*), índices de canales y metadatos de sincronización. |
 | **$B_{\text{total}}$** | Suma total innegociable: $B_{\text{total}} = B_{\text{time}} + B_{\text{values}} + B_{\text{container}}$. |
 
-### 2.3 Codificación Temporal Canónica: Aritmética Segura, Máquina de Estados y Serialización (NC-04)
+### 2.3 Codificación Temporal Canónica: Aritmética Segura, Tabla Libre de Prefijos y Serialización (NC-04)
 El dominio temporal se fija unívocamente como enteros con signo de 64 bits (`int64_t`), representando épocas Unix en **microsegundos** ($\mu\text{s}$) desde `1970-01-01T00:00:00Z` ($[-2^{63}, 2^{63}-1]\,\mu\text{s}$, equivalente a $\pm 292.000$ años).
 
-#### A. Comprobación Segura de Operaciones Aritméticas (Three-Step Safe Arithmetic)
+#### A. Comprobación Segura de Operaciones Aritméticas (Three-Step Safe Check)
 Para evitar desbordamientos en la evaluación de la doble diferencia $D = (t_i - t_{i-1}) - (t_{i-1} - t_{i-2})$, el codificador ejecuta estrictamente:
-1. **Paso 1 (Delta Actual):** Comprobar si $\Delta t_i = t_i - t_{i-1}$ desborda `int64_t` (ej. vía `__builtin_sub_overflow`).
+1. **Paso 1 (Delta Actual):** Comprobar si $\Delta t_i = t_i - t_{i-1}$ desborda `int64_t` (ej. vía `__builtin_sub_overflow(t_i, t_prev, &delta_curr)`).
 2. **Paso 2 (Delta Anterior):** Comprobar si $\Delta t_{i-1} = t_{i-1} - t_{i-2}$ es válido y representable en `int64_t`.
-3. **Paso 3 (Resta de Deltas):** Comprobar si $D = \Delta t_i - \Delta t_{i-1}$ desborda `int64_t`.
+3. **Paso 3 (Resta de Deltas):** Comprobar si $D = \Delta t_i - \Delta t_{i-1}$ desborda `int64_t` (ej. vía `__builtin_sub_overflow(delta_curr, delta_prev, &D)`).
 4. **Paso 4 (Evaluación de Rango):** Solo si los tres pasos precedentes no sufren desbordamiento y $D \in [-2^{31}, 2^{31}-1]$, se evalúa el rango de prefijo estándar de Gorilla. Si cualquiera de los pasos desborda o si $|D| \ge 2^{31}$, se invoca inmediatamente el **Escape de Reinicio Absoluto**.
 
-#### B. Tabla de Codificación y Mapeo de Sesgo (Offset-Binary)
-- **Caso $D = 0$:** Prefijo `0` (1 bit).
-- **Caso $-63 \le D \le 64$ ($128$ valores representables):**
-  - Prefijo: `10` (2 bits).
-  - Campo de datos: 7 bits no signados con sesgo (*bias*): $D_7 = (uint8\_t)(D + 63) \in [0, 127]$.
-- **Caso $-255 \le D \le 256$ ($512$ valores representables):**
-  - Prefijo: `110` (3 bits).
-  - Campo de datos: 9 bits no signados con sesgo: $D_9 = (uint16\_t)(D + 255) \in [0, 511]$.
-- **Caso $-2047 \le D \le 2048$ ($4096$ valores representables):**
-  - Prefijo: `1110` (4 bits).
-  - Campo de datos: 12 bits no signados con sesgo: $D_{12} = (uint16\_t)(D + 2047) \in [0, 4095]$.
-- **Caso $-2^{31} \le D < 2^{31}$ (Rango de 32 bits):**
-  - Prefijo: `11110` (5 bits).
-  - Campo de datos: 32 bits en complemento a 2 estándar: $D_{32} = (uint32\_t)((int32\_t)D)$.
-- **Escape de Reinicio Absoluto de 64 Bits:**
-  - Prefijo: `11111` (5 bits).
-  - Campo de datos: 64 bits literales de $t_i$.
+#### B. Tabla de Códigos de Prefijo Inequívoca (Strictly Prefix-Free Tree)
+Para erradicar colisiones entre prefijos de longitud variable, todos los códigos constituyen nodos hoja en el árbol de decodificación:
 
-#### C. Contrato de Transición de Estados tras el Escape Absoluto
-Para garantizar que codificador y decodificador mantengan un estado idéntico y determinista:
-1. **Emisión de Escape (Muestra $i$):**
-   - El codificador emite el prefijo `11111` seguido de los 64 bits literales de $t_i$.
-   - El decodificador lee $t_i$, actualiza `prev_timestamp = t_i` y fija la variable de control:
+```
+               (Raíz)
+              /      \
+            [0]       [1]
+          (D = 0)    /   \
+                  [10]   [11]
+               (7 bits)  /   \
+                      [110]  [111]
+                   (9 bits)  /   \
+                          [1110] [1111]
+                       (12 bits) /    \
+                              [11110] [11111]
+                             (32 bits)/      \
+                                  [111110]  [111111]
+                                 (Delta 64) (Escape Abs 64)
+```
+
+| Operación / Rango de $D$ | Prefijo Binario | Longitud | Campo de Datos Asociado | Codificación de Datos |
+|---|:---:|:---:|---|---|
+| **$D = 0$** | `0` | 1 bit | *Ninguno* | *Sin datos adicionales* |
+| **$-63 \le D \le 64$** | `10` | 2 bits | 7 bits no signados | Sesgo (*bias*): $D_7 = (uint8\_t)(D + 63) \in [0, 127]$ |
+| **$-255 \le D \le 256$** | `110` | 3 bits | 9 bits no signados | Sesgo (*bias*): $D_9 = (uint16\_t)(D + 255) \in [0, 511]$ |
+| **$-2047 \le D \le 2048$** | `1110` | 4 bits | 12 bits no signados | Sesgo (*bias*): $D_{12} = (uint16\_t)(D + 2047) \in [0, 4095]$ |
+| **$-2^{31} \le D < 2^{31}$** | `11110` | 5 bits | 32 bits con signo | Complemento a 2: $D_{32} = (uint32\_t)((int32\_t)D)$ |
+| **Delta Inicial de 64 Bits** | `111110` | 6 bits | 64 bits con signo | Complemento a 2: `(uint64_t)delta_init` |
+| **Escape Absoluto de 64 Bits** | `111111` | 6 bits | 64 bits con signo | Timestamp absoluto literal: `(uint64_t)t_i` |
+
+**Demostración de No Colisión:** Ningún prefijo de la tabla es prefijo de ningún otro. El decodificador lee bit a bit sin requerir *lookahead* ni incurrir en ambigüedad.
+
+#### C. Contrato Simétrico de Máquina de Estados para Codificador y Decodificador
+1. **Emisión y Recepción de Escape Absoluto (Muestra $i$):**
+   - *Codificador:* Emite el prefijo `111111` (6 bits) seguido de los 64 bits de $t_i$.
+   - *Decodificador:* Al leer `111111`, lee 64 bits de $t_i$, actualiza `prev_timestamp = t_i` y establece:
      $$\text{has\_prev\_delta} = \text{false}$$
-2. **Codificación de la Muestra Siguiente (Muestra $i+1$):**
-   - Como no existe un delta previo válido, no se puede calcular Delta-of-Delta.
-   - Se evalúa la diferencia simple $\Delta t_{i+1} = t_{i+1} - t_i$.
-   - Si $\Delta t_{i+1}$ no desborda `int64_t`:
-     - Se emite el prefijo de delta inicial `111110` (6 bits) seguido de los 64 bits de $\Delta t_{i+1}$.
-     - El decodificador calcula $t_{i+1} = t_i + \Delta t_{i+1}$, fija `prev_delta = \Delta t_{i+1}` y actualiza:
+2. **Transición en la Muestra Subsiguiente (Muestra $i+1$):**
+   - Al estar $\text{has\_prev\_delta} = \text{false}$, se evalúa la diferencia simple $\Delta t_{i+1} = t_{i+1} - t_i$.
+   - *Caso A (Delta representable sin desbordamiento en `int64_t`):*
+     - *Codificador:* Emite `111110` (6 bits) seguido de los 64 bits de $\Delta t_{i+1}$.
+     - *Decodificador:* Al leer `111110`, lee 64 bits de $\Delta t_{i+1}$, comprueba mediante suma segura (`__builtin_add_overflow(prev_timestamp, delta, &curr)`) que no exista desbordamiento, calcula $t_{i+1} = t_i + \Delta t_{i+1}$, actualiza `prev_timestamp = t_{i+1}`, `prev_delta = \Delta t_{i+1}` y establece:
        $$\text{has\_prev\_delta} = \text{true}$$
-   - Si $\Delta t_{i+1}$ desborda `int64_t`:
-     - La muestra $i+1$ se emite nuevamente como escape absoluto (`11111` + $t_{i+1}$), permaneciendo en $\text{has\_prev\_delta} = \text{false}$.
-3. **Reanudación del Régimen Delta-of-Delta (Muestra $i+2$):**
-   - Habiéndose establecido `prev_delta` y $\text{has\_prev\_delta} = \text{true}$, la muestra $i+2$ reanuda el cálculo normal de la doble diferencia $D$.
+   - *Caso B (Diferencia simple desborda `int64_t`):*
+     - *Codificador:* Emite nuevamente el escape absoluto `111111` seguido de los 64 bits de $t_{i+1}$.
+     - *Decodificador:* Lee `111111`, actualiza `prev_timestamp = t_{i+1}` y permanece en $\text{has\_prev\_delta} = \text{false}$.
+3. **Régimen Delta-of-Delta Pleno (Muestra $i+2$ en adelante):**
+   - Con $\text{has\_prev\_delta} = \text{true}$, el codificador evalúa $D = \Delta t_{i+2} - \Delta t_{i+1}$ bajo las comprobaciones aritméticas seguras de la Sección 2.3.A.
+   - El decodificador lee el prefijo correspondiente, decodifica $D$, calcula con suma segura `new_delta = prev_delta + D` y `curr_timestamp = prev_timestamp + new_delta`, y actualiza su estado. Si lee el prefijo `111111`, transiciona de inmediato a $\text{has\_prev\_delta} = \text{false}$.
 
 #### D. Serialización y Endianness Bit-Exacto
-- **Orden de Bits:** Big-Endian estricto a nivel de bitstream (los bits se transmiten y leen desde el bit más significativo MSB al menos significativo LSB).
-- **Representación Entera:** Los timestamps `int64_t` y campos literales de 64 bits se convierten mediante reinterpretación de memoria (`memcpy` a `uint64_t`), preservando intacto el complemento a 2 y el bit de signo para timestamps negativos y valores en los extremos del dominio.
+- **Orden de Bits:** Big-Endian estricto a nivel de bitstream (los bits se transmiten y leen desde el bit más significativo MSB al menos significativo LSB, bit 63 al bit 0).
+- **Representación Entera:** Los timestamps `int64_t` y campos literales de 64 bits se convierten mediante reinterpretación de memoria (`memcpy` a `uint64_t`), preservando intacto el complemento a 2 y el bit de signo para timestamps negativos y valores en los extremos del dominio ($[-2^{63}, 2^{63}-1]\,\mu\text{s}$).
 
 ---
 
@@ -282,13 +292,16 @@ Para erradicar ambigüedades respecto a la sigla `bpc`, se reportarán formalmen
 
 ## 7. Régimen Estadístico y Fórmulas Rigurosas (Protocolo R15)
 
-### 7.1 Muestreo, Rondas Emparejadas y Aleatorización
+### 7.1 Muestreo, Diseño en Bloques Balanceados y PRNG Continuo
 - **Régimen Obligatorio:** **1 ciclo de warm-up + 20 iteraciones medidas** por motor, dataset y consulta.
 - **Identificación de Parejas Experimentales:**
   Cada punto de comparación se define por la tupla unívoca:
   $$\mathcal{T} = (\text{Dataset}, \text{Bloque}, \text{Consulta}, \text{Ronda}_i) \quad \text{con } i \in [1, 20]$$
   Las mediciones de dos motores comparados se ejecutan sobre el mismo bloque físico y la misma consulta dentro de la misma ronda ambiental, garantizando la naturaleza estrictamente emparejada (*paired samples*).
-- **Aleatorización Determinista:** Barajado pseudoaleatorio del orden de ejecución de los motores dentro de cada ronda mediante Fisher-Yates (`seed = 0`), mitigando sesgos de orden o calentamiento térmico.
+- **Flujo PRNG Continuo y Diseño en Bloques Balanceados:**
+  Para evitar que la semilla repetida genere órdenes idénticos o que un motor resulte sistemáticamente beneficiado por calentamiento o deriva térmica:
+  1. La semilla fija (`seed = 0`) inicializa un generador pseudoaleatorio de alta calidad (PCG32 / xoshiro256**) una única vez al comienzo de la campaña, avanzando continuamente sin re-sembrarse entre rondas.
+  2. Se aplica una estrategia de aleatorización en bloques balanceados (*Balanced Block Randomization*), garantizando que cada motor ocupe cada posición ordinal (1º a 7º) con idéntica frecuencia esperada a lo largo de las 20 rondas.
 
 ### 7.2 Fórmulas Estadísticas de Cuartiles de Tukey (NC-01)
 Dada una muestra ordenada en orden ascendente:
@@ -299,7 +312,7 @@ Dada una muestra ordenada en orden ascendente:
 - **Rango Intercuartílico e Intervalo de Tukey:**
   $$\text{IQR} = Q_3 - Q_1, \quad \text{Límite Inferior} = Q_1 - 1.5 \cdot \text{IQR}, \quad \text{Límite Superior} = Q_3 + 1.5 \cdot \text{IQR}$$
 
-### 7.3 Dispersión Muestral, Inferencia Emparejada y Orientación del Signo (OBS-04)
+### 7.3 Dispersión Muestral, Inferencia Emparejada y Regla de Decisión (OBS-04)
 - **Media Muestral:** $\bar{x} = \frac{1}{n}\sum_{i=1}^n x_i$
 - **Varianza Muestral Insesgada:** $s^2 = \frac{1}{n-1}\sum_{i=1}^n (x_i - \bar{x})^2$
 - **Desviación Estándar Muestral:** $s = \sqrt{s^2}$
@@ -309,24 +322,34 @@ Dada una muestra ordenada en orden ascendente:
   - $\text{CV}_{\text{raw}} \le 10,0\%$.
   - $\text{CV}_{\text{filt}} \le 5,0\%$.
 
-#### A. Orientación del Signo para la Mejora Relativa ($\Delta_{\text{rel}}$)
+#### A. Orientación Estricta del Signo para la Mejora Relativa ($\Delta_{\text{rel}}$)
 Dada la serie de diferencias emparejadas $d_i = x_{A,i} - x_{B,i}$ ($i=1\dots 20$) entre el motor evaluado $A$ y el baseline $B$:
 - **Para Métricas donde Menor es Mejor (Tamaño Comprimido, Latencia de Consulta, Amplificación, Memoria):**
   $$\Delta_{\text{rel}} = \frac{\bar{x}_B - \bar{x}_A}{\bar{x}_B} \times 100\% = -\frac{\bar{d}}{\bar{x}_B} \times 100\%$$
-  *(Un valor positivo de $\Delta_{\text{rel}}$ indica formalmente una mejora: reducción de tamaño o tiempo).*
+  *(Un valor positivo de $\Delta_{\text{rel}}$ indica formalmente una mejora: reducción porcentual de tamaño o tiempo).*
 - **Para Métricas donde Mayor es Mejor (Throughput de Ingesta, Throughput de Descompresión en MB/s o Mpts/s):**
   $$\Delta_{\text{rel}} = \frac{\bar{x}_A - \bar{x}_B}{\bar{x}_B} \times 100\% = \frac{\bar{d}}{\bar{x}_B} \times 100\%$$
-  *(Un valor positivo de $\Delta_{\text{rel}}$ indica formalmente una mejora: incremento de velocidad).*
+  *(Un valor positivo de $\Delta_{\text{rel}}$ indica formalmente una mejora: incremento porcentual de velocidad).*
 
-#### B. Intervalo de Confianza del 95% para la Diferencia Media y la Mejora Relativa
-$$\text{SE}_d = \frac{s_d}{\sqrt{20}}, \quad \text{CI}_{95\%}(\bar{d}) = \bar{d} \pm t_{0.975, 19} \cdot \text{SE}_d \quad (t_{0.975, 19} = 2.093)$$
-$$\text{CI}_{95\%}(\Delta_{\text{rel}}) = \left[ \frac{\bar{d} - 2.093 \cdot \text{SE}_d}{\bar{x}_B} \times 100\%, \quad \frac{\bar{d} + 2.093 \cdot \text{SE}_d}{\bar{x}_B} \times 100\% \right] \quad \text{(ajustando el signo según la orientación de la métrica)}$$
+#### B. Intervalo de Confianza del 95% para la Diferencia Media y Transformación de Extremos
+Sea $\text{SE}_d = \frac{s_d}{\sqrt{20}}$ y $t_{\text{crit}} = t_{0.975, 19} = 2.093$. El intervalo de confianza del 95% para la diferencia media $\bar{d}$ es:
+$$[\bar{d}_L, \bar{d}_U] = [\bar{d} - 2.093 \cdot \text{SE}_d, \; \bar{d} + 2.093 \cdot \text{SE}_d]$$
 
-#### C. Árbol de Selección de Pruebas de Hipótesis Emparejadas
-1. **Verificación de Simetría / Normalidad de $d_i$:** Se evalúa la normalidad de la serie de diferencias mediante la prueba de Shapiro-Wilk (o asimetría $|skew| \le 1.0$).
-2. **Caso Principal (Distribución Simétrica / Normal):** Se aplica la **Prueba $t$ de Student emparejada** (*paired $t$-test*) sobre $\bar{d}$ con 19 grados de libertad.
-3. **Caso con Asimetría Moderada:** Se aplica la **Prueba de Rangos con Signo de Wilcoxon** emparejada.
-4. **Caso con Asimetría Severa / Outliers Extremos:** Se aplica la **Prueba de Signos Binomial** (*Sign Test*), inmune a violaciones de simetría distributiva.
+La estimación del intervalo de confianza para la mejora relativa $\Delta_{\text{rel}}$ se formula como una aproximación lineal de primer orden (Taylor plug-in conditioned on $\bar{x}_B > 0$), especificando rigurosamente la inversión de extremos según la orientación de la métrica:
+- **Para Métricas donde Mayor es Mejor (Throughput):**
+  $$\text{CI}_{95\%}(\Delta_{\text{rel}}) \approx \left[ \frac{\bar{d}_L}{\bar{x}_B} \times 100\%, \quad \frac{\bar{d}_U}{\bar{x}_B} \times 100\% \right]$$
+- **Para Métricas donde Menor es Mejor (Tamaño, Latencia, Memoria):**
+  $$\text{CI}_{95\%}(\Delta_{\text{rel}}) \approx \left[ -\frac{\bar{d}_U}{\bar{x}_B} \times 100\%, \quad -\frac{\bar{d}_L}{\bar{x}_B} \times 100\% \right]$$
+  *(Nótese la inversión obligatoria de los extremos inferior y superior impuesta por el cambio de signo).*
+
+#### C. Árbol Algorítmico de Selección de Pruebas de Hipótesis Emparejadas
+Para garantizar la validez inferencial sin violar supuestos distributivos:
+1. **Paso 1 (Evaluación de Normalidad):** Se aplica la prueba de Shapiro-Wilk sobre la serie de diferencias $d_i$:
+   - Si $p_{\text{SW}} \ge 0.05$: Las diferencias son consistentes con la normalidad $\implies$ Se aplica la **Prueba $t$ de Student emparejada** (*paired $t$-test*) sobre $\bar{d}$ con 19 grados de libertad.
+2. **Paso 2 (Evaluación de Simetría ante No Normalidad):** Si $p_{\text{SW}} < 0.05$, se calcula el coeficiente muestral de asimetría (*skewness*):
+   $$g_1 = \frac{\frac{1}{n}\sum_{i=1}^n (d_i - \bar{d})^3}{s_d^3}$$
+   - Si $|g_1| \le 0.5$ (distribución aproximadamente simétrica): Se satisface el supuesto de localización de Wilcoxon $\implies$ Se aplica la **Prueba de Rangos con Signo de Wilcoxon emparejada**.
+   - Si $|g_1| > 0.5$ (distribución marcadamente asimétrica o colas pesadas): Se invalida el supuesto de simetría de Wilcoxon $\implies$ Se aplica la **Prueba de Signos Binomial exacta** (*Exact Two-Sided Sign Test* sobre $H_0: P(d_i > 0) = 0.5$), libre de cualquier supuesto de forma distributiva.
 
 #### D. Delimitación de Familias y Control de Multiplicidad (Holm-Bonferroni)
 - **Definición de Familia:** Se define formalmente una familia independiente de comparaciones por cada terna:
@@ -376,13 +399,13 @@ $$\text{CI}_{95\%}(\Delta_{\text{rel}}) = \left[ \frac{\bar{d} - 2.093 \cdot \te
 ```
 
 #### Rol Específico de Chimp128:
-Chimp128 se evalúa como una **referencia técnica especializada de alta capacidad** gracias a su buffer circular de 128 valores previos. No se exige batir a Chimp128 para declarar una "Ventaja Concluyente" frente a los estándares de la industria (Gorilla y Chimp), pero si Chimp128 supera a BinPack en ratio en series altamente oscilatorias, dicho hallazgo delimitará con precisión los casos donde BinPack debe incorporar un histórico de referencias para competir.
+Chimp128 se evalúa como una **referencia técnica especializada de alta capacidad** gracias a su buffer circular de 128 valores previos. No se exige batir a Chimp128 para declarar una "Ventaja Concluyente" frente a los estándares de la industria (Gorilla y Chimp estándar), pero si Chimp128 supera a BinPack en ratio en series altamente oscilatorias, dicho hallazgo delimitará con precisión los casos donde BinPack debe incorporar un histórico de referencias para competir.
 
 ---
 
 ## 9. Próximos Pasos tras la Revisión de la Fase A
 
-Una vez obtenida la aprobación formal de la presente revisión R15.3:
+Una vez obtenida la aprobación formal de la presente revisión R15.4:
 1. **Cierre Formal de la Fase A.**
 2. **Apertura de la Fase B (Auditoría de Codecs y Datasets):** Actividad exclusivamente de solo lectura dedicada a la inspección estática de las implementaciones fuente de Gorilla, Chimp/Chimp128 y la validación de integridad de los datasets formalizados.
 3. **Mantenimiento del Code Freeze:** Ninguna compilación ni ejecución de código hasta completar las Fases B, C y D.
