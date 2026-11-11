@@ -1,0 +1,85 @@
+{
+  "protocol": {
+    "milestone": "BP-010",
+    "phase": "Official Decisive Campaign",
+    "instrument_revision": "BP-010 Instrument Revision 1 (R14-Rev1)",
+    "sampling_protocol": "R14 (1 Warm-up + 20 Timed Iterations)",
+    "seed": 0,
+    "randomization": "Fisher-Yates por dataset, sobre la lista completa de motores de cada dataset; flujo PRNG compartido con seed 0; NASA interleaved y canal 0 en orden secuencial.",
+    "outlier_rule": "Tukey IQR (Q1 - 1.5*IQR, Q3 + 1.5*IQR)",
+    "throughput_unit": "Decimal MB/s (10^6 Bytes/sec) calculated directly from individual sample times"
+  },
+  "git_context": {
+    "branch": "audit/bp1-core-safety",
+    "commit": "140841f58312d6674238579dc39bd0aba8c3591c",
+    "parent_commit": "9776f71c8d9e1cd1f0e12971d21547512e813e19",
+    "commit_title": "fix(benchmarks): migrar arnes a ZSTD_compress2 y validar parametros (BP-010 Instrument Rev 1)",
+    "git_blob_sha1": "45b53e288f57db5ebbe5567e3612ae8337ce6ad2",
+    "source_file_sha256": "1fad08800ab596757f73b9b5da392f8db57b3fe57f60338ba8da2910ab1e8fb2",
+    "code_freeze_verified": true,
+    "working_tree_clean": true
+  },
+  "build": {
+    "toolchain": "zig cc (Clang 22.1.8 targeting x86_64-unknown-windows-gnu)",
+    "compiler_flags": [
+      "-O3",
+      "-march=x86_64",
+      "-mno-avx",
+      "-mno-avx2",
+      "-Iinclude",
+      "-Ideps/include",
+      "-Ideps/lzma"
+    ],
+    "linked_libraries": {
+      "zstd": "1.6.0 (Num: 10600)",
+      "lz4": "1.10.1 (Num: 11001)",
+      "binpack": "2.2.0",
+      "system": [
+        "psapi",
+        "advapi32"
+      ]
+    },
+    "binary_path": "bench_suite_decisive.exe",
+    "binary_size_bytes": 1089024,
+    "binary_sha256": "1518deab223a0a7f513720ce8d54f66fe288b26f8e2e9766bc63e7ce7d9c1527"
+  },
+  "execution": {
+    "platform": "Windows 10/11 x64",
+    "hypervisor": "Microsoft Hyper-V Virtual Guest (WSL2/Hyper-V)",
+    "cpu_pinning": "Logical Core 2 (Affinity Mask: 0x04)",
+    "physical_verified": false,
+    "physical_isolation_note": "Affinity to logical core 2 verified; physical isolation not verified (Hyper-V virtualized guest abstraction).",
+    "topology_gate": "PASS",
+    "execution_duration_seconds": 765.1795349121094,
+    "exit_code": 0,
+    "pre_flight_gates": {
+      "gorilla_f32_adversarial": "100% Bit-Exact PASS",
+      "chimp_f32_adversarial": "100% Bit-Exact PASS",
+      "zstd_strict_checksum_flag": "PASS (Flag 0x04 verified in Frame Header Descriptor byte 4)",
+      "zstd_corrupted_frame_rejection": "PASS (Specific rejection with ZSTD_error_checksum_wrong, Code 22)"
+    },
+    "csv_safety_unit_tests": {
+      "total_cases": 7,
+      "passed": 7,
+      "failed": 0,
+      "status": "7/7 STRICT PASS WITHOUT SKIPS"
+    }
+  },
+  "csv_artifact": {
+    "path": "docs/audit/decisive_benchmark_raw_r5.csv",
+    "size_bytes": 15334,
+    "sha256": "8777bed56c721ea6da56752fcdab6471fa9abf064028239c2a089b89bc32ef47",
+    "total_lines": 29,
+    "data_rows": 28,
+    "total_columns": 63,
+    "compression_samples_columns": 20,
+    "decompression_samples_columns": 20,
+    "datasets_evaluated": [
+      "busybox_armv7l (1,109,128 B, ARMv7-A)",
+      "nasa_turbofan_f32 (1,980,576 B, Interleaved F32)",
+      "nasa_turbofan_ch0 (82,524 B, Fair Single-Channel F32)",
+      "silesia_mozilla (51,220,480 B, x86 Executable)",
+      "silesia_samba (21,606,400 B, Structured C Code)"
+    ]
+  }
+}

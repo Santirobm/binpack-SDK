@@ -1,0 +1,4 @@
+[FATAL] Atomic CSV create failed on 'test_emfile_probe.tmp': errno=24 (Too many open files). Aborting immediately.
+[FATAL] Atomic CSV create failed on 'test_denied_audit_dir/new_probe_target.csv': errno=13 (Permission denied). Aborting immediately.
+[FATAL] Exhausted 3 CSV run suffixes in 'test_suffix_rotation_dir'. Aborting.
+[WARN] File identity check on 'test_substitution_probe.tmp' failed or could not guarantee path was not replaced. Skipping unlink to prevent foreign file deletion. Residual empty file may remain on disk.
