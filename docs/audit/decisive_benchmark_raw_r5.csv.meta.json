@@ -7,7 +7,8 @@
     "seed": 0,
     "randomization": "Fisher-Yates por dataset, sobre la lista completa de motores de cada dataset; flujo PRNG compartido con seed 0; NASA interleaved y canal 0 en orden secuencial.",
     "outlier_rule": "Tukey IQR (Q1 - 1.5*IQR, Q3 + 1.5*IQR)",
-    "throughput_unit": "Decimal MB/s (10^6 Bytes/sec) calculated directly from individual sample times"
+    "throughput_unit": "Decimal MB/s (10^6 Bytes/sec) calculated directly from individual sample times",
+    "stability_criteria": "Triple Binding Protocol: Outliers <= 2 per direction AND CV_raw <= 10.0% AND CV_filt <= 5.0%"
   },
   "git_context": {
     "branch": "audit/bp1-core-safety",
@@ -63,7 +64,9 @@
       "passed": 7,
       "failed": 0,
       "status": "7/7 STRICT PASS WITHOUT SKIPS"
-    }
+    },
+    "execution_mode_windows": "In-process execution inside main host process; subprocess isolation (fork/wait4) is Linux-specific and was not used on Windows.",
+    "memory_metric_limitation": "PeakRSS_KB reflects GetProcessMemoryInfo PeakWorkingSetSize (cumulative process-wide high-water mark), not isolated per-engine consumption. Memory comparisons between engines are disclaimed."
   },
   "csv_artifact": {
     "path": "docs/audit/decisive_benchmark_raw_r5.csv",
@@ -81,5 +84,114 @@
       "silesia_mozilla (51,220,480 B, x86 Executable)",
       "silesia_samba (21,606,400 B, Structured C Code)"
     ]
+  },
+  "stability_classification": {
+    "criteria": "Triple Binding Protocol: Outliers <= 2 per direction AND CV_raw <= 10.0% AND CV_filt <= 5.0%",
+    "stable_count": 13,
+    "unstable_count": 15,
+    "stable_percentage": 46.43,
+    "unstable_percentage": 53.57,
+    "unstable_configurations": [
+      {
+        "row": 4,
+        "dataset": "busybox_armv7l",
+        "engine": "Zstd_Frame_L1",
+        "reason": "Decomp Outl=3>2"
+      },
+      {
+        "row": 6,
+        "dataset": "busybox_armv7l",
+        "engine": "RutaB_PavlovBCJ_LZMA1",
+        "reason": "Comp Outl=4>2"
+      },
+      {
+        "row": 7,
+        "dataset": "busybox_armv7l",
+        "engine": "BinPack_Convenience_API",
+        "reason": "Decomp Outl=5>2"
+      },
+      {
+        "row": 8,
+        "dataset": "busybox_armv7l",
+        "engine": "BinPack_Default_L19",
+        "reason": "Comp CV_filt=5.90%>5%"
+      },
+      {
+        "row": 10,
+        "dataset": "busybox_armv7l",
+        "engine": "BinPack_Fast_ZeroCRC",
+        "reason": "Decomp Outl=3>2"
+      },
+      {
+        "row": 11,
+        "dataset": "nasa_turbofan_f32",
+        "engine": "Gorilla_F32_Interleaved",
+        "reason": "Comp Outl=3>2"
+      },
+      {
+        "row": 12,
+        "dataset": "nasa_turbofan_f32",
+        "engine": "Chimp_F32_Interleaved",
+        "reason": "Comp Outl=3>2"
+      },
+      {
+        "row": 13,
+        "dataset": "nasa_turbofan_f32",
+        "engine": "BinPack_Transpose_F32",
+        "reason": "Comp CV_filt=5.46%>5%"
+      },
+      {
+        "row": 17,
+        "dataset": "silesia_mozilla",
+        "engine": "LZ4_RawBlock",
+        "reason": "Decomp CV_raw=11.2%>10%"
+      },
+      {
+        "row": 18,
+        "dataset": "silesia_mozilla",
+        "engine": "Zstd_Frame_L19",
+        "reason": "Decomp Outl=3>2"
+      },
+      {
+        "row": 19,
+        "dataset": "silesia_mozilla",
+        "engine": "Zstd_Frame_L1",
+        "reason": "Decomp Outl=3>2"
+      },
+      {
+        "row": 20,
+        "dataset": "silesia_mozilla",
+        "engine": "BinPack_Fast_ZeroCRC",
+        "reason": "Decomp CV_raw=13.7%>10%"
+      },
+      {
+        "row": 21,
+        "dataset": "silesia_mozilla",
+        "engine": "BinPack_Default_L19",
+        "reason": "Comp Outl=3>2, Decomp Outl=5>2"
+      },
+      {
+        "row": 22,
+        "dataset": "silesia_mozilla",
+        "engine": "BinPack_Strict_CRC32",
+        "reason": "Decomp Outl=3>2"
+      },
+      {
+        "row": 23,
+        "dataset": "silesia_samba",
+        "engine": "Zstd_Frame_L1",
+        "reason": "Comp Outl=4>2"
+      }
+    ]
+  },
+  "integrity_verification": {
+    "status": "28/28 PASS",
+    "scope_clarification": "The 28/28 PASS demonstrates that the compressed buffer produced in the compression phase bit-identically reconstructed the original source data without corruption across all 20 timed decompressions; it does not demonstrate independent verification of 20 distinct saved compressed buffers."
+  },
+  "binary_traceability": {
+    "status": "Declared local execution value (not tracked in Git due to .gitignore *.exe rule)",
+    "file_name": "bench_suite_decisive.exe",
+    "size_bytes": 1089024,
+    "sha256": "1518deab223a0a7f513720ce8d54f66fe288b26f8e2e9766bc63e7ce7d9c1527"
   }
 }
