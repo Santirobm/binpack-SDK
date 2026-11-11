@@ -1,24 +1,36 @@
-# Protocolo Experimental R15 — Hito BP-011
+# Protocolo Experimental R15.1 — Hito BP-011
 ## Industrial Time-Series Benchmark: Gorilla & Chimp vs. BinPack Transpose
 
 **Proyecto:** BinPack Enterprise SDK  
 **Hito:** BP-011  
-**Fase:** Fase A — Acta de Apertura y Protocolo Experimental  
+**Fase:** Fase A — Acta de Apertura y Protocolo Experimental (Revisión R15.1)  
 **Documento Rector:** `docs/audit/bp011_experimental_protocol.md`  
 **Rama:** `audit/bp1-core-safety`  
-**Estado:** PROPUESTA DE PROTOCOLO FORMAL PARA REVISIÓN DE AUDITORÍA  
+**Estado:** PROTOCOLO FORMAL SUBSANADO PARA DICTAMEN DE CIERRE DE FASE A  
+
+---
+
+## Control de Cambios y Subsanaciones (Revisión R15.1)
+
+En atención al Dictamen de Auditoría sobre la versión R15, la presente revisión R15.1 incorpora las siguientes subsanaciones formales:
+
+1. **NC-01 (Fórmulas de Cuartiles de Tukey):** Se desambigua formalmente la notación matemática en base 1 ($x_{(5)}$ y $x_{(6)}$ para $Q_1$; $x_{(15)}$ y $x_{(16)}$ para $Q_3$) y se documenta su mapeo exacto a arreglos en base 0 de C (`arr[4]`/`arr[5]` y `arr[14]`/`arr[15]`).
+2. **NC-02 (Separación Rigurosa de Amplificaciones):** Se diferencian conceptual y matemáticamente tres magnitudes: amplificación física de lectura ($A_{\text{read}} = B_{\text{read}} / B_{\text{target}}$), amplificación de descompresión en memoria ($A_{\text{decomp}} = B_{\text{decomp}} / B_{\text{target}}$) y relación de almacenamiento ($A_{\text{store}} = B_{\text{stored}} / B_{\text{logical}}$). Se define $B_{\text{target}}$ incluyendo todos los datos lógicos requeridos.
+3. **NC-03 (Regla de Aplicabilidad de Consultas):** Se establece la regla estricta de cardinalidad: $Q_1$ requiere $N \ge 1.000$, $Q_2$ requiere $N \ge 10.000$ y $Q_3$ requiere $K \ge 4$. Datasets con $N < 10.000$ (como DS-01, $N=2.156$) registran formalmente $Q_2$ como `NOT_APPLICABLE` (N/A), prohibiendo la invención, repetición o ciclado de muestras.
+4. **NC-04 (Codificación Temporal Canónica de 64 Bits):** Se documenta la estructura completa de escape para timestamps `int64_t`, extendiendo la secuencia prefijo de Gorilla con un fallback explícito de 64 bits para deltas superiores a $2^{31}-1$, garantizando preservación bit-exacta sin truncamiento.
+5. **OBS-01 a OBS-06:** Se integra el desglose contable de 4 componentes de tamaño, la diferenciación estricta de densidades (bpv, bpt, bptuple, bpc), la separación de regímenes de caché (Hot-Cache vs. Cold-Cache), las fórmulas de estadística muestral y reglas de inferencia comparativa, la definición de memoria operativa y la delimitación de pruebas concurrentes ($Q_{\text{conc}}$).
 
 ---
 
 ## 1. Mandato, Gobernanza y Pregunta de Negocio
 
 ### 1.1 Pregunta Estratégica Central
-El hito previo (BP-010) acreditó que BinPack es un compresor generalista robusto, pero no demostró ventajas decisivas frente a herramientas consolidadas (Zstd, LZ4). El hito BP-011 abandona la pretensión de universalidad para investigar una hipótesis específica de alto valor técnico y comercial:
+El hito previo (BP-010) acreditó que BinPack es un compresor generalista robusto, pero constató la ausencia de ventajas decisivas frente a herramientas consolidadas (Zstd, LZ4). El hito BP-011 abandona la pretensión de universalidad para investigar una hipótesis específica de alto valor técnico y comercial:
 
 > **¿Ofrece BinPack una ventaja competitiva medible y reproducible frente a codecs especializados en series temporales (Gorilla, Chimp/Chimp128) y estándares de la industria (Zstandard), en escenarios de telemetría industrial donde conviven la eficiencia de almacenamiento y la agilidad de consulta selectiva?**
 
 El propósito no es forzar una conclusión favorable para BinPack, sino identificar de forma objetiva su verdadero perfil de aptitud:
-- Si BinPack supera a los competidores en almacenamiento o consulta, se fundamenta una propuesta de valor comercial sólida para bases de datos de series temporales (TSDB) e historiadores industriales.
+- Si BinPack demuestra superioridad en almacenamiento o en consultas selectivas, se fundamenta una propuesta de valor comercial sólida para bases de datos de series temporales (TSDB) e historiadores industriales.
 - Si Gorilla o Chimp demuestran superioridad integral en almacenamiento y latencia, se obtiene una delimitación técnica clara que evitará desviar recursos comerciales hacia casos de uso donde el motor no es competitivo.
 
 ### 1.2 Estructura de Gobernanza por Fases
@@ -28,7 +40,7 @@ Para salvaguardar la integridad metodológica, BP-011 se rige por seis fases sec
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                       GOBERNANZA POR FASES — BP-011                         │
 ├─────────┬──────────────────────────────────────────┬────────────────────────┤
-│ Fase A  │ Acta y Protocolo Experimental R15        │ Solo Documentación     │
+│ Fase A  │ Acta y Protocolo Experimental R15.1      │ Solo Documentación     │
 │ Fase B  │ Auditoría de Codecs, Papers y Datasets   │ Solo Lectura           │
 │ Fase C  │ Diseño e Implementación del Arnés TSDB   │ Sin Ejecución          │
 │ Fase D  │ Auditoría Estática Pre-Flight del Arnés  │ Sin Compilación        │
@@ -42,10 +54,11 @@ Para salvaguardar la integridad metodológica, BP-011 se rige por seis fases sec
 2. **Code Freeze Estricto:** Cero modificaciones a `src/`, `include/`, `deps/` o arneses previos en `tests/`.
 3. **Prohibición de Ejecución:** No se permite compilar, ejecutar benchmarks, cronometrar ni descargar archivos externos.
 4. **Independencia Probatoria:** Queda expresamente prohibido reutilizar resultados de BP-010 como evidencia de superioridad en series temporales.
+5. **Transición a Fase B:** La Fase B no comenzará hasta que la presente revisión R15.1 cuente con aprobación formal de la auditoría.
 
 ---
 
-## 2. Taxonomía de Motores y Composiciones Arquitectónicas
+## 2. Taxonomía de Motores, Composiciones Arquitectónicas y Desglose Contable
 
 Para garantizar paridad estricta, cada motor evaluado cuenta con una definición algorítmica explícita que incluye el manejo integral de marcas de tiempo (*timestamps*), valores y sobrecarga de contenedor (*overhead*).
 
@@ -68,69 +81,75 @@ Para garantizar paridad estricta, cada motor evaluado cuenta con una definición
 ### 2.1 Especificación de los Motores Evaluados
 
 1. **`Gorilla_Canonical` (Facebook / VLDB 2015):**
-   - **Timestamps:** Algoritmo *Delta-of-Delta* con codificación de longitud variable sobre $D = (t_i - t_{i-1}) - (t_{i-1} - t_{i-2})$:
-     - Si $D = 0$: `0` (1 bit).
-     - Si $-63 \le D \le 64$: `10` + 7 bits.
-     - Si $-255 \le D \le 256$: `110` + 9 bits.
-     - Si $-2047 \le D \le 2048$: `1110` + 12 bits.
-     - En otro caso: `1111` + 32 bits de $D$.
+   - **Timestamps:** Algoritmo *Delta-of-Delta* extendido para 64 bits (ver Sección 2.3).
    - **Valores:** XOR bitwise con seguimiento de ceros a la izquierda (*leading zeros*) y a la derecha (*trailing zeros*).
-
 2. **`Chimp_Composed` (VLDB 2022):**
    - **Valores:** Implementación canónica de Chimp con codificación optimizada de ceros a la izquierda (3 bits de longitud) y detección de ceros a la derecha.
-   - **Timestamps:** Dado que Chimp es un codec de coma flotante puro y no define un estándar de timestamps, se acopla a la rutina canónica *Delta-of-Delta* de Gorilla. Se identifica formalmente como arquitectura compuesta para evitar distorsiones de autoría.
-
+   - **Timestamps:** Dado que Chimp es un codec de coma flotante puro y no define un estándar de timestamps, se acopla a la rutina canónica *Delta-of-Delta* de Gorilla. Se identifica formalmente como arquitectura integrada (`Chimp + DoD_Time`).
 3. **`Chimp128_Composed` (VLDB 2022):**
    - **Valores:** Chimp con buffer circular (*ring-buffer*) de 128 valores previos para maximizar la probabilidad de coincidencias XOR en series con oscilaciones periódicas.
    - **Timestamps:** Acoplado idénticamente a *Delta-of-Delta*.
-
 4. **`BinPack_Transpose_Multichannel`:**
    - **Estructura:** Disposición columnar del bloque multicanal: vector temporal $T$ seguido de matrices de canales $C_0, C_1, \dots, C_{K-1}$.
-   - **Transformación:** Pre-filtro de transposición estructural de bytes aplicado por canal, agrupando bytes de signo/exponente y mantisa para optimizar la compresión entrópica mediante BinPack Tier 2 / Tier 1.
-
+   - **Transformación:** Pre-filtro de transposición estructural de bytes aplicado por canal, agrupando bytes de signo/exponente y mantisa para optimizar la compresión entrópica mediante BinPack.
 5. **`BinPack_Chunked_PerChannel`:**
    - **Estructura:** Bloques independientes por canal sensor, conteniendo cada uno su copia o referencia de la base temporal correspondiente.
    - **Propósito:** Evaluar el coste de compresión y la ventaja en lectura cuando las consultas TSDB solicitan proyecciones de una sola columna.
-
 6. **`Zstandard_Structured` (Niveles 1 y 3):**
    - **Línea Base Generalista:** Compresión Zstd aplicada sobre el mismo layout binario estructurado que alimenta a los motores especializados, representando el estándar actual de motores como InfluxDB v3 o TimescaleDB.
 
-### 2.2 Principio de Paridad y Contabilidad de Sobrecarga
-- **Cero Exclusión:** El tamaño comprimido oficial de cada motor incluirá obligatoriamente todos los bytes de cabecera (*headers*), tablas de saltos (*jump tables*), índices de bloque y metadatos de sincronización.
-- **Transparencia Arquitectónica:** No se atribuirá a Chimp penalizaciones derivadas del codec temporal común, registrándose por separado el desglose de bytes de tiempo y bytes de valor.
+### 2.2 Desglose Contable de Componentes (OBS-01)
+Para evitar que se atribuya injustamente a Chimp el coste del codec temporal o que se oculten costes de contenedor, se publicará obligatoriamente para cada motor la siguiente contabilidad cuadrupartita:
+
+| Componente | Definición y Contenido |
+|---|---|
+| **$B_{\text{time}}$** | Bytes consumidos estrictamente por la codificación de la serie de marcas de tiempo. |
+| **$B_{\text{values}}$** | Bytes consumidos estrictamente por la codificación de las matrices de valores de sensores. |
+| **$B_{\text{container}}$** | Bytes de cabeceras (*headers*), tablas de saltos (*jump tables*), índices de canales y metadatos de sincronización. |
+| **$B_{\text{total}}$** | Suma total innegociable: $B_{\text{total}} = B_{\text{time}} + B_{\text{values}} + B_{\text{container}}$. |
+
+### 2.3 Codificación Temporal Canónica de 64 Bits y Límites de Rango (NC-04)
+El dominio temporal admisible se fija como enteros con signo de 64 bits (`int64_t`), representando épocas Unix en microsegundos o nanosegundos.
+
+Para resolver el límite del campo de 32 bits del paper original de Gorilla ante huecos prolongados ($\Delta t \gg 1\text{ día}$) o desincronizaciones de reloj, se formaliza la siguiente codificación *Delta-of-Delta* extendida sobre $D = (t_i - t_{i-1}) - (t_{i-1} - t_{i-2})$:
+
+- Si $D = 0$: bit `0` (1 bit).
+- Si $-63 \le D \le 64$: bits `10` + 7 bits de $D$ (9 bits totales).
+- Si $-255 \le D \le 256$: bits `110` + 9 bits de $D$ (12 bits totales).
+- Si $-2047 \le D \le 2048$: bits `1110` + 12 bits de $D$ (16 bits totales).
+- Si $-2^{31} \le D < 2^{31}$: bits `11110` + 32 bits de $D$ (37 bits totales).
+- **Escape de Rango Completo 64-bit:** bits `11111` + 64 bits de $D$ (69 bits totales).
+
+**Garantía de Preservación:** Este mecanismo garantiza que cualquier salto temporal arbitrario de 64 bits se codifique y reconstruya de forma 100% bit-exacta, sin desbordamiento ni truncamiento silencioso.
 
 ---
 
 ## 3. Especificación de Formatos Binarios y Tratamiento de Anomalías
 
 ### 3.1 Tipos de Datos y Representación Canónica
-- **Marcas de Tiempo ($t_i$):** Enteros con signo de 64 bits (`int64_t`), representando épocas Unix en milisegundos o microsegundos.
+- **Marcas de Tiempo ($t_i$):** `int64_t` (Unix epoch en microsegundos).
 - **Valores de Sensores ($v_{i,k}$):** 
   - Punto flotante IEEE-754 de precisión simple (32 bits, `float`).
   - Punto flotante IEEE-754 de precisión doble (64 bits, `double`), según el dataset.
-- **Orden de Canales:** Fijo y determinista, indexado $k \in [0, K-1]$.
+- **Orden de Canales:** Determinista e inmutable, indexado $k \in [0, K-1]$.
 
 ### 3.2 Manejo Riguroso de Casos Borde y Datos Especiales
-Todo motor evaluado en BP-011 deberá procesar y reconstruir idénticamente los siguientes casos borde sin abortos ni corrupción:
+Todo motor evaluado en BP-011 deberá procesar y reconstruir idénticamente los siguientes casos borde:
 
 1. **Valores Especiales IEEE-754 (`NaN`, `+Inf`, `-Inf`):**
-   - El payload binario exacto de los bits de `NaN` (signo, exponente y mantisa) debe preservarse bit a bit tras la descompresión.
-   - Prohibido sustituir `NaN` por ceros o valores por defecto.
+   - El payload binario exacto de los bits de `NaN` (signo, exponente y mantisa) debe preservarse bit a bit tras la descompresión. Prohibido sustituir `NaN` por ceros o valores por defecto.
 2. **Ceros con Signo (`+0.0f` y `-0.0f`):**
    - Deben conservar su bit de signo tras la reconstrucción.
 3. **Jitter e Irregularidades Temporales:**
-   - Timestamps no perfectamente equiespaciados ($\Delta t_i \ne \text{constante}$).
-   - Intervalos con ráfagas (*bursts*, $\Delta t = 0$) y huecos prolongados (*gaps*).
+   - Timestamps no perfectamente equiespaciados ($\Delta t_i \ne \text{constante}$). Intervalos con ráfagas (*bursts*, $\Delta t = 0$) y huecos prolongados (*gaps*).
 4. **Muestras Duplicadas y Desordenadas:**
-   - Si el dataset de origen presenta timestamps idénticos o inversiones leves de orden temporal, el arnés debe reproducir exactamente la secuencia física de entrada.
+   - La secuencia física de entrada debe reproducirse de forma idéntica; el arnés no reordenará muestras sin indicación explícita de protocolo.
 5. **Cierre de Bloques Parciales:**
    - Tratamiento de bloques finales que no alcancen la cardinalidad de corte predefinida (ej. bloque de 342 muestras en chunks de 1.000).
 
 ---
 
-## 4. Inventario Canónico del Corpus de Series Temporales
-
-El corpus de evaluación se clasifica rigurosamente distinguiendo datos disponibles en el repositorio de aquellos sujetos a formalización o adquisición en fases posteriores:
+## 4. Inventario Canónico del Corpus y Reglas de Aplicabilidad
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
@@ -145,112 +164,111 @@ El corpus de evaluación se clasifica rigurosamente distinguiendo datos disponib
 └─────────┴──────────────────────────────┴────────────┴─────────────┴────────────────────┘
 ```
 
-### 4.1 Datasets Disponibles para Evaluación Inicial
-
-1. **`DS-01`: NASA IMS Bearing Statistical Features (`nasa_bearing_ims_test1.csv`):**
-   - **Origen:** Ensayo de fatiga acelerada de rodamientos del Center for Intelligent Maintenance Systems (IMS), Universidad de Cincinnati.
-   - **Naturaleza:** 48 descriptores estadísticos (RMS, media, kurtosis, pico, factor de cresta, etc.) calculados sobre 8 canales de acelerómetros a lo largo de 2.156 ventanas de ensayo.
-   - **Perfil:** Telemetría agregada de baja frecuencia con alta correlación intercanal.
-
-2. **`DS-02`: NASA C-MAPSS Turbofan Simulation (`nasa_turbofan_float32.bin`):**
-   - **Origen:** Simulación termodinámica de degradación de motores de turbina C-MAPSS.
-   - **Naturaleza:** 24 canales de coma flotante de 32 bits (ajustes operacionales y sensores de flujo/presión/temperatura).
-   - **Perfil:** Serie multivariada de control industrial continuo (puente de comparación directa con BP-010).
-
-### 4.2 Datasets Pendientes de Formalización (Fase B)
-
-3. **`DS-03`: Señales Crudas de Vibración NASA IMS (20 kHz):**
-   - Formato objetivo: Registro de adquisición directo de 20.480 muestras por snapshot a 20 kHz, evaluando el comportamiento ante ruido estocástico de alta frecuencia sin pre-procesamiento.
-4. **`DS-04`: Telemetría Industrial IoT / Smart Grid con Jitter:**
-   - Formato objetivo: Registro de sensores ambientales o medidores eléctricos inteligentes con timestamps reales desigualmente espaciados, evaluando la robustez del codec ante jitter temporal real.
+### 4.1 Regla Estricta de Aplicabilidad de Consultas por Cardinalidad (NC-03)
+Para preservar la integridad del dato real sin distorsiones artificiales:
+- **Consulta $Q_1$ (1.000 puntos):** Aplicable exclusivamente si $N \ge 1.000$.
+- **Consulta $Q_2$ (10.000 puntos):** Aplicable exclusivamente si $N \ge 10.000$.
+- **Consulta $Q_3$ (4 canales):** Aplicable exclusivamente si $K \ge 4$.
+- **Tratamiento de Incompatibilidad:** Si un dataset posee cardinalidad insuficiente (como `DS-01` con $N=2.156$), la consulta correspondiente se catalogará formalmente como **`NOT_APPLICABLE` (N/A)**. Queda expresamente prohibido inventar, duplicar, repetir o ciclar registros para alcanzar una dimensión requerida.
 
 ---
 
-## 5. Definición Física del Acceso Selectivo y Consultas TSDB
-
-Para convertir el benchmark en una evaluación con valor comercial tangible, se define un modelo físico riguroso para la medición de consultas selectivas.
+## 5. Definición Física de Consultas, Caché y Separación de Amplificaciones
 
 ### 5.1 Escenarios de Consulta Estandarizados
-Se medirán tres patrones de acceso representativos de cargas de trabajo reales en bases de datos de series temporales:
+1. **Consulta $Q_1$ (Ventana Reciente Monocanal - 1.000 puntos):** Recuperación de los últimos 1.000 valores para un canal sensor crítico $C_k$ ($N \ge 1.000$).
+2. **Consulta $Q_2$ (Ventana Histórica Monocanal - 10.000 puntos):** Recuperación de un rango temporal continuo de 10.000 puntos en un canal sensor ($N \ge 10.000$).
+3. **Consulta $Q_3$ (Proyección Multicanal Selectiva - 4 canales):** Recuperación de 4 sensores simultáneos sobre un intervalo temporal determinado ($K \ge 4$).
+4. **Extensión $Q_{\text{conc}}$ (Concurrencia Analítica):** Prueba de estrés con $M$ hilos de consulta concurrentes sobre el mismo chunk comprimido (reservada para Fase posterior; no se certificarán ventajas de concurrencia analítica hasta ejecutar esta prueba).
 
-1. **Consulta $Q_1$ (Ventana Reciente Monocanal - 1.000 puntos):**
-   - Recuperación de los últimos 1.000 valores para un canal sensor crítico $C_k$ (ej. graficar el historial reciente de temperatura).
-2. **Consulta $Q_2$ (Ventana Histórica Monocanal - 10.000 puntos):**
-   - Recuperación de un rango temporal continuo de 10.000 puntos en un canal sensor para cálculo de promedios móviles o detección de anomalías.
-3. **Consulta $Q_3$ (Proyección Multicanal Selectiva - 4 canales):**
-   - Recuperación de 4 sensores simultáneos (ej. los 4 acelerómetros del eje X) sobre un intervalo temporal determinado, descartando los 44 canales restantes del dataset.
+### 5.2 Regímenes de Memoria y Caché (OBS-03)
+Las consultas se evaluarán obligatoriamente bajo dos regímenes operativos disjuntos:
+- **Régimen Hot-Cache:** Bloque comprimido pre-cargado en memoria RAM. Aísla y mide el coste algorítmico puro de decodificación, direccionamiento de columnas y transformaciones.
+- **Régimen Cold-Cache:** Bloque recuperado desde almacenamiento masivo (I/O controlada, bypass de buffer cache). Mide el coste combinado de transferencia y decodificación.
+*Los resultados de ambos regímenes se reportarán en tablas separadas, sin promediar ni mezclar sus mediciones.*
 
-### 5.2 Contabilidad Física del Trabajo de Decodificación
-Para cada consulta se medirán de forma estricta los siguientes parámetros de ejecución:
+### 5.3 Separación Rigurosa de Métricas de Amplificación (NC-02)
+Se establecen tres magnitudes físicas diferenciadas:
 
-- **$B_{\text{read}}$ (Bytes Leídos):** Volumen de bytes leídos físicamente del bloque comprimido desde almacenamiento/memoria para resolver la consulta.
-- **$B_{\text{decomp}}$ (Bytes Descomprimidos):** Volumen total de datos expandidos temporalmente a memoria durante el proceso.
-- **$B_{\text{target}}$ (Bytes Solicitados):** Volumen exacto de datos requeridos por la consulta ($N_{\text{puntos}} \times \text{sizeof}(\text{float})$).
-- **Factor de Amplificación de Lectura ($A_{\text{read}}$):**
-  $$A_{\text{read}} = \frac{B_{\text{decomp}}}{B_{\text{target}}}$$
-  *Si un motor obliga a descomprimir los 48 canales completos para entregar un solo canal, su $A_{\text{read}}$ será $\approx 48\times$, penalizando drásticamente la latencia y la memoria.*
-- **Memoria Dinámica Asignada:** Cantidad de llamadas a `malloc`/`free` y memoria pico temporal requerida para procesar la consulta.
-- **Latencia Wall-Clock End-to-End:** Tiempo total (en microsegundos) desde la emisión de la solicitud hasta la disponibilidad de los valores en un array plano contiguo.
+1. **Amplificación Física de Lectura ($A_{\text{read}}$):**
+   $$A_{\text{read}} = \frac{B_{\text{read}}}{B_{\text{target}}}$$
+   *Mide cuántos bytes físicos comprimidos deben leerse del medio o memoria para resolver la consulta.*
+2. **Amplificación de Descompresión en Memoria ($A_{\text{decomp}}$):**
+   $$A_{\text{decomp}} = \frac{B_{\text{decomp}}}{B_{\text{target}}}$$
+   *Mide cuántos bytes de datos descomprime efectivamente el motor hacia buffers de trabajo para entregar el resultado.*
+3. **Relación de Almacenamiento ($A_{\text{store}}$):**
+   $$A_{\text{store}} = \frac{B_{\text{total}}}{B_{\text{logical}}}$$
+   *Representa la densidad de compactación global del bloque.*
 
----
+**Definición Canónica de $B_{\text{target}}$:**
+$$B_{\text{target}} = N_{\text{puntos}} \times \left( \sum_{k \in \text{canales\_solicitados}} \text{sizeof}(v_k) \right) + N_{\text{puntos}} \times \text{sizeof}(t_i)$$
+$B_{\text{target}}$ engloba la totalidad de los datos lógicos requeridos para responder íntegramente la consulta.
 
-## 6. Métricas Multidimensionales de Rendimiento
-
-El desempeño de cada configuración se evaluará bajo seis dimensiones cuantitativas:
-
-1. **Eficiencia de Almacenamiento:**
-   - **Ratio de Compresión:** $R = \frac{\text{Tamaño Comprimido}}{\text{Tamaño Original}} \times 100\%$.
-   - **Bits por Muestra ($\text{bpc}$):** Promedio de bits utilizados por cada tupla o muestra sensor.
-2. **Velocidad de Compresión / Ingesta:**
-   - Tasa en Megabytes por segundo ($\text{MB/s}$).
-   - Rendimiento en Millones de puntos por segundo ($\text{Mpts/s}$).
-3. **Velocidad de Descompresión Masiva:**
-   - Tasa en $\text{MB/s}$ y $\text{Mpts/s}$ en descompresión del flujo completo.
-4. **Latencia de Acceso Selectivo:**
-   - Tiempos de respuesta para consultas $Q_1$, $Q_2$ y $Q_3$ en microsegundos ($\mu\text{s}$).
-5. **Huella de Memoria Operativa:**
-   - Asignaciones dinámicas y memoria de trabajo máxima requerida por el compresor y descompresor.
-6. **Integridad Física Bit-Exact:**
-   - Validación mediante `memcmp` continuo de todos los timestamps y valores reconstruidos frente a la entrada original.
+### 5.4 Huella de Memoria Operativa (OBS-05)
+Se medirán con instrumentación explícita:
+- **$M_{\text{peak\_alloc}}$:** Pico máximo de asignación dinámica simultánea en heap durante la consulta (high-water mark del allocator).
+- **$M_{\text{alloc\_count}}$:** Conteo total de operaciones `malloc`/`calloc` ejecutadas por consulta.
+- **$M_{\text{working\_buf}}$:** Tamaño del buffer estático de trabajo requerido.
 
 ---
 
-## 7. Régimen Estadístico y de Integridad (Protocolo R15)
+## 6. Métricas Multidimensionales y Definición de Densidad
 
-Se adapta y profundiza el rigor estadístico consolidado en BP-010:
+### 6.1 Desglose Canónico de Densidad de Almacenamiento (OBS-02)
+Para erradicar ambigüedades respecto a la sigla `bpc`, se reportarán formalmente cuatro métricas de densidad:
 
-### 7.1 Protocolo de Muestreo y Aleatorización
-- **Régimen Canónico:** **1 ciclo de warm-up + 20 iteraciones medidas** por configuración y por consulta.
-- **Aleatorización Local:** Barajado pseudoaleatorio de motores mediante Fisher-Yates por dataset/bloque, empleando flujo PRNG compartido con semilla fija (`seed = 0`).
-- **Aislamiento Ambiental:** Afinidad de CPU fijada a núcleo lógico dedicado y minimización de procesos en segundo plano.
+- **$\text{bpv}$ (Bits por Valor):** $\text{bpv} = \frac{B_{\text{values}} \times 8}{N \times K}$ (eficiencia del codec flotante).
+- **$\text{bpt}$ (Bits por Timestamp):** $\text{bpt} = \frac{B_{\text{time}} \times 8}{N}$ (eficiencia del codec temporal).
+- **$\text{bptuple}$ (Bits por Tupla Completa):** $\text{bptuple} = \frac{B_{\text{total}} \times 8}{N}$ (métrica principal de comparación comercial).
+- **$\text{bpc}$ (Bits por Muestra-Canal Integral):** $\text{bpc} = \frac{B_{\text{total}} \times 8}{N \times K}$ (densidad normalizada por celda).
 
-### 7.2 Reglas Estadísticas de Detección de Dispersión
-- **Outliers (Regla de Tukey Canónica):**
-  $$Q_1 = \frac{x_{(4)} + x_{(5)}}{2}, \quad Q_3 = \frac{x_{(14)} + x_{(15)}}{2}, \quad \text{IQR} = Q_3 - Q_1$$
-  $$\text{Límite Inferior} = Q_1 - 1.5 \cdot \text{IQR}, \quad \text{Límite Superior} = Q_3 + 1.5 \cdot \text{IQR}$$
-- **Umbrales de Estabilidad Obligatorios:**
+### 6.2 Velocidad y Latencia
+- **Throughput de Ingesta/Compresión:** Megabytes por segundo ($\text{MB/s}$) y Millones de puntos por segundo ($\text{Mpts/s}$).
+- **Throughput de Descompresión Masiva:** $\text{MB/s}$ y $\text{Mpts/s}$.
+- **Latencia de Consulta Selectiva:** Tiempo wall-clock end-to-end en microsegundos ($\mu\text{s}$) o milisegundos ($\text{ms}$) para $Q_1$, $Q_2$ y $Q_3$.
+
+---
+
+## 7. Régimen Estadístico y Fórmulas Rigurosas (Protocolo R15)
+
+### 7.1 Muestreo y Aleatorización
+- **Régimen Obligatorio:** **1 ciclo de warm-up + 20 iteraciones medidas** por motor, dataset y consulta.
+- **Aleatorización Determinista:** Barajado pseudoaleatorio de motores por bloque mediante Fisher-Yates con semilla compartida (`seed = 0`).
+
+### 7.2 Fórmulas Estadísticas de Cuartiles de Tukey (NC-01)
+Dada una muestra ordenada en orden ascendente:
+- **Notación Estadística Canónica (Base 1: $x_{(1)} \le x_{(2)} \le \dots \le x_{(20)}$):**
+  $$Q_1 = \frac{x_{(5)} + x_{(6)}}{2}, \qquad Q_3 = \frac{x_{(15)} + x_{(16)}}{2}$$
+- **Mapeo a Arreglos de Implementación en C (Base 0: `arr[0]` a `arr[19]`):**
+  $$Q_1 = \frac{\text{arr}[4] + \text{arr}[5]}{2}, \qquad Q_3 = \frac{\text{arr}[14] + \text{arr}[15]}{2}$$
+- **Rango Intercuartílico e Intervalo de Tukey:**
+  $$\text{IQR} = Q_3 - Q_1, \quad \text{Límite Inferior} = Q_1 - 1.5 \cdot \text{IQR}, \quad \text{Límite Superior} = Q_3 + 1.5 \cdot \text{IQR}$$
+
+### 7.3 Dispersión Muestral e Inferencia Comparativa (OBS-04)
+- **Media Muestral:** $\bar{x} = \frac{1}{n}\sum_{i=1}^n x_i$
+- **Varianza Muestral Insesgada:** $s^2 = \frac{1}{n-1}\sum_{i=1}^n (x_i - \bar{x})^2$
+- **Desviación Estándar Muestral:** $s = \sqrt{s^2}$
+- **Coeficiente de Variación:** $\text{CV} = \frac{s}{\bar{x}} \times 100\%$
+- **Criterios de Estabilidad Obligatorios:**
   - $\text{Outliers} \le 2$ por dirección.
   - $\text{CV}_{\text{raw}} \le 10,0\%$.
   - $\text{CV}_{\text{filt}} \le 5,0\%$.
-- **Preservación Integral:** Toda serie inestable será catalogada e informada sin exclusiones selectivas ni reemplazos arbitrarios.
+- **Regla de Inferencia para Declarar Ventaja:**
+  Para declarar formalmente una ventaja entre el motor $A$ y el motor $B$ ($\Delta = \bar{x}_A - \bar{x}_B$), se exigirá que los intervalos de confianza del 95% ($t$-Student con 19 grados de libertad, $t_{0.975} = 2.093$) no se solapen, o que la prueba $t$ de Welch arroje $p < 0.01$. Diferencias solapadas serán clasificadas como no reproducibles o dentro del ruido.
 
 ---
 
-## 8. Criterios de Evaluación y Clasificación Comercial Preestablecida
+## 8. Criterios Comerciales, Perfiles de Carga y Clasificación Tripartita
 
-Para evitar interpretaciones subjetivas post-hoc, los resultados de BP-011 se clasificarán formalmente en tres categorías comerciales en función de su comportamiento en perfiles de carga definidos:
-
-### 8.1 Perfiles de Carga Industrial Estandarizados
+### 8.1 Perfiles de Carga Industrial Estandarizados (OBS-05)
 
 1. **Perfil 1 — Ingesta Edge / RTU (Recursos Restringidos):**
-   - *Prioridad:* Bajo consumo de CPU, baja memoria ($\le 4\text{ MB}$), throughput sostenido $\ge 10\text{ Mpts/s}$.
-   - *Tolerancia:* Puede sacrificar un $10\%$ de ratio si garantiza compresión determinista en streaming.
+   - *Objetivo Operativo Base:* Throughput sostenido $\ge 10\text{ Mpts/s}$, memoria dinámica $\le 4\text{ MB}$, streaming continuo.
+   - *Meta Aspiracional:* $50\text{ Mpts/s}$ en hardware de servidor.
 2. **Perfil 2 — Historiador SCADA Central (Densidad de Almacenamiento):**
-   - *Prioridad:* Máxima reducción de volumen ($\text{bits/sample}$ mínimos) en bloques consolidados de tiempo.
-   - *Tolerancia:* Acepta mayor tiempo de compresión en batch si la descompresión posterior es rápida.
+   - *Prioridad:* Mínimo $\text{bptuple}$ en bloques consolidados de tiempo. Descompresión masiva veloz.
 3. **Perfil 3 — Motor Analítico TSDB (Consultas Concurrentes y Proyección):**
-   - *Prioridad:* Mínima latencia en consultas $Q_1, Q_2, Q_3$ y bajo factor de amplificación de lectura ($A_{\text{read}} \approx 1.0$).
-   - *Tolerancia:* Acepta un ratio ligeramente inferior si permite decodificar columnas individuales sin tocar el resto del bloque.
+   - *Prioridad:* Mínima latencia en $Q_1, Q_2, Q_3$ y $A_{\text{decomp}} \approx 1.0$ (proyección columnar directa sin descomprimir canales espurios).
 
 ### 8.2 Matriz de Decisión Comercial Tripartita
 
@@ -279,7 +297,7 @@ Para evitar interpretaciones subjetivas post-hoc, los resultados de BP-011 se cl
 
 ## 9. Próximos Pasos tras la Revisión de la Fase A
 
-Una vez que el presente protocolo cuente con la revisión crítica y dictamen del Auditor Líder:
-1. **Fase B:** Auditoría estática y validación de las implementaciones fuente de Gorilla, Chimp/Chimp128 y los datasets formalizados.
-2. **Fase C:** Construcción del arnés experimental de series temporales `tests/benchmarks/benchmark_timeseries_suite.c` con instrumentación de consultas selectivas.
-3. **Fase D:** Auditoría estática pre-flight del arnés antes de autorizar cualquier compilación.
+Una vez obtenida la aprobación formal de la presente revisión R15.1:
+1. **Cierre Formal de la Fase A.**
+2. **Apertura de la Fase B (Auditoría de Codecs y Datasets):** Actividad exclusivamente de solo lectura dedicada a la inspección estática de las implementaciones fuente de Gorilla, Chimp/Chimp128 y la validación de integridad de los datasets formalizados.
+3. **Mantenimiento del Code Freeze:** Ninguna compilación ni ejecución de código hasta completar las Fases B, C y D.
