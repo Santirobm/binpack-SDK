@@ -589,8 +589,15 @@ static int pre_flight_validate_zstd_checksum_rejection(void) {
         return 0;
     }
 
-    ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
-    size_t c_sz = ZSTD_compressCCtx(cctx, cmp, test_sz * 2 + 65536, src, test_sz, 1);
+    size_t zr1 = ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 1);
+    size_t zr2 = ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+    if (ZSTD_isError(zr1) || ZSTD_isError(zr2)) {
+        fprintf(stderr, "  [FAIL] Failed to set Zstd CCtx parameters in pre-flight\n");
+        ZSTD_freeCCtx(cctx); ZSTD_freeDCtx(dctx);
+        free(src); free(cmp); free(dec);
+        return 0;
+    }
+    size_t c_sz = ZSTD_compress2(cctx, cmp, test_sz * 2 + 65536, src, test_sz);
     if (ZSTD_isError(c_sz) || c_sz < 5) {
         ZSTD_freeCCtx(cctx); ZSTD_freeDCtx(dctx);
         free(src); free(cmp); free(dec);
@@ -684,7 +691,13 @@ static int measure_latencies_generic(
             free(cbuf); free(dbuf);
             return -1;
         }
-        ZSTD_CCtx_setParameter(zcctx, ZSTD_c_checksumFlag, 1);
+        size_t zr1 = ZSTD_CCtx_setParameter(zcctx, ZSTD_c_compressionLevel, zstd_level);
+        size_t zr2 = ZSTD_CCtx_setParameter(zcctx, ZSTD_c_checksumFlag, 1);
+        if (ZSTD_isError(zr1) || ZSTD_isError(zr2)) {
+            ZSTD_freeCCtx(zcctx); ZSTD_freeDCtx(zdctx);
+            free(cbuf); free(dbuf);
+            return -1;
+        }
     }
 
     int success = 1;
@@ -696,7 +709,7 @@ static int measure_latencies_generic(
         if (is_zstd) {
             size_t rst = ZSTD_CCtx_reset(zcctx, ZSTD_reset_session_only);
             if (ZSTD_isError(rst)) { success = 0; break; }
-            c_sz = ZSTD_compressCCtx(zcctx, cbuf, block_sz * 2, blk, block_sz, zstd_level);
+            c_sz = ZSTD_compress2(zcctx, cbuf, block_sz * 2, blk, block_sz);
             if (ZSTD_isError(c_sz)) { success = 0; break; }
         } else if (is_binpack) {
             binpack_status_t st = binpack_compress_into(blk, block_sz, cbuf, block_sz * 2, &c_sz, bp_opt);
@@ -829,21 +842,31 @@ static int run_zstd_l1(const uint8_t *src, size_t src_sz, bench_result_t *res) {
         free(comp_buf); free(decomp_buf);
         return -1;
     }
-    ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+    size_t zr1 = ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 1);
+    size_t zr2 = ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+    if (ZSTD_isError(zr1) || ZSTD_isError(zr2)) {
+        if (cctx) ZSTD_freeCCtx(cctx);
+        if (dctx) ZSTD_freeDCtx(dctx);
+        free(comp_buf); free(decomp_buf);
+        return -1;
+    }
 
     /* Uniform Warm-up */
     size_t rst = ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
     if (ZSTD_isError(rst)) all_pass = 0;
-    c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 1);
-    if (ZSTD_isError(c_sz) || (c_sz > 4 && (comp_buf[4] & 0x04) == 0)) all_pass = 0;
-    size_t dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
-    if (ZSTD_isError(dec_ret) || dec_ret != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+    c_sz = ZSTD_compress2(cctx, comp_buf, max_buf_sz, src, src_sz);
+    if (ZSTD_isError(c_sz) || (c_sz > 4 && (comp_buf[4] & 0x04) == 0)) {
+        all_pass = 0;
+    } else {
+        size_t dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
+        if (ZSTD_isError(dec_ret) || dec_ret != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+    }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         rst = ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
         if (ZSTD_isError(rst)) all_pass = 0;
         uint64_t t0 = timer_now_ns();
-        c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 1);
+        c_sz = ZSTD_compress2(cctx, comp_buf, max_buf_sz, src, src_sz);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
         if (ZSTD_isError(c_sz) || (c_sz > 4 && (comp_buf[4] & 0x04) == 0)) all_pass = 0;
@@ -851,7 +874,10 @@ static int run_zstd_l1(const uint8_t *src, size_t src_sz, bench_result_t *res) {
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
-        dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
+        size_t dec_ret = 0;
+        if (!ZSTD_isError(c_sz) && c_sz > 0) {
+            dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
+        }
         uint64_t t1 = timer_now_ns();
         d_samples[i] = (double)(t1 - t0) / 1e9;
 
@@ -861,8 +887,8 @@ static int run_zstd_l1(const uint8_t *src, size_t src_sz, bench_result_t *res) {
     }
 
     res->orig_sz = src_sz;
-    res->cmp_sz = c_sz;
-    res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->cmp_sz = ZSTD_isError(c_sz) ? 0 : c_sz;
+    res->ratio_pct = (res->cmp_sz > 0) ? ((double)res->cmp_sz / (double)src_sz * 100.0) : 0.0;
     res->has_comp_measurement = 1;
     res->integrity_all_pass = all_pass;
     calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
@@ -1077,23 +1103,34 @@ static int run_zstd_l19(const uint8_t *src, size_t src_sz, bench_result_t *res) 
         free(comp_buf); free(decomp_buf);
         return -1;
     }
-    ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 19);
-    ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 25);
-    ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+    /* Zstd L19 configuration: level=19, windowLog=25 (32 MiB window), checksumFlag=1.
+     * Under ZSTD_compress2(), all sticky parameters are strictly enforced. */
+    size_t zr1 = ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, 19);
+    size_t zr2 = ZSTD_CCtx_setParameter(cctx, ZSTD_c_windowLog, 25);
+    size_t zr3 = ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
+    if (ZSTD_isError(zr1) || ZSTD_isError(zr2) || ZSTD_isError(zr3)) {
+        if (cctx) ZSTD_freeCCtx(cctx);
+        if (dctx) ZSTD_freeDCtx(dctx);
+        free(comp_buf); free(decomp_buf);
+        return -1;
+    }
 
     /* Warm-up */
     size_t rst = ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
     if (ZSTD_isError(rst)) all_pass = 0;
-    c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 19);
-    if (ZSTD_isError(c_sz) || (c_sz > 4 && (comp_buf[4] & 0x04) == 0)) all_pass = 0;
-    size_t dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
-    if (ZSTD_isError(dec_ret) || dec_ret != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+    c_sz = ZSTD_compress2(cctx, comp_buf, max_buf_sz, src, src_sz);
+    if (ZSTD_isError(c_sz) || (c_sz > 4 && (comp_buf[4] & 0x04) == 0)) {
+        all_pass = 0;
+    } else {
+        size_t dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
+        if (ZSTD_isError(dec_ret) || dec_ret != src_sz || memcmp(decomp_buf, src, src_sz) != 0) all_pass = 0;
+    }
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         rst = ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
         if (ZSTD_isError(rst)) all_pass = 0;
         uint64_t t0 = timer_now_ns();
-        c_sz = ZSTD_compressCCtx(cctx, comp_buf, max_buf_sz, src, src_sz, 19);
+        c_sz = ZSTD_compress2(cctx, comp_buf, max_buf_sz, src, src_sz);
         uint64_t t1 = timer_now_ns();
         c_samples[i] = (double)(t1 - t0) / 1e9;
         if (ZSTD_isError(c_sz) || (c_sz > 4 && (comp_buf[4] & 0x04) == 0)) all_pass = 0;
@@ -1101,7 +1138,10 @@ static int run_zstd_l19(const uint8_t *src, size_t src_sz, bench_result_t *res) 
 
     for (int i = 0; i < BENCH_ITERS; i++) {
         uint64_t t0 = timer_now_ns();
-        dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
+        size_t dec_ret = 0;
+        if (!ZSTD_isError(c_sz) && c_sz > 0) {
+            dec_ret = ZSTD_decompressDCtx(dctx, decomp_buf, src_sz, comp_buf, c_sz);
+        }
         uint64_t t1 = timer_now_ns();
         d_samples[i] = (double)(t1 - t0) / 1e9;
 
@@ -1111,8 +1151,8 @@ static int run_zstd_l19(const uint8_t *src, size_t src_sz, bench_result_t *res) 
     }
 
     res->orig_sz = src_sz;
-    res->cmp_sz = c_sz;
-    res->ratio_pct = (double)c_sz / (double)src_sz * 100.0;
+    res->cmp_sz = ZSTD_isError(c_sz) ? 0 : c_sz;
+    res->ratio_pct = (res->cmp_sz > 0) ? ((double)res->cmp_sz / (double)src_sz * 100.0) : 0.0;
     res->has_comp_measurement = 1;
     res->integrity_all_pass = all_pass;
     calc_stats(c_samples, BENCH_ITERS, src_sz, &res->c_stat);
@@ -2834,7 +2874,7 @@ int main(int argc, char **argv) {
     }
 
     printf("==================================================================================================================================\n");
-    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-008D-R13)\n");
+    printf("BINPACK ENTERPRISE SDK — SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-010 Instrument Revision 1 / Sampling Protocol R14)\n");
     if (aff.core_id >= 0) {
         printf("Hardware Topology: Logical Core %d (Core ID %d) | %s [Physical Verified: %s | Topology Gate: %s]\n",
                aff.logical_id, aff.core_id, aff.description,
