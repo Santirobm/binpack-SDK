@@ -1,9 +1,9 @@
-# Protocolo Experimental R15.4 — Hito BP-011
+# Protocolo Experimental R15.5 — Hito BP-011
 ## Industrial Time-Series Benchmark: Gorilla & Chimp vs. BinPack Transpose
 
 **Proyecto:** BinPack Enterprise SDK  
 **Hito:** BP-011  
-**Fase:** Fase A — Acta de Apertura y Protocolo Experimental (Revisión Definitiva R15.4)  
+**Fase:** Fase A — Acta de Apertura y Protocolo Experimental (Revisión Definitiva R15.5)  
 **Documento Rector:** `docs/audit/bp011_experimental_protocol.md`  
 **Rama:** `audit/bp1-core-safety`  
 **Estado:** PROTOCOLO FORMAL DEFINITIVO PARA DICTAMEN DE CIERRE DE FASE A  
@@ -12,20 +12,27 @@
 
 ## Control de Cambios y Registro Integral de Subsanaciones
 
-### Revisiones Previas (R15.1 a R15.3)
+### Revisiones Previas (R15.1 a R15.4)
 - **NC-01 (Cuartiles de Tukey):** Desambiguación formal entre notación estadística en base 1 ($x_{(5)}, x_{(6)}$ y $x_{(15)}, x_{(16)}$) y mapeo en base 0 en C (`arr[4]`, `arr[5]` y `arr[14]`, `arr[15]`).
-- **NC-02 (Separación de Amplificaciones):** Definición independiente de $A_{\text{read}}$ (lectura física), $A_{\text{decomp}}$ (descompresión en memoria) y $A_{\text{store}}$ (relación de almacenamiento).
+- **NC-02 (Separación de Amplificaciones):** Definición independiente de $A_{\text{read}}$ (lectura física), $A_{\text{decomp}}$ (descompresión en memoria) y $A_{\text{store}}$ (relación de almacenamiento), con $B_{\text{target}}$ exhaustivo.
 - **NC-03 (Aplicabilidad de Consultas):** Regla de cardinalidad estricta y catalogación de $Q_2$ como `NOT_APPLICABLE` en DS-01 ($N < 10.000$).
-- **OBS-01 a OBS-06:** Desglose en 4 componentes de tamaño ($B_{\text{time}}$, $B_{\text{values}}$, $B_{\text{container}}$, $B_{\text{total}}$), desglose cuádruple de densidades (bpv, bpt, bptuple, bpc), separación de regímenes Hot-Cache vs. Cold-Cache, definición de memoria operativa y reserva de $Q_{\text{conc}}$.
+- **NC-04 (Prefijos Inequívocos y Máquina de Estados):** Árbol estrictamente libre de prefijos (*strictly prefix-free*) con `111110` para delta inicial y `111111` para escape absoluto. Aritmética segura en 3 pasos, máquina de estados con `has_prev_delta` y serialización Big-Endian portable en microsegundos `int64_t`.
+- **OBS-01 a OBS-06:** Desglose en 4 componentes de tamaño ($B_{\text{time}}$, $B_{\text{values}}$, $B_{\text{container}}$, $B_{\text{total}}$), densidades (bpv, bpt, bptuple, bpc), separación Hot/Cold Cache, delimitación de $Q_{\text{conc}}$, familias Holm-Bonferroni por terna $(\text{Dataset}, \text{Consulta}, \text{Métrica})$ a $\alpha = 0.05$, y fijación de Chimp128 como baseline especializado con ring-buffer.
 
-### Revisión R15.4 (Presente Documento Definitivo)
-1. **NC-04 (Erradicación de Colisión de Prefijos en el Árbol de Códigos):** Se rediseña la tabla de prefijos para garantizar que sea estrictamente libre de prefijos (*prefix-free*). Se asigna `111110` (6 bits) al delta inicial de 64 bits y `111111` (6 bits) al escape absoluto de 64 bits, eliminando la colisión con `11110` (delta de 32 bits) y la ambigüedad en el decodificador.
-2. **Contrato de Transición y Decodificación Segura:** Se define la máquina de estados completa de codificador y decodificador con la bandera `has_prev_delta`, incluyendo la comprobación segura de adición `prev_timestamp + delta` en decodificación.
-3. **Comprobación Aritmética de 3 Pasos:** Verificación estricta de ausencia de desbordamiento en $\Delta t_i$, $\Delta t_{i-1}$ y $D = \Delta t_i - \Delta t_{i-1}$ antes de computar Delta-of-Delta.
-4. **Serialización Big-Endian y Portabilidad de `int64_t`:** Representación física bit-exacta mediante reinterpretación de memoria (`memcpy` a `uint64_t`), preservando valores negativos y extremos $[-2^{63}, 2^{63}-1]\,\mu\text{s}$.
-5. **OBS-04 (Árbol Formal de Decisión Estadística y Transformación de Intervalos):** Se establece la regla algorítmica de selección: Shapiro-Wilk $\implies$ prueba $t$ emparejada (si $p \ge 0.05$); si $p < 0.05$, evaluación de asimetría $g_1$: Wilcoxon emparejada si $|g_1| \le 0.5$, o Prueba de Signos Binomial exacta si $|g_1| > 0.5$. Se especifica la inversión estricta de extremos para el intervalo de confianza del 95% en métricas donde menor es mejor.
-6. **Balanceo de Orden y PRNG Continuo:** Flujo PRNG continuo único (sin reinicio de semilla entre rondas) acoplado a un diseño en bloques balanceados para neutralizar sesgos de deriva térmica.
-7. **Familias Holm-Bonferroni y Rol de Chimp128:** Delimitación de familias por terna $(\text{Dataset}, \text{Consulta}, \text{Métrica})$ a $\alpha = 0.05$, y fijación de Chimp128 como baseline especializado.
+### Revisión R15.5 (Presente Documento Definitivo)
+1. **Inferencia Estadística Consistente y Correspondencia de Estimandos:** Se establece la correspondencia formal y unívoca entre la prueba de hipótesis seleccionada, el estimando principal de localización y su intervalo de confianza del 95%:
+   - Para la **Prueba $t$ de Student emparejada**, el estimando es la media de diferencias $\bar{d}$ con intervalo paramétrico de Student.
+   - Para la **Prueba de Wilcoxon emparejada**, el estimando es la pseudomediana (estimador de localización de Hodges-Lehmann) con su intervalo de confianza exacto no paramétrico derivado de la inversión de rangos.
+   - Para la **Prueba de Signos**, el estimando es la mediana de diferencias $\tilde{d}$ con intervalo binomial exacto de distribución libre.
+   - Se complementa de forma universal con la media muestral y su intervalo de confianza empírico por **Bootstrap percentil emparejado** ($B = 10.000$ réplicas) como métrica comercial invariante.
+2. **Tratamiento Riguroso de Empates y Diferencias Nulas:**
+   - En la Prueba de Signos, las diferencias nulas ($d_i = 0$) se excluyen del cómputo binario, reduciendo el tamaño muestral al efectivo $n_{\text{eff}} = \sum \mathbb{I}(d_i \ne 0)$ bajo $B(n_{\text{eff}}, 0.5)$.
+   - En la Prueba de Wilcoxon, las diferencias nulas se excluyen y los empates en magnitudes absolutas no nulas ($|d_i| = |d_j|$) reciben rangos promedio (*mid-ranks*), aplicando la corrección de varianza $\sigma_W^2 = \frac{n(n+1)(2n+1)}{24} - \frac{\sum (t_j^3 - t_j)}{48}$.
+3. **Fórmula Estandarizada del Coeficiente de Asimetría:** Se adopta formalmente el estimador insesgado de Fisher-Pearson ($g_1$), estándar en `scipy.stats` y SAS, fijando el umbral de simetría en $|g_1| \le 0.5$.
+4. **Algoritmo PRNG Único y Protocolo de Balanceo:**
+   - Se fija como generador pseudoaleatorio único el **PCG32** (`pcg32_random_r`, O'Neill 2014) con semilla fija `seed = 0` y stream independiente, inicializado una única vez y avanzando de forma continua a lo largo de las 20 rondas.
+   - Se erradica el sesgo de módulo mediante el algoritmo de rango acotado sin división de Lemire (*nearly divisionless bounded random*).
+   - Se estipula un diseño en bloques balanceados con restricción de dispersión ordinal $|f_{m, p} - 20/7| \le 2$ para todos los motores en las 7 posiciones, garantizando neutralidad ante deriva térmica y calentamiento.
 
 ---
 
@@ -47,7 +54,7 @@ Para salvaguardar la integridad metodológica, BP-011 se rige por seis fases sec
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                       GOBERNANZA POR FASES — BP-011                         │
 ├─────────┬──────────────────────────────────────────┬────────────────────────┤
-│ Fase A  │ Acta y Protocolo Experimental R15.4      │ Solo Documentación     │
+│ Fase A  │ Acta y Protocolo Experimental R15.5      │ Solo Documentación     │
 │ Fase B  │ Auditoría de Codecs, Papers y Datasets   │ Solo Lectura           │
 │ Fase C  │ Diseño e Implementación del Arnés TSDB   │ Sin Ejecución          │
 │ Fase D  │ Auditoría Estática Pre-Flight del Arnés  │ Sin Compilación        │
@@ -61,7 +68,7 @@ Para salvaguardar la integridad metodológica, BP-011 se rige por seis fases sec
 2. **Code Freeze Estricto:** Cero modificaciones a `src/`, `include/`, `deps/` o arneses previos en `tests/`.
 3. **Prohibición de Ejecución:** No se permite compilar, ejecutar benchmarks, cronometrar ni descargar archivos externos.
 4. **Independencia Probatoria:** Queda expresamente prohibido reutilizar resultados de BP-010 como evidencia de superioridad en series temporales.
-5. **Transición a Fase B:** La Fase B no comenzará hasta que la presente revisión R15.4 cuente con aprobación formal de la auditoría.
+5. **Transición a Fase B:** La Fase B no comenzará hasta que la presente revisión R15.5 cuente con aprobación formal de la auditoría.
 
 ---
 
@@ -153,7 +160,7 @@ Para erradicar colisiones entre prefijos de longitud variable, todos los código
 | **$-2047 \le D \le 2048$** | `1110` | 4 bits | 12 bits no signados | Sesgo (*bias*): $D_{12} = (uint16\_t)(D + 2047) \in [0, 4095]$ |
 | **$-2^{31} \le D < 2^{31}$** | `11110` | 5 bits | 32 bits con signo | Complemento a 2: $D_{32} = (uint32\_t)((int32\_t)D)$ |
 | **Delta Inicial de 64 Bits** | `111110` | 6 bits | 64 bits con signo | Complemento a 2: `(uint64_t)delta_init` |
-| **Escape Absoluto de 64 Bits** | `111111` | 6 bits | 64 bits con signo | Timestamp absoluto literal: `(uint64_t)t_i` |
+| **Escape Absoluto de 64 Bits** | `111111` | 6 bits | 64 bits con signo | Timestamp literal: `(uint64_t)t_i` |
 
 **Demostración de No Colisión:** Ningún prefijo de la tabla es prefijo de ningún otro. El decodificador lee bit a bit sin requerir *lookahead* ni incurrir en ambigüedad.
 
@@ -166,7 +173,7 @@ Para erradicar colisiones entre prefijos de longitud variable, todos los código
    - Al estar $\text{has\_prev\_delta} = \text{false}$, se evalúa la diferencia simple $\Delta t_{i+1} = t_{i+1} - t_i$.
    - *Caso A (Delta representable sin desbordamiento en `int64_t`):*
      - *Codificador:* Emite `111110` (6 bits) seguido de los 64 bits de $\Delta t_{i+1}$.
-     - *Decodificador:* Al leer `111110`, lee 64 bits de $\Delta t_{i+1}$, comprueba mediante suma segura (`__builtin_add_overflow(prev_timestamp, delta, &curr)`) que no exista desbordamiento, calcula $t_{i+1} = t_i + \Delta t_{i+1}$, actualiza `prev_timestamp = t_{i+1}`, `prev_delta = \Delta t_{i+1}` y establece:
+     - *Decodificador:* Al leer `111110`, lee 64 bits de $\Delta t_{i+1}$, comprueba formalmente mediante suma segura (`__builtin_add_overflow(prev_timestamp, delta, &curr)`) que la adición no sufra overflow/underflow con signo. Calcula $t_{i+1} = t_i + \Delta t_{i+1}$, actualiza `prev_timestamp = t_{i+1}`, `prev_delta = \Delta t_{i+1}` y establece:
        $$\text{has\_prev\_delta} = \text{true}$$
    - *Caso B (Diferencia simple desborda `int64_t`):*
      - *Codificador:* Emite nuevamente el escape absoluto `111111` seguido de los 64 bits de $t_{i+1}$.
@@ -290,18 +297,26 @@ Para erradicar ambigüedades respecto a la sigla `bpc`, se reportarán formalmen
 
 ---
 
-## 7. Régimen Estadístico y Fórmulas Rigurosas (Protocolo R15)
+## 7. Régimen Estadístico, Inferencia Emparejada y Reproducibilidad Exacta
 
-### 7.1 Muestreo, Diseño en Bloques Balanceados y PRNG Continuo
+### 7.1 Muestreo, PRNG Determinista y Diseño en Bloques Balanceados
 - **Régimen Obligatorio:** **1 ciclo de warm-up + 20 iteraciones medidas** por motor, dataset y consulta.
 - **Identificación de Parejas Experimentales:**
   Cada punto de comparación se define por la tupla unívoca:
   $$\mathcal{T} = (\text{Dataset}, \text{Bloque}, \text{Consulta}, \text{Ronda}_i) \quad \text{con } i \in [1, 20]$$
-  Las mediciones de dos motores comparados se ejecutan sobre el mismo bloque físico y la misma consulta dentro de la misma ronda ambiental, garantizando la naturaleza estrictamente emparejada (*paired samples*).
-- **Flujo PRNG Continuo y Diseño en Bloques Balanceados:**
-  Para evitar que la semilla repetida genere órdenes idénticos o que un motor resulte sistemáticamente beneficiado por calentamiento o deriva térmica:
-  1. La semilla fija (`seed = 0`) inicializa un generador pseudoaleatorio de alta calidad (PCG32 / xoshiro256**) una única vez al comienzo de la campaña, avanzando continuamente sin re-sembrarse entre rondas.
-  2. Se aplica una estrategia de aleatorización en bloques balanceados (*Balanced Block Randomization*), garantizando que cada motor ocupe cada posición ordinal (1º a 7º) con idéntica frecuencia esperada a lo largo de las 20 rondas.
+  Las mediciones de dos motores comparados se ejecutan sobre el mismo bloque físico y la misma consulta dentro de la misma ronda ambiental, constituyendo **muestras emparejadas** (*paired samples*).
+- **Generador PRNG Único (PCG32 Canónico):**
+  Para garantizar reproducibilidad matemática exacta en cualquier plataforma, se adopta como único PRNG el generador **PCG32** (`pcg32_random_r`, O'Neill 2014) con multiplicador de 64 bits $6364136223846793005\text{ULL}$ e incremento impar $(1442695040888963407\text{ULL} \ll 1) \mid 1\text{ULL}$.
+  - Inicialización: Se inicializa **una sola vez** al inicio de la campaña con `state = 0` y `seed = 0`.
+  - Continuidad: El generador avanza de forma continua a lo largo de las 20 rondas sin re-sembrarse jamás entre rondas.
+- **Muestreo sin Sesgo de Módulo (Lemire Bounded Random):**
+  Para mapear enteros aleatorios a rangos acotados $[0, s-1]$ durante el barajado de Fisher-Yates, se prohíbe el operador de módulo (`rand % s`) y se exige el algoritmo de multiplicación acotada sin sesgo de Lemire (*nearly divisionless bounded random*).
+- **Diseño en Bloques Balanceados:**
+  Para neutralizar sistemáticamente la deriva térmica y el efecto de calentamiento de CPU:
+  - En cada ronda $r \in [1, 20]$, los 7 motores se barajan mediante Fisher-Yates sobre el flujo continuo de PCG32.
+  - La matriz de frecuencias ordinales $f_{m, p}$ (número de veces que el motor $m$ ocupa la posición $p \in [1, 7]$) debe cumplir formalmente:
+    $$\sum_{p=1}^7 f_{m, p} = 20, \qquad |f_{m, p} - 20/7| \le 2 \quad \forall m, p$$
+    garantizando que ningún motor quede concentrado al inicio o final de las ejecuciones.
 
 ### 7.2 Fórmulas Estadísticas de Cuartiles de Tukey (NC-01)
 Dada una muestra ordenada en orden ascendente:
@@ -312,7 +327,7 @@ Dada una muestra ordenada en orden ascendente:
 - **Rango Intercuartílico e Intervalo de Tukey:**
   $$\text{IQR} = Q_3 - Q_1, \quad \text{Límite Inferior} = Q_1 - 1.5 \cdot \text{IQR}, \quad \text{Límite Superior} = Q_3 + 1.5 \cdot \text{IQR}$$
 
-### 7.3 Dispersión Muestral, Inferencia Emparejada y Regla de Decisión (OBS-04)
+### 7.3 Dispersión Muestral, Coeficiente de Asimetría e Inferencia Emparejada (OBS-04)
 - **Media Muestral:** $\bar{x} = \frac{1}{n}\sum_{i=1}^n x_i$
 - **Varianza Muestral Insesgada:** $s^2 = \frac{1}{n-1}\sum_{i=1}^n (x_i - \bar{x})^2$
 - **Desviación Estándar Muestral:** $s = \sqrt{s^2}$
@@ -322,36 +337,47 @@ Dada una muestra ordenada en orden ascendente:
   - $\text{CV}_{\text{raw}} \le 10,0\%$.
   - $\text{CV}_{\text{filt}} \le 5,0\%$.
 
-#### A. Orientación Estricta del Signo para la Mejora Relativa ($\Delta_{\text{rel}}$)
-Dada la serie de diferencias emparejadas $d_i = x_{A,i} - x_{B,i}$ ($i=1\dots 20$) entre el motor evaluado $A$ y el baseline $B$:
-- **Para Métricas donde Menor es Mejor (Tamaño Comprimido, Latencia de Consulta, Amplificación, Memoria):**
-  $$\Delta_{\text{rel}} = \frac{\bar{x}_B - \bar{x}_A}{\bar{x}_B} \times 100\% = -\frac{\bar{d}}{\bar{x}_B} \times 100\%$$
-  *(Un valor positivo de $\Delta_{\text{rel}}$ indica formalmente una mejora: reducción porcentual de tamaño o tiempo).*
-- **Para Métricas donde Mayor es Mejor (Throughput de Ingesta, Throughput de Descompresión en MB/s o Mpts/s):**
-  $$\Delta_{\text{rel}} = \frac{\bar{x}_A - \bar{x}_B}{\bar{x}_B} \times 100\% = \frac{\bar{d}}{\bar{x}_B} \times 100\%$$
-  *(Un valor positivo de $\Delta_{\text{rel}}$ indica formalmente una mejora: incremento porcentual de velocidad).*
+#### A. Coeficiente Insesgado de Asimetría de Fisher-Pearson ($g_1$)
+Para evaluar la simetría de la serie de diferencias emparejadas $d_i = x_{A,i} - x_{B,i}$ ($i=1\dots 20$), se adopta formalmente la definición insesgada estándar de Fisher-Pearson:
+$$g_1 = \frac{n}{(n-1)(n-2)} \sum_{i=1}^n \left( \frac{d_i - \bar{d}}{s_d} \right)^3 \quad \text{donde } s_d = \sqrt{\frac{1}{n-1}\sum_{i=1}^n (d_i - \bar{d})^2}$$
+Para $n = 20$, esta fórmula es determinista, universal y elimina cualquier inconsistencia de divisores.
 
-#### B. Intervalo de Confianza del 95% para la Diferencia Media y Transformación de Extremos
-Sea $\text{SE}_d = \frac{s_d}{\sqrt{20}}$ y $t_{\text{crit}} = t_{0.975, 19} = 2.093$. El intervalo de confianza del 95% para la diferencia media $\bar{d}$ es:
-$$[\bar{d}_L, \bar{d}_U] = [\bar{d} - 2.093 \cdot \text{SE}_d, \; \bar{d} + 2.093 \cdot \text{SE}_d]$$
+#### B. Tratamiento Riguroso de Empates y Diferencias Nulas ($d_i = 0$)
+1. **En la Prueba de Signos:** Las diferencias nulas ($d_i = 0$, empates exactos) se excluyen del cómputo binario. El tamaño de muestra efectivo se reduce a:
+   $$n_{\text{eff}} = \sum_{i=1}^n \mathbb{I}(d_i \ne 0)$$
+   La prueba contrasta la hipótesis binomial $H_0: P(d_i > 0 \mid d_i \ne 0) = 0.5$ bajo la distribución $B(n_{\text{eff}}, 0.5)$. Si $n_{\text{eff}} = 0$ (todas las corridas arrojaron valores idénticos), se reporta $p = 1.0$ y empate exacto.
+2. **En la Prueba de Wilcoxon:** Las diferencias nulas ($|d_i| = 0$) se excluyen ($n_{\text{eff}}$ diferencias no nulas). Los empates en magnitudes absolutas no nulas ($|d_i| = |d_j|$) reciben rangos promedio (*mid-ranks*), aplicando la corrección estándar a la varianza del estadístico:
+   $$\sigma_W^2 = \frac{n_{\text{eff}}(n_{\text{eff}} + 1)(2n_{\text{eff}} + 1)}{24} - \sum_{j=1}^g \frac{t_j^3 - t_j}{48}$$
+   donde $g$ es el número de grupos de empates y $t_j$ es la cardinalidad de cada grupo.
 
-La estimación del intervalo de confianza para la mejora relativa $\Delta_{\text{rel}}$ se formula como una aproximación lineal de primer orden (Taylor plug-in conditioned on $\bar{x}_B > 0$), especificando rigurosamente la inversión de extremos según la orientación de la métrica:
-- **Para Métricas donde Mayor es Mejor (Throughput):**
-  $$\text{CI}_{95\%}(\Delta_{\text{rel}}) \approx \left[ \frac{\bar{d}_L}{\bar{x}_B} \times 100\%, \quad \frac{\bar{d}_U}{\bar{x}_B} \times 100\% \right]$$
-- **Para Métricas donde Menor es Mejor (Tamaño, Latencia, Memoria):**
-  $$\text{CI}_{95\%}(\Delta_{\text{rel}}) \approx \left[ -\frac{\bar{d}_U}{\bar{x}_B} \times 100\%, \quad -\frac{\bar{d}_L}{\bar{x}_B} \times 100\% \right]$$
-  *(Nótese la inversión obligatoria de los extremos inferior y superior impuesta por el cambio de signo).*
-
-#### C. Árbol Algorítmico de Selección de Pruebas de Hipótesis Emparejadas
-Para garantizar la validez inferencial sin violar supuestos distributivos:
+#### C. Árbol Algorítmico de Selección de Pruebas y Correspondencia de Estimandos
+Para garantizar que la prueba de hipótesis y el intervalo de confianza estimen el mismo parámetro poblacional:
 1. **Paso 1 (Evaluación de Normalidad):** Se aplica la prueba de Shapiro-Wilk sobre la serie de diferencias $d_i$:
-   - Si $p_{\text{SW}} \ge 0.05$: Las diferencias son consistentes con la normalidad $\implies$ Se aplica la **Prueba $t$ de Student emparejada** (*paired $t$-test*) sobre $\bar{d}$ con 19 grados de libertad.
-2. **Paso 2 (Evaluación de Simetría ante No Normalidad):** Si $p_{\text{SW}} < 0.05$, se calcula el coeficiente muestral de asimetría (*skewness*):
-   $$g_1 = \frac{\frac{1}{n}\sum_{i=1}^n (d_i - \bar{d})^3}{s_d^3}$$
-   - Si $|g_1| \le 0.5$ (distribución aproximadamente simétrica): Se satisface el supuesto de localización de Wilcoxon $\implies$ Se aplica la **Prueba de Rangos con Signo de Wilcoxon emparejada**.
-   - Si $|g_1| > 0.5$ (distribución marcadamente asimétrica o colas pesadas): Se invalida el supuesto de simetría de Wilcoxon $\implies$ Se aplica la **Prueba de Signos Binomial exacta** (*Exact Two-Sided Sign Test* sobre $H_0: P(d_i > 0) = 0.5$), libre de cualquier supuesto de forma distributiva.
+   - Si $p_{\text{SW}} \ge 0.05 \implies$ **Prueba $t$ de Student emparejada** (*paired $t$-test*, 19 g.l.).
+     - *Estimando Principal:* Media de las diferencias emparejadas $\bar{d}$.
+     - *Intervalo de Confianza del 95%:* Intervalo paramétrico de Student:
+       $$\text{CI}_{95\%}(\bar{d}) = \left[ \bar{d} - 2.093 \cdot \frac{s_d}{\sqrt{20}}, \quad \bar{d} + 2.093 \cdot \frac{s_d}{\sqrt{20}} \right]$$
+2. **Paso 2 (Evaluación de Simetría ante No Normalidad):** Si $p_{\text{SW}} < 0.05$, se evalúa el coeficiente de asimetría $g_1$:
+   - Si $|g_1| \le 0.5$ (distribución aproximadamente simétrica) $\implies$ **Prueba de Rangos con Signo de Wilcoxon emparejada**.
+     - *Estimando Principal:* Pseudomediana (estimador de localización de Hodges-Lehmann para diferencias emparejadas: mediana de todos los promedios de Walsh $(d_i + d_j)/2$ para $1 \le i \le j \le n_{\text{eff}}$).
+     - *Intervalo de Confianza del 95%:* Intervalo no paramétrico exacto de Tukey-Hodges-Lehmann derivado de la distribución nula de Wilcoxon.
+   - Si $|g_1| > 0.5$ (distribución asimétrica o colas pesadas) $\implies$ **Prueba de Signos Binomial exacta** (*Exact Two-Sided Sign Test*).
+     - *Estimando Principal:* Mediana de las diferencias emparejadas $\tilde{d}$.
+     - *Intervalo de Confianza del 95%:* Intervalo de confianza binomial exacto para la mediana (estadísticos de orden $d_{(k)}$ y $d_{(n_{\text{eff}} - k + 1)}$ correspondientes a cobertura binomial $\ge 95\%$).
+3. **Métrica Comercial Invariante (Bootstrap Percentil Emparejado):**
+   Con independencia del camino distributivo, se reportará de forma estandarizada para todas las comparaciones la media $\bar{d}$ acompañada de su intervalo de confianza al 95% obtenido mediante **Bootstrap percentil emparejado** ($B = 10.000$ remuestreos con reemplazo de las parejas $(x_{A,i}, x_{B,i})$), garantizando comparabilidad comercial sin supuestos de normalidad.
 
-#### D. Delimitación de Familias y Control de Multiplicidad (Holm-Bonferroni)
+#### D. Orientación del Signo e Intervalo de Mejora Relativa ($\Delta_{\text{rel}}$)
+Con $\bar{x}_B > 0$ y $[\bar{d}_L, \bar{d}_U]$ correspondiente al intervalo de confianza del 95% del estimador de diferencia media:
+- **Para Métricas donde Mayor es Mejor (Throughput MB/s, Mpts/s):**
+  $$\Delta_{\text{rel}} = \frac{\bar{x}_A - \bar{x}_B}{\bar{x}_B} \times 100\% = \frac{\bar{d}}{\bar{x}_B} \times 100\%$$
+  $$\text{CI}_{95\%}(\Delta_{\text{rel}}) \approx \left[ \frac{\bar{d}_L}{\bar{x}_B} \times 100\%, \quad \frac{\bar{d}_U}{\bar{x}_B} \times 100\% \right]$$
+- **Para Métricas donde Menor es Mejor (Tamaño Comprimido, Latencia, Amplificación, Memoria):**
+  $$\Delta_{\text{rel}} = \frac{\bar{x}_B - \bar{x}_A}{\bar{x}_B} \times 100\% = -\frac{\bar{d}}{\bar{x}_B} \times 100\%$$
+  $$\text{CI}_{95\%}(\Delta_{\text{rel}}) \approx \left[ -\frac{\bar{d}_U}{\bar{x}_B} \times 100\%, \quad -\frac{\bar{d}_L}{\bar{x}_B} \times 100\% \right]$$
+  *(Inversión explícita de extremos y signos estrictamente formalizada).*
+
+#### E. Delimitación de Familias y Control de Multiplicidad (Holm-Bonferroni)
 - **Definición de Familia:** Se define formalmente una familia independiente de comparaciones por cada terna:
   $$\mathcal{F} = (\text{Dataset}, \text{Consulta}, \text{Métrica})$$
 - **Procedimiento:** Dentro de cada familia $\mathcal{F}$, se contrastan simultáneamente las comparaciones de BinPack frente a los baselines activos ($m=3$: BinPack vs. Gorilla, BinPack vs. Chimp, BinPack vs. Chimp128). Se ordenan los p-valores $p_{(1)} \le p_{(2)} \le p_{(3)}$ y se aplica el criterio escalonado:
@@ -405,7 +431,7 @@ Chimp128 se evalúa como una **referencia técnica especializada de alta capacid
 
 ## 9. Próximos Pasos tras la Revisión de la Fase A
 
-Una vez obtenida la aprobación formal de la presente revisión R15.4:
+Una vez obtenida la aprobación formal de la presente revisión R15.5:
 1. **Cierre Formal de la Fase A.**
 2. **Apertura de la Fase B (Auditoría de Codecs y Datasets):** Actividad exclusivamente de solo lectura dedicada a la inspección estática de las implementaciones fuente de Gorilla, Chimp/Chimp128 y la validación de integridad de los datasets formalizados.
 3. **Mantenimiento del Code Freeze:** Ninguna compilación ni ejecución de código hasta completar las Fases B, C y D.
