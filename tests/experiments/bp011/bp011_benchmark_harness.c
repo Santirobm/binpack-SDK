@@ -722,6 +722,7 @@ typedef struct {
     double select_q3_speedup;
     double select_avg_speedup;
     double decomp_amplification;
+    bool   has_measured_decomp_amplification;
     bool   has_q2;
 } bp011_engine_result_t;
 
@@ -737,7 +738,8 @@ static int bp011_cmp_doubles(const void *a, const void *b) {
  */
 static int bp011_write_traceability_sidecar(
     const char *csv_path,
-    const bp011_io_align_t *align
+    const bp011_io_align_t *align,
+    bool crc32_verified
 ) {
     char meta_path[1024];
     snprintf(meta_path, sizeof(meta_path), "%s.meta.json", csv_path);
@@ -801,7 +803,7 @@ static int bp011_write_traceability_sidecar(
     ret |= (fprintf(f, "  },\n") < 0);
     ret |= (fprintf(f, "  \"validation_status\": {\n") < 0);
     ret |= (fprintf(f, "    \"bit_exact_verified\": true,\n") < 0);
-    ret |= (fprintf(f, "    \"crc32_verified\": true\n") < 0);
+    ret |= (fprintf(f, "    \"crc32_verified\": %s\n", crc32_verified ? "true" : "false") < 0);
     ret |= (fprintf(f, "  }\n") < 0);
     ret |= (fprintf(f, "}\n") < 0);
 
@@ -810,7 +812,9 @@ static int bp011_write_traceability_sidecar(
         return -2;
     }
 
-    if (fflush(f) != 0 || fclose(f) != 0) {
+    int flush_res = fflush(f);
+    int close_res = fclose(f);
+    if (flush_res != 0 || close_res != 0) {
         return -3;
     }
 
@@ -824,8 +828,10 @@ static int bp011_run_campaign_dataset(
     FILE *csv_summary,
     FILE *csv_raw,
     bp011_io_align_t *align,
-    bp011_pcg32_random_t *rng
+    bp011_pcg32_random_t *rng,
+    bool *out_crc32_verified
 ) {
+    if (out_crc32_verified) *out_crc32_verified = false;
     printf("-------------------------------------------------------------------------------\n");
     printf(">>> EJECUTANDO CAMPAÑA EXPERIMENTAL EN DATASET: %s\n", dataset_name);
     printf("    Protocolo: 1 Warmup + 20 Rondas Balanceadas (Cuadrado Latino 4x4 Aleatorizado)\n");
@@ -954,12 +960,12 @@ static int bp011_run_campaign_dataset(
             /* Empaquetado canonico de bloque */
             bp011_status_t pkg_st = bp011_package_block(
                 file_buf, max_stream_cap,
-                sample_count, num_channels,
-                time_buf, time_bytes, time_bits,
-                val_buf, val_bytes, val_bits,
+                &actual_file,
+                num_channels, sample_count,
                 (eng == 2) ? chan_table : NULL,
                 series_dir, num_series,
-                &actual_file
+                time_buf, time_bytes, time_bits,
+                val_buf, val_bytes, val_bits
             );
             if (pkg_st != BP011_OK) {
                 fprintf(stderr, "[FATAL] Fallo en empaquetado canonico motor %s: %d\n", results[eng].engine_name, pkg_st);
@@ -1262,20 +1268,58 @@ static int bp011_run_campaign_dataset(
                                              (results[2].has_q2 ? q2_bp_decomp_bytes : 0) +
                                              q3_bp_decomp_bytes;
 
-        /* Gorilla: En Q1 decodifica hasta canal K-1 (toda la matriz), en Q2 los 10k puntos, en Q3 4 canales */
+        /* Gorilla: En Q1 decodifica hasta canal K-1 (toda la matriz = num_channels * N * 8),
+         * en Q2 decodifica 10k puntos del canal 0 (10,000 * 8),
+         * en Q3 ejecuta 4 consultas independientes decodificando secuencialmente desde el canal 0
+         * acumulando 1 + 2 + 3 + 4 = 10 canales completos (10 * N * 8 bytes) (NC-D09 / Rev 6) */
         size_t gor_query_bytes_decompressed = ((size_t)num_channels * (size_t)sample_count * sizeof(double)) +
                                               (results[2].has_q2 ? (10000 * sizeof(double)) : 0) +
-                                              (4 * (size_t)sample_count * sizeof(double));
+                                              (10 * (size_t)sample_count * sizeof(double));
 
-        /* Compresores monoliticos (Chimp128 / Zstd): Decodifican toda la matriz para cada consulta */
-        size_t matrix_bytes = (size_t)num_channels * (size_t)sample_count * sizeof(double);
-        size_t num_queries_run = results[2].has_q2 ? 3 : 2;
-        size_t full_query_bytes_decompressed = num_queries_run * matrix_bytes;
-
+        /* Asignacion rigurosa de amplificaciones: motores medidos vs no medidos (NC-D10 / Rev 6) */
+        results[0].has_measured_decomp_amplification = true;
         results[0].decomp_amplification = (double)gor_query_bytes_decompressed / (double)query_bytes_requested;
-        results[1].decomp_amplification = (double)full_query_bytes_decompressed / (double)query_bytes_requested;
+
+        results[1].has_measured_decomp_amplification = false;
+        results[1].decomp_amplification = 0.0; /* N/A: sin soporte de consultas selectivas en bloque */
+
+        results[2].has_measured_decomp_amplification = true;
         results[2].decomp_amplification = (double)bp_query_bytes_decompressed / (double)query_bytes_requested;
-        results[3].decomp_amplification = (double)full_query_bytes_decompressed / (double)query_bytes_requested;
+
+        results[3].has_measured_decomp_amplification = false;
+        results[3].decomp_amplification = 0.0; /* N/A: arquitectura monolitica sin consultas en bloque */
+
+        /* Empaquetado canónico BinPack final para validación explícita de CRC-32 y Unbuffered I/O (Rev 6) */
+        size_t bp_canonical_file_sz = 0;
+        bp011_status_t pkg_bp_final = bp011_package_block(
+            file_buf, max_stream_cap,
+            &bp_canonical_file_sz,
+            num_channels, sample_count,
+            chan_table,
+            series_dir, num_series,
+            time_buf, time_bytes, time_bits,
+            val_buf_bp, bp_val_sz, bp_bits
+        );
+        if (pkg_bp_final != BP011_OK || bp_canonical_file_sz != results[2].total_bytes) {
+            fprintf(stderr, "[FATAL] Fallo al empaquetar bloque BinPack para validacion CRC-32 (error: %d)\n", pkg_bp_final);
+            bp011_tracked_free(val_buf_bp);
+            return 69;
+        }
+
+        /* Verificacion explicita de cabecera y recalculacion CRC-32 IEEE 802.3 (NC-D02 / Rev 6) */
+        bp011_block_header_t chk_header;
+        memset(&chk_header, 0, sizeof(chk_header));
+        bp011_deserialize_header(&chk_header, file_buf);
+        bp011_status_t crc_val_st = bp011_validate_header(&chk_header, file_buf, bp_canonical_file_sz);
+        if (crc_val_st == BP011_OK) {
+            if (out_crc32_verified) *out_crc32_verified = true;
+            printf("  [OK] Integridad de bloque y CRC-32 verificados con exito (CRC: 0x%08X)\n", chk_header.crc32);
+        } else {
+            if (out_crc32_verified) *out_crc32_verified = false;
+            fprintf(stderr, "[FATAL] Falla en verificacion CRC-32 de bloque BinPack: codigo %d\n", crc_val_st);
+            bp011_tracked_free(val_buf_bp);
+            return 71;
+        }
 
         bp011_tracked_free(val_buf_bp);
     }
@@ -1305,8 +1349,15 @@ static int bp011_run_campaign_dataset(
                results[i].decomp_peak_ram);
 
         if (csv_summary) {
+            char decomp_amp_str[32];
+            if (results[i].has_measured_decomp_amplification) {
+                snprintf(decomp_amp_str, sizeof(decomp_amp_str), "%.2f", results[i].decomp_amplification);
+            } else {
+                snprintf(decomp_amp_str, sizeof(decomp_amp_str), "N/A");
+            }
+
             if (results[2].has_q2) {
-                if (fprintf(csv_summary, "%s,%s,%zu,%.4f,%.6f,%.2f,%.6f,%.2f,%zu,%zu,%zu,%zu,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n",
+                if (fprintf(csv_summary, "%s,%s,%zu,%.4f,%.6f,%.2f,%.6f,%.2f,%zu,%zu,%zu,%zu,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n",
                             dataset_name,
                             results[i].engine_name,
                             results[i].total_bytes,
@@ -1325,11 +1376,11 @@ static int bp011_run_campaign_dataset(
                             (i == 2) ? results[2].select_q2_speedup : 1.0,
                             (i == 2) ? results[2].select_q3_speedup : 1.0,
                             (i == 2) ? results[2].select_avg_speedup : 1.0,
-                            results[i].decomp_amplification) < 0) {
+                            decomp_amp_str) < 0) {
                     return 70;
                 }
             } else {
-                if (fprintf(csv_summary, "%s,%s,%zu,%.4f,%.6f,%.2f,%.6f,%.2f,%zu,%zu,%zu,%zu,%.2f,%.2f,%.2f,N/A,%.2f,%.2f,%.2f\n",
+                if (fprintf(csv_summary, "%s,%s,%zu,%.4f,%.6f,%.2f,%.6f,%.2f,%zu,%zu,%zu,%zu,%.2f,%.2f,%.2f,N/A,%.2f,%.2f,%s\n",
                             dataset_name,
                             results[i].engine_name,
                             results[i].total_bytes,
@@ -1347,7 +1398,7 @@ static int bp011_run_campaign_dataset(
                             (i == 2) ? results[2].select_q1_speedup : 1.0,
                             (i == 2) ? results[2].select_q3_speedup : 1.0,
                             (i == 2) ? results[2].select_avg_speedup : 1.0,
-                            results[i].decomp_amplification) < 0) {
+                            decomp_amp_str) < 0) {
                     return 70;
                 }
             }
@@ -1364,15 +1415,20 @@ static int bp011_run_campaign_dataset(
         printf("  • Consultas Selectivas Speedup: Q1=%.2fx, Q2=N/A, Q3=%.2fx (Promedio=%.2fx)\n",
                results[2].select_q1_speedup, results[2].select_q3_speedup, results[2].select_avg_speedup);
     }
-    double amp_q1_bp = (double)sample_count / 1000.0;
+    printf("  • Amplificacion de Descompresion Real Medida:\n");
     if (results[2].has_q2) {
+        double amp_q1_bp = (double)sample_count / 1000.0;
         double amp_q2_bp = (double)sample_count / 10000.0;
-        printf("  • Amplificacion de Descompresion Real BinPack: Q1=%.2fx, Q2=%.2fx, Q3=1.00x (Ponderada=%.2fx)\n",
+        printf("    - BinPack:  Q1=%.2fx, Q2=%.2fx, Q3=1.00x (Ponderada=%.2fx)\n",
                amp_q1_bp, amp_q2_bp, results[2].decomp_amplification);
     } else {
-        printf("  • Amplificacion de Descompresion Real BinPack: Q1=%.2fx, Q2=N/A, Q3=1.00x (Ponderada=%.2fx)\n",
+        double amp_q1_bp = (double)sample_count / 1000.0;
+        printf("    - BinPack:  Q1=%.2fx, Q2=N/A, Q3=1.00x (Ponderada=%.2fx)\n",
                amp_q1_bp, results[2].decomp_amplification);
     }
+    printf("    - Gorilla:  Ponderada=%.2fx (medida con 10 canales en Q3)\n", results[0].decomp_amplification);
+    printf("    - Chimp128: N/A (sin soporte de consultas selectivas en bloque)\n");
+    printf("    - Zstd:     N/A (sin soporte de consultas selectivas en bloque)\n");
     printf("  • Ratio Throughput comp: %.2fx de Gorilla (requerido: >= 0.50x)\n",
            results[2].tp_comp_median_mbs / results[0].tp_comp_median_mbs);
 
@@ -1487,6 +1543,7 @@ int main(int argc, char **argv) {
     bp011_pcg32_random_t campaign_rng;
     bp011_pcg32_srandom_r(&campaign_rng, 42ULL, 54ULL);
 
+    bool cmapss_crc_ok = false;
     int ret_cmapss = bp011_run_campaign_dataset(
         "NASA_CMAPSS_FD001",
         "tests/corpora/nasa_telemetry/nasa_turbofan_ascii.txt",
@@ -1494,7 +1551,8 @@ int main(int argc, char **argv) {
         csv_summary,
         csv_raw,
         &align,
-        &campaign_rng
+        &campaign_rng,
+        &cmapss_crc_ok
     );
     if (ret_cmapss != 0) {
         fclose(csv_summary);
@@ -1503,6 +1561,7 @@ int main(int argc, char **argv) {
         return ret_cmapss;
     }
 
+    bool ims_crc_ok = false;
     int ret_ims = bp011_run_campaign_dataset(
         "NASA_BEARING_IMS_TEST1",
         "tests/corpora/nasa_telemetry/nasa_bearing_ims_test1.csv",
@@ -1510,7 +1569,8 @@ int main(int argc, char **argv) {
         csv_summary,
         csv_raw,
         &align,
-        &campaign_rng
+        &campaign_rng,
+        &ims_crc_ok
     );
     if (ret_ims != 0) {
         fclose(csv_summary);
@@ -1519,19 +1579,27 @@ int main(int argc, char **argv) {
         return ret_ims;
     }
 
-    if (fflush(csv_summary) != 0 || ferror(csv_summary) || fclose(csv_summary) != 0) {
+    int flush_sum = fflush(csv_summary);
+    int err_sum   = ferror(csv_summary);
+    int close_sum = fclose(csv_summary);
+    if (flush_sum != 0 || err_sum != 0 || close_sum != 0) {
         fprintf(stderr, "[FATAL] Error de I/O al persistir o cerrar archivo de resumen CSV: %s\n", csv_out_path);
         fclose(csv_raw);
         return 4;
     }
-    if (fflush(csv_raw) != 0 || ferror(csv_raw) || fclose(csv_raw) != 0) {
+
+    int flush_raw = fflush(csv_raw);
+    int err_raw   = ferror(csv_raw);
+    int close_raw = fclose(csv_raw);
+    if (flush_raw != 0 || err_raw != 0 || close_raw != 0) {
         fprintf(stderr, "[FATAL] Error de I/O al persistir o cerrar archivo de observaciones crudas CSV: %s\n", csv_raw_path);
         return 5;
     }
     printf("Resultados consolidados guardados en: %s y %s\n", csv_out_path, csv_raw_path);
 
-    /* Generacion del sidecar de trazabilidad experimental verificado (NC-D02) */
-    int sidecar_st = bp011_write_traceability_sidecar(csv_out_path, &align);
+    /* Generacion del sidecar de trazabilidad experimental verificado con CRC-32 real (NC-D02 / Rev 6) */
+    bool all_crc32_verified = (cmapss_crc_ok && ims_crc_ok);
+    int sidecar_st = bp011_write_traceability_sidecar(csv_out_path, &align, all_crc32_verified);
     if (sidecar_st != 0) {
         fprintf(stderr, "[FATAL] Fallo al generar sidecar de trazabilidad: %s.meta.json (error: %d)\n", csv_out_path, sidecar_st);
         return 6;
