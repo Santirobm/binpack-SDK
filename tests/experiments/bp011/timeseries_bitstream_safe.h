@@ -64,6 +64,18 @@ static inline bp011_status_t bp011_bitwriter_write_bits(bp011_bitwriter_t *w, ui
     if (num_bits > 64) return BP011_ERR_INVALID_ARG;
     if (num_bits == 0) return BP011_OK;
 
+    /* Comprobacion previa transaccional de capacidad (NC-D04):
+       Garantiza atomicidad de la operacion multibit. Si el buffer no dispone
+       de capacidad suficiente, falla de inmediato sin mutar ningun estado. */
+    size_t needed_bytes = 0;
+    uint8_t room_in_cur = (uint8_t)(8 - w->bits_in_cur);
+    if (num_bits >= room_in_cur) {
+        needed_bytes = 1 + (size_t)((num_bits - room_in_cur) / 8);
+    }
+    if (needed_bytes > w->capacity_bytes - w->byte_pos) {
+        return BP011_ERR_BUFFER_OVERFLOW;
+    }
+
     for (int i = (int)num_bits - 1; i >= 0; i--) {
         uint8_t b = (uint8_t)((val >> i) & 1ULL);
         bp011_status_t st = bp011_bitwriter_write_bit(w, b);

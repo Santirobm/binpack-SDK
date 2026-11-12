@@ -245,7 +245,10 @@ static inline bp011_status_t bp011_package_block(
     if (!file_buf || !actual_file_bytes || !time_stream || !values_stream) {
         return BP011_ERR_NULL_POINTER;
     }
+
+    /* Comprobacion incondicional de desbordamiento en tamanos de bytes y bits (NC-D05) */
     if (time_bytes > UINT32_MAX || values_bytes > UINT32_MAX) return BP011_ERR_BUFFER_OVERFLOW;
+    if (time_bits > (uint64_t)UINT32_MAX || values_bits > (uint64_t)UINT32_MAX) return BP011_ERR_BUFFER_OVERFLOW;
     if (file_cap < BP011_HEADER_SIZE_BYTES) return BP011_ERR_BUFFER_OVERFLOW;
 
     uint32_t cursor = BP011_HEADER_SIZE_BYTES;
