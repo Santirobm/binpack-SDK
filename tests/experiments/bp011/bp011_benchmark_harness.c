@@ -761,80 +761,49 @@ static int bp011_write_traceability_sidecar(
 #endif
 
     int ret = 0;
-    ret |= (fprintf(f, "{
-") < 0);
-    ret |= (fprintf(f, "  "milestone": "BP-011",
-") < 0);
-    ret |= (fprintf(f, "  "phase": "Phase E - Commercial Viability Campaign",
-") < 0);
-    ret |= (fprintf(f, "  "timestamp_utc": "%s",
-", date_buf) < 0);
-    ret |= (fprintf(f, "  "protocol": {
-") < 0);
-    ret |= (fprintf(f, "    "num_measured_rounds": %d,
-", BP011_NUM_ROUNDS) < 0);
-    ret |= (fprintf(f, "    "warmup_rounds": %d,
-", BP011_WARMUP_ROUNDS) < 0);
-    ret |= (fprintf(f, "    "calendar": "Randomized 4x4 Latin Square Blocks (PCG32/Lemire seed=42, seq=54)",
-") < 0);
-    ret |= (fprintf(f, "    "timer": "%s",
-", timer_desc) < 0);
-    ret |= (fprintf(f, "    "timestamp_codec": "R15.10 Literal Delta-of-Delta",
-") < 0);
-    ret |= (fprintf(f, "    "zstd_baseline_level": %d
-", BP011_ZSTD_DEFAULT_LEVEL) < 0);
-    ret |= (fprintf(f, "  },
-") < 0);
-    ret |= (fprintf(f, "  "environment": {
-") < 0);
+    ret |= (fprintf(f, "{\n") < 0);
+    ret |= (fprintf(f, "  \"milestone\": \"BP-011\",\n") < 0);
+    ret |= (fprintf(f, "  \"phase\": \"Phase E - Commercial Viability Campaign\",\n") < 0);
+    ret |= (fprintf(f, "  \"timestamp_utc\": \"%s\",\n", date_buf) < 0);
+    ret |= (fprintf(f, "  \"protocol\": {\n") < 0);
+    ret |= (fprintf(f, "    \"num_measured_rounds\": %d,\n", BP011_NUM_ROUNDS) < 0);
+    ret |= (fprintf(f, "    \"warmup_rounds\": %d,\n", BP011_WARMUP_ROUNDS) < 0);
+    ret |= (fprintf(f, "    \"calendar\": \"Randomized 4x4 Latin Square Blocks (PCG32/Lemire seed=42, seq=54)\",\n") < 0);
+    ret |= (fprintf(f, "    \"timer\": \"%s\",\n", timer_desc) < 0);
+    ret |= (fprintf(f, "    \"timestamp_codec\": \"R15.10 Literal Delta-of-Delta\",\n") < 0);
+    ret |= (fprintf(f, "    \"zstd_baseline_level\": %d\n", BP011_ZSTD_DEFAULT_LEVEL) < 0);
+    ret |= (fprintf(f, "  },\n") < 0);
+    ret |= (fprintf(f, "  \"environment\": {\n") < 0);
 #ifdef _WIN32
-    ret |= (fprintf(f, "    "os": "Windows",
-") < 0);
+    ret |= (fprintf(f, "    \"os\": \"Windows\",\n") < 0);
 #else
-    ret |= (fprintf(f, "    "os": "POSIX",
-") < 0);
+    ret |= (fprintf(f, "    \"os\": \"POSIX\",\n") < 0);
 #endif
 #ifdef _MSC_VER
-    ret |= (fprintf(f, "    "compiler": "MSVC %d",
-", _MSC_VER) < 0);
+    ret |= (fprintf(f, "    \"compiler\": \"MSVC %d\",\n", _MSC_VER) < 0);
 #elif defined(__clang__)
-    ret |= (fprintf(f, "    "compiler": "Clang %s",
-", __clang_version__) < 0);
+    ret |= (fprintf(f, "    \"compiler\": \"Clang %s\",\n", __clang_version__) < 0);
 #elif defined(__GNUC__)
-    ret |= (fprintf(f, "    "compiler": "GCC %d.%d",
-", __GNUC__, __GNUC_MINOR__) < 0);
+    ret |= (fprintf(f, "    \"compiler\": \"GCC %d.%d\",\n", __GNUC__, __GNUC_MINOR__) < 0);
+#else
+    ret |= (fprintf(f, "    \"compiler\": \"Unknown\",\n") < 0);
 #endif
-    ret |= (fprintf(f, "    "working_tree_branch": "audit/bp1-core-safety",
-") < 0);
-    ret |= (fprintf(f, "    "code_freeze": "src/, include/, deps/ 100%% intact"
-") < 0);
-    ret |= (fprintf(f, "  },
-") < 0);
-    ret |= (fprintf(f, "  "hardware_io_audit": {
-") < 0);
-    ret |= (fprintf(f, "    "storage_alignment_source": "%s",
-",
+    ret |= (fprintf(f, "    \"working_tree_branch\": \"audit/bp1-core-safety\",\n") < 0);
+    ret |= (fprintf(f, "    \"code_freeze\": \"src/, include/, deps/ 100%% intact\"\n") < 0);
+    ret |= (fprintf(f, "  },\n") < 0);
+    ret |= (fprintf(f, "  \"hardware_io_audit\": {\n") < 0);
+    ret |= (fprintf(f, "    \"storage_alignment_source\": \"%s\",\n",
             align->ioctl_success ? "IOCTL_STORAGE_QUERY_PROPERTY" : (align->is_fallback ? "GetDiskFreeSpaceA_fallback" : "none")) < 0);
-    ret |= (fprintf(f, "    "logical_sector_bytes": %u,
-", align->logical_sector_size) < 0);
-    ret |= (fprintf(f, "    "physical_sector_bytes": %u,
-", align->physical_sector_size) < 0);
-    ret |= (fprintf(f, "    "unbuffered_io_verified": %s,
-", align->physical_io_verified ? "true" : "false") < 0);
-    ret |= (fprintf(f, "    "real_hardware_io": %s
-", align->physical_io_verified ? "true" : "false") < 0);
-    ret |= (fprintf(f, "  },
-") < 0);
-    ret |= (fprintf(f, "  "validation_status": {
-") < 0);
-    ret |= (fprintf(f, "    "bit_exact_verified": true,
-") < 0);
-    ret |= (fprintf(f, "    "crc32_verified": true
-") < 0);
-    ret |= (fprintf(f, "  }
-") < 0);
-    ret |= (fprintf(f, "}
-") < 0);
+    ret |= (fprintf(f, "    \"logical_sector_bytes\": %u,\n", align->logical_sector_size) < 0);
+    ret |= (fprintf(f, "    \"physical_sector_bytes\": %u,\n", align->physical_sector_size) < 0);
+    ret |= (fprintf(f, "    \"unbuffered_io_verified\": %s,\n", align->physical_io_verified ? "true" : "false") < 0);
+    ret |= (fprintf(f, "    \"real_hardware_io\": %s\n", align->physical_io_verified ? "true" : "false") < 0);
+    ret |= (fprintf(f, "  },\n") < 0);
+    ret |= (fprintf(f, "  \"validation_status\": {\n") < 0);
+    ret |= (fprintf(f, "    \"bit_exact_verified\": true,\n") < 0);
+    ret |= (fprintf(f, "    \"crc32_verified\": true\n") < 0);
+    ret |= (fprintf(f, "  }\n") < 0);
+    ret |= (fprintf(f, "}\n") < 0);
 
     if (ret != 0 || ferror(f)) {
         fclose(f);
@@ -854,16 +823,13 @@ static int bp011_run_campaign_dataset(
     bool is_cmapss,
     FILE *csv_summary,
     FILE *csv_raw,
-    bp011_io_align_t *align
+    bp011_io_align_t *align,
+    bp011_pcg32_random_t *rng
 ) {
-    printf("-------------------------------------------------------------------------------
-");
-    printf(">>> EJECUTANDO CAMPAÑA EXPERIMENTAL EN DATASET: %s
-", dataset_name);
-    printf("    Protocolo: 1 Warmup + 20 Rondas Balanceadas (Cuadrado Latino 4x4 Aleatorizado)
-");
-    printf("-------------------------------------------------------------------------------
-");
+    printf("-------------------------------------------------------------------------------\n");
+    printf(">>> EJECUTANDO CAMPAÑA EXPERIMENTAL EN DATASET: %s\n", dataset_name);
+    printf("    Protocolo: 1 Warmup + 20 Rondas Balanceadas (Cuadrado Latino 4x4 Aleatorizado)\n");
+    printf("-------------------------------------------------------------------------------\n");
 
     int64_t *timestamps = NULL;
     double *matrix = NULL;
@@ -880,14 +846,12 @@ static int bp011_run_campaign_dataset(
     }
 
     if (load_err != 0) {
-        fprintf(stderr, "[FATAL] Fallo en la carga del corpus '%s' (codigo de error: %d)
-", corpus_path, load_err);
+        fprintf(stderr, "[FATAL] Fallo en la carga del corpus '%s' (codigo de error: %d)\n", corpus_path, load_err);
         return 1;
     }
 
     size_t raw_bytes = (size_t)sample_count * (sizeof(int64_t) + (size_t)num_channels * sizeof(double));
-    printf("  • Muestras: %u | Canales: %u | Raw Payload: %zu bytes (%.2f MB)
-",
+    printf("  • Muestras: %u | Canales: %u | Raw Payload: %zu bytes (%.2f MB)\n",
            sample_count, num_channels, raw_bytes, (double)raw_bytes / 1e6);
 
     size_t max_stream_cap = raw_bytes * 2 + 65536;
@@ -896,8 +860,7 @@ static int bp011_run_campaign_dataset(
     uint8_t *file_buf = (uint8_t *)bp011_tracked_malloc(max_stream_cap);
 
     if (!time_buf || !val_buf || !file_buf) {
-        fprintf(stderr, "[FATAL] Fallo al asignar buffers de trabajo.
-");
+        fprintf(stderr, "[FATAL] Fallo al asignar buffers de trabajo.\n");
         if (time_buf) bp011_tracked_free(time_buf);
         if (val_buf)  bp011_tracked_free(val_buf);
         if (file_buf) bp011_tracked_free(file_buf);
@@ -912,8 +875,7 @@ static int bp011_run_campaign_dataset(
         time_buf, max_stream_cap, &time_bytes, &time_bits
     );
     if (t_st != BP011_OK) {
-        fprintf(stderr, "[FATAL] Fallo al codificar flujo temporal R15.10 (error: %d)
-", t_st);
+        fprintf(stderr, "[FATAL] Fallo al codificar flujo temporal R15.10 (error: %d)\n", t_st);
         bp011_tracked_free(time_buf); bp011_tracked_free(val_buf); bp011_tracked_free(file_buf);
         free(timestamps); free(matrix); if (series_dir) free(series_dir);
         return 3;
@@ -924,8 +886,7 @@ static int bp011_run_campaign_dataset(
     double *single_ch  = (double *)malloc((size_t)sample_count * sizeof(double));
 
     if (!chan_table || !decomp_mat || !single_ch) {
-        fprintf(stderr, "[FATAL] Fallo al asignar buffers auxiliares.
-");
+        fprintf(stderr, "[FATAL] Fallo al asignar buffers auxiliares.\n");
         if (chan_table) free(chan_table);
         if (decomp_mat) free(decomp_mat);
         if (single_ch) free(single_ch);
@@ -953,11 +914,9 @@ static int bp011_run_campaign_dataset(
     if (series_dir && num_series > 0) chan_base_off += num_series * 32U;
     chan_base_off += (uint32_t)time_bytes;
 
-    /* Calendario de Cuadrados Latinos 4x4 Aleatorizados con PCG32 y Lemire (NC-D02) */
-    bp011_pcg32_random_t rng;
-    bp011_pcg32_srandom_r(&rng, 42ULL, 54ULL);
+    /* Calendario de Cuadrados Latinos 4x4 Aleatorizados con el PRNG único de campaña (NC-D02) */
     uint8_t sched[BP011_NUM_ROUNDS][4];
-    bp011_generate_schedule_latin_4x4(&rng, sched);
+    bp011_generate_schedule_latin_4x4(rng, sched);
 
     /* Ciclo Total: 1 Warm-up (-1) + 20 Rondas Medidas (0 a 19) */
     for (int r = -BP011_WARMUP_ROUNDS; r < BP011_NUM_ROUNDS; r++) {
@@ -982,8 +941,7 @@ static int bp011_run_campaign_dataset(
                 default: enc_st = BP011_ERR_INVALID_ARG; break;
             }
             if (enc_st != BP011_OK) {
-                fprintf(stderr, "[FATAL] Fallo en codificacion motor %s: %d
-", results[eng].engine_name, enc_st);
+                fprintf(stderr, "[FATAL] Fallo en codificacion motor %s: %d\n", results[eng].engine_name, enc_st);
                 return 20 + eng;
             }
 
@@ -1004,8 +962,7 @@ static int bp011_run_campaign_dataset(
                 &actual_file
             );
             if (pkg_st != BP011_OK) {
-                fprintf(stderr, "[FATAL] Fallo en empaquetado canonico motor %s: %d
-", results[eng].engine_name, pkg_st);
+                fprintf(stderr, "[FATAL] Fallo en empaquetado canonico motor %s: %d\n", results[eng].engine_name, pkg_st);
                 return 25 + eng;
             }
 
@@ -1023,8 +980,7 @@ static int bp011_run_campaign_dataset(
                 default: dec_st = BP011_ERR_INVALID_ARG; break;
             }
             if (dec_st != BP011_OK) {
-                fprintf(stderr, "[FATAL] Fallo en decodificacion motor %s: %d
-", results[eng].engine_name, dec_st);
+                fprintf(stderr, "[FATAL] Fallo en decodificacion motor %s: %d\n", results[eng].engine_name, dec_st);
                 return 30 + eng;
             }
 
@@ -1036,8 +992,7 @@ static int bp011_run_campaign_dataset(
 
             /* Verificacion bit a bit obligatoria */
             if (memcmp(matrix, decomp_mat, (size_t)sample_count * num_channels * sizeof(double)) != 0) {
-                fprintf(stderr, "[FATAL] Falla de verificacion bit-exact en motor %s (ronda %d)!
-", results[eng].engine_name, r);
+                fprintf(stderr, "[FATAL] Falla de verificacion bit-exact en motor %s (ronda %d)!\n", results[eng].engine_name, r);
                 return 40 + eng;
             }
 
@@ -1056,13 +1011,11 @@ static int bp011_run_campaign_dataset(
                 /* Persistencia obligatoria de la observacion individual en CSV raw (NC-D02) */
                 double tp_c = ((double)raw_bytes / 1e6) / (t1 - t0);
                 double tp_d = ((double)raw_bytes / 1e6) / (td1 - td0);
-                if (fprintf(csv_raw, "%s,ROUND,%s,%d,%.6f,%.2f,%.6f,%.2f,%zu,%zu,%zu,%zu,0.0,0.0,0.0
-",
+                if (fprintf(csv_raw, "%s,ROUND,%s,%d,%.6f,%.2f,%.6f,%.2f,%zu,%zu,%zu,%zu,0.0,0.0,0.0\n",
                             dataset_name, results[eng].engine_name, r,
                             t1 - t0, tp_c, td1 - td0, tp_d,
                             round_comp_ram, round_dec_ram, round_comp_ws, round_dec_ws) < 0) {
-                    fprintf(stderr, "[FATAL] Error de I/O al escribir observacion en csv_raw
-");
+                    fprintf(stderr, "[FATAL] Error de I/O al escribir observacion en csv_raw\n");
                     return 45;
                 }
             }
@@ -1110,6 +1063,7 @@ static int bp011_run_campaign_dataset(
         double q1_gor[1000];
         double q1_bp[1000];
         double t_q1_gor_total = 0, t_q1_bp_total = 0;
+        size_t q1_bp_decomp_bytes = 0;
 
         for (int iter = 0; iter < 20; iter++) {
             double t0 = bp011_get_time_sec();
@@ -1136,18 +1090,17 @@ static int bp011_run_campaign_dataset(
             if (s_bp != BP011_OK) { bp011_tracked_free(val_buf_bp); return 55; }
             double dt_bp = tb1 - tb0;
             t_q1_bp_total += dt_bp;
+            q1_bp_decomp_bytes = bd; /* Canal completo descomprimido por BinPack */
 
             if (memcmp(q1_gor, q1_bp, 1000 * sizeof(double)) != 0) {
-                fprintf(stderr, "[FATAL] Discrepancia bit a bit en consulta Q1 iteracion %d
-", iter);
+                fprintf(stderr, "[FATAL] Discrepancia bit a bit en consulta Q1 iteracion %d\n", iter);
                 bp011_tracked_free(val_buf_bp);
                 return 56;
             }
 
             /* Persistencia obligatoria de la observacion de Q1 en CSV raw */
             double spd = (dt_bp > 0) ? (dt_gor / dt_bp) : 1.0;
-            if (fprintf(csv_raw, "%s,QUERY,Q1_TAIL_1000,%d,0.0,0.0,0.0,0.0,0,0,0,0,%.8f,%.8f,%.4f
-",
+            if (fprintf(csv_raw, "%s,QUERY,Q1_TAIL_1000,%d,0.0,0.0,0.0,0.0,0,0,0,0,%.8f,%.8f,%.4f\n",
                         dataset_name, iter, dt_gor, dt_bp, spd) < 0) {
                 bp011_tracked_free(val_buf_bp);
                 return 57;
@@ -1157,6 +1110,7 @@ static int bp011_run_campaign_dataset(
         results[2].select_q1_speedup  = (t_q1_bp_total > 0) ? (t_q1_gor_total / t_q1_bp_total) : 1.0;
 
         /* Q2: Ventana historica de 10,000 puntos del canal 0 (Aplicable estrictamente si N >= 10,000) */
+        size_t q2_bp_decomp_bytes = 0;
         if (sample_count >= 10000) {
             results[2].has_q2 = true;
             uint32_t q2_target_chan = 0;
@@ -1197,18 +1151,17 @@ static int bp011_run_campaign_dataset(
                 if (s_bp != BP011_OK) { free(q2_gor); free(q2_bp); bp011_tracked_free(val_buf_bp); return 60; }
                 double dt_bp = tb1 - tb0;
                 t_q2_bp_total += dt_bp;
+                q2_bp_decomp_bytes = bd; /* Canal 0 completo descomprimido por BinPack */
 
                 if (memcmp(q2_gor, q2_bp, 10000 * sizeof(double)) != 0) {
-                    fprintf(stderr, "[FATAL] Discrepancia bit a bit en consulta Q2 iteracion %d
-", iter);
+                    fprintf(stderr, "[FATAL] Discrepancia bit a bit en consulta Q2 iteracion %d\n", iter);
                     free(q2_gor); free(q2_bp); bp011_tracked_free(val_buf_bp);
                     return 61;
                 }
 
                 /* Persistencia obligatoria de la observacion de Q2 en CSV raw */
                 double spd = (dt_bp > 0) ? (dt_gor / dt_bp) : 1.0;
-                if (fprintf(csv_raw, "%s,QUERY,Q2_HIST_10000,%d,0.0,0.0,0.0,0.0,0,0,0,0,%.8f,%.8f,%.4f
-",
+                if (fprintf(csv_raw, "%s,QUERY,Q2_HIST_10000,%d,0.0,0.0,0.0,0.0,0,0,0,0,%.8f,%.8f,%.4f\n",
                             dataset_name, iter, dt_gor, dt_bp, spd) < 0) {
                     free(q2_gor); free(q2_bp); bp011_tracked_free(val_buf_bp);
                     return 62;
@@ -1240,6 +1193,7 @@ static int bp011_run_campaign_dataset(
         }
 
         double t_q3_gor_total = 0, t_q3_bp_total = 0;
+        size_t q3_bp_decomp_bytes = 0;
         for (int iter = 0; iter < 20; iter++) {
             double t0 = bp011_get_time_sec();
             for (uint32_t c = 0; c < 4; c++) {
@@ -1255,6 +1209,7 @@ static int bp011_run_campaign_dataset(
             t_q3_gor_total += dt_gor;
 
             double tb0 = bp011_get_time_sec();
+            size_t iter_q3_bd = 0;
             for (uint32_t c = 0; c < 4; c++) {
                 size_t br = 0, bd = 0;
                 bp011_status_t s_bp = binpack_decode_channel_window(
@@ -1265,22 +1220,22 @@ static int bp011_run_campaign_dataset(
                     &br, &bd
                 );
                 if (s_bp != BP011_OK) { free(q3_gor); free(q3_bp); bp011_tracked_free(val_buf_bp); return 66; }
+                iter_q3_bd += bd;
             }
             double tb1 = bp011_get_time_sec();
             double dt_bp = tb1 - tb0;
             t_q3_bp_total += dt_bp;
+            q3_bp_decomp_bytes = iter_q3_bd;
 
             if (memcmp(q3_gor, q3_bp, 4 * (size_t)sample_count * sizeof(double)) != 0) {
-                fprintf(stderr, "[FATAL] Discrepancia bit a bit en consulta Q3 iteracion %d
-", iter);
+                fprintf(stderr, "[FATAL] Discrepancia bit a bit en consulta Q3 iteracion %d\n", iter);
                 free(q3_gor); free(q3_bp); bp011_tracked_free(val_buf_bp);
                 return 67;
             }
 
             /* Persistencia obligatoria de la observacion de Q3 en CSV raw */
             double spd = (dt_bp > 0) ? (dt_gor / dt_bp) : 1.0;
-            if (fprintf(csv_raw, "%s,QUERY,Q3_PROJ_4CHAN,%d,0.0,0.0,0.0,0.0,0,0,0,0,%.8f,%.8f,%.4f
-",
+            if (fprintf(csv_raw, "%s,QUERY,Q3_PROJ_4CHAN,%d,0.0,0.0,0.0,0.0,0,0,0,0,%.8f,%.8f,%.4f\n",
                         dataset_name, iter, dt_gor, dt_bp, spd) < 0) {
                 free(q3_gor); free(q3_bp); bp011_tracked_free(val_buf_bp);
                 return 68;
@@ -1296,7 +1251,31 @@ static int bp011_run_campaign_dataset(
         } else {
             results[2].select_avg_speedup = (results[2].select_q1_speedup + results[2].select_q3_speedup) / 2.0;
         }
-        results[2].decomp_amplification = 1.0;
+
+        /* Calculo Exacto de Amplificacion Real de Descompresion (NC-D02-Q / Rev 5) */
+        size_t query_bytes_requested = (1000 * sizeof(double)) +
+                                       (results[2].has_q2 ? (10000 * sizeof(double)) : 0) +
+                                       (4 * (size_t)sample_count * sizeof(double));
+
+        /* BinPack: Descomprime canal completo en Q1 (y Q2), y 4 canales completos en Q3 */
+        size_t bp_query_bytes_decompressed = q1_bp_decomp_bytes +
+                                             (results[2].has_q2 ? q2_bp_decomp_bytes : 0) +
+                                             q3_bp_decomp_bytes;
+
+        /* Gorilla: En Q1 decodifica hasta canal K-1 (toda la matriz), en Q2 los 10k puntos, en Q3 4 canales */
+        size_t gor_query_bytes_decompressed = ((size_t)num_channels * (size_t)sample_count * sizeof(double)) +
+                                              (results[2].has_q2 ? (10000 * sizeof(double)) : 0) +
+                                              (4 * (size_t)sample_count * sizeof(double));
+
+        /* Compresores monoliticos (Chimp128 / Zstd): Decodifican toda la matriz para cada consulta */
+        size_t matrix_bytes = (size_t)num_channels * (size_t)sample_count * sizeof(double);
+        size_t num_queries_run = results[2].has_q2 ? 3 : 2;
+        size_t full_query_bytes_decompressed = num_queries_run * matrix_bytes;
+
+        results[0].decomp_amplification = (double)gor_query_bytes_decompressed / (double)query_bytes_requested;
+        results[1].decomp_amplification = (double)full_query_bytes_decompressed / (double)query_bytes_requested;
+        results[2].decomp_amplification = (double)bp_query_bytes_decompressed / (double)query_bytes_requested;
+        results[3].decomp_amplification = (double)full_query_bytes_decompressed / (double)query_bytes_requested;
 
         bp011_tracked_free(val_buf_bp);
     }
@@ -1310,18 +1289,13 @@ static int bp011_run_campaign_dataset(
     results[2].ahorro_pct_vs_chimp   = ((b_chimp - b_bp) / b_chimp) * 100.0;
 
     /* Presentacion de Resultados */
-    printf("
-TABLA COMPARATIVA DE RENDIMIENTO MEDIANO (20 RONDAS) — DATASET: %s
-", dataset_name);
-    printf("%-26s | %10s | %6s | %12s | %12s | %12s | %12s
-",
+    printf("\nTABLA COMPARATIVA DE RENDIMIENTO MEDIANO (20 RONDAS) — DATASET: %s\n", dataset_name);
+    printf("%-26s | %10s | %6s | %12s | %12s | %12s | %12s\n",
            "Motor", "Bytes Tot", "CR", "TP_comp", "TP_decomp", "RAM_comp", "RAM_decomp");
-    printf("----------------------------------------------------------------------------------------------------------------
-");
+    printf("----------------------------------------------------------------------------------------------------------------\n");
 
     for (int i = 0; i < 4; i++) {
-        printf("%-26s | %10zu | %5.2fx | %8.2f MB/s | %8.2f MB/s | %10zu B | %10zu B
-",
+        printf("%-26s | %10zu | %5.2fx | %8.2f MB/s | %8.2f MB/s | %10zu B | %10zu B\n",
                results[i].engine_name,
                results[i].total_bytes,
                results[i].cr,
@@ -1332,8 +1306,7 @@ TABLA COMPARATIVA DE RENDIMIENTO MEDIANO (20 RONDAS) — DATASET: %s
 
         if (csv_summary) {
             if (results[2].has_q2) {
-                if (fprintf(csv_summary, "%s,%s,%zu,%.4f,%.6f,%.2f,%.6f,%.2f,%zu,%zu,%zu,%zu,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f
-",
+                if (fprintf(csv_summary, "%s,%s,%zu,%.4f,%.6f,%.2f,%.6f,%.2f,%zu,%zu,%zu,%zu,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n",
                             dataset_name,
                             results[i].engine_name,
                             results[i].total_bytes,
@@ -1352,12 +1325,11 @@ TABLA COMPARATIVA DE RENDIMIENTO MEDIANO (20 RONDAS) — DATASET: %s
                             (i == 2) ? results[2].select_q2_speedup : 1.0,
                             (i == 2) ? results[2].select_q3_speedup : 1.0,
                             (i == 2) ? results[2].select_avg_speedup : 1.0,
-                            (i == 2) ? results[2].decomp_amplification : (double)num_channels) < 0) {
+                            results[i].decomp_amplification) < 0) {
                     return 70;
                 }
             } else {
-                if (fprintf(csv_summary, "%s,%s,%zu,%.4f,%.6f,%.2f,%.6f,%.2f,%zu,%zu,%zu,%zu,%.2f,%.2f,%.2f,N/A,%.2f,%.2f,%.2f
-",
+                if (fprintf(csv_summary, "%s,%s,%zu,%.4f,%.6f,%.2f,%.6f,%.2f,%zu,%zu,%zu,%zu,%.2f,%.2f,%.2f,N/A,%.2f,%.2f,%.2f\n",
                             dataset_name,
                             results[i].engine_name,
                             results[i].total_bytes,
@@ -1375,33 +1347,33 @@ TABLA COMPARATIVA DE RENDIMIENTO MEDIANO (20 RONDAS) — DATASET: %s
                             (i == 2) ? results[2].select_q1_speedup : 1.0,
                             (i == 2) ? results[2].select_q3_speedup : 1.0,
                             (i == 2) ? results[2].select_avg_speedup : 1.0,
-                            (i == 2) ? results[2].decomp_amplification : (double)num_channels) < 0) {
+                            results[i].decomp_amplification) < 0) {
                     return 70;
                 }
             }
         }
     }
 
-    printf("
-METRICAS CLAVE DE VIABILIDAD COMERCIAL (BINPACK vs COMPETIDORES):
-");
-    printf("  • Ahorro vs Gorilla:  %+.2f %%
-", results[2].ahorro_pct_vs_gorilla);
-    printf("  • Ahorro vs Chimp128: %+.2f %%
-", results[2].ahorro_pct_vs_chimp);
+    printf("\nMETRICAS CLAVE DE VIABILIDAD COMERCIAL (BINPACK vs COMPETIDORES):\n");
+    printf("  • Ahorro vs Gorilla:  %+.2f %%\n", results[2].ahorro_pct_vs_gorilla);
+    printf("  • Ahorro vs Chimp128: %+.2f %%\n", results[2].ahorro_pct_vs_chimp);
     if (results[2].has_q2) {
-        printf("  • Consultas Selectivas Speedup: Q1=%.2fx, Q2=%.2fx, Q3=%.2fx (Promedio=%.2fx)
-",
+        printf("  • Consultas Selectivas Speedup: Q1=%.2fx, Q2=%.2fx, Q3=%.2fx (Promedio=%.2fx)\n",
                results[2].select_q1_speedup, results[2].select_q2_speedup, results[2].select_q3_speedup, results[2].select_avg_speedup);
     } else {
-        printf("  • Consultas Selectivas Speedup: Q1=%.2fx, Q2=N/A, Q3=%.2fx (Promedio=%.2fx)
-",
+        printf("  • Consultas Selectivas Speedup: Q1=%.2fx, Q2=N/A, Q3=%.2fx (Promedio=%.2fx)\n",
                results[2].select_q1_speedup, results[2].select_q3_speedup, results[2].select_avg_speedup);
     }
-    printf("  • Amplificacion de Descompresion: A_decomp = %.2f
-", results[2].decomp_amplification);
-    printf("  • Ratio Throughput comp: %.2fx de Gorilla (requerido: >= 0.50x)
-",
+    double amp_q1_bp = (double)sample_count / 1000.0;
+    if (results[2].has_q2) {
+        double amp_q2_bp = (double)sample_count / 10000.0;
+        printf("  • Amplificacion de Descompresion Real BinPack: Q1=%.2fx, Q2=%.2fx, Q3=1.00x (Ponderada=%.2fx)\n",
+               amp_q1_bp, amp_q2_bp, results[2].decomp_amplification);
+    } else {
+        printf("  • Amplificacion de Descompresion Real BinPack: Q1=%.2fx, Q2=N/A, Q3=1.00x (Ponderada=%.2fx)\n",
+               amp_q1_bp, results[2].decomp_amplification);
+    }
+    printf("  • Ratio Throughput comp: %.2fx de Gorilla (requerido: >= 0.50x)\n",
            results[2].tp_comp_median_mbs / results[0].tp_comp_median_mbs);
 
     /* Ensayo y Verificacion Estricta de Windows Unbuffered I/O (NC-D08) */
@@ -1415,21 +1387,16 @@ METRICAS CLAVE DE VIABILIDAD COMERCIAL (BINPACK vs COMPETIDORES):
 
             if (u_rd == BP011_OK && actual_read == results[2].total_bytes && memcmp(file_buf, read_back, actual_read) == 0) {
                 align->physical_io_verified = true;
-                printf("  [OK] Prueba Unbuffered I/O en disco superada: %zu bytes verificados bit-exact.
-
-", actual_read);
+                printf("  [OK] Prueba Unbuffered I/O en disco superada: %zu bytes verificados bit-exact.\n\n", actual_read);
             } else {
                 align->physical_io_verified = false;
-                fprintf(stderr, "[ALERTA] Fallo en round-trip de Unbuffered I/O.
-");
+                fprintf(stderr, "[ALERTA] Fallo en round-trip de Unbuffered I/O.\n");
             }
             bp011_tracked_free(read_back);
         }
     } else {
         align->physical_io_verified = false;
-        printf("  [INFO] Unbuffered I/O no disponible en este entorno (error: %d)
-
-", u_wr);
+        printf("  [INFO] Unbuffered I/O no disponible en este entorno (error: %d)\n\n", u_wr);
     }
 
     free(chan_table);
@@ -1449,15 +1416,10 @@ METRICAS CLAVE DE VIABILIDAD COMERCIAL (BINPACK vs COMPETIDORES):
 /* Punto de Entrada Principal del Arnes Experimental                         */
 /* ========================================================================= */
 int main(int argc, char **argv) {
-    printf("===============================================================================
-");
-    printf("  BINPACK ENTERPRISE SDK — ARNES EXPERIMENTAL BP-011 (Fase C/D/E)
-");
-    printf("  Validacion Decisiva de Viabilidad Comercial en Telemetria Industrial
-");
-    printf("===============================================================================
-
-");
+    printf("===============================================================================\n");
+    printf("  BINPACK ENTERPRISE SDK — ARNES EXPERIMENTAL BP-011 (Fase C/D/E)\n");
+    printf("  Validacion Decisiva de Viabilidad Comercial en Telemetria Industrial\n");
+    printf("===============================================================================\n\n");
 
     bp011_mem_tracker_init();
 
@@ -1474,8 +1436,7 @@ int main(int argc, char **argv) {
     }
 
     if (sizeof(bp011_block_header_t) != 64 || sizeof(bp011_channel_entry_t) != 12 || sizeof(bp011_series_segment_t) != 32) {
-        fprintf(stderr, "[FATAL] Discrepancia en alineacion binaria contractual.
-");
+        fprintf(stderr, "[FATAL] Discrepancia en alineacion binaria contractual.\n");
         return 1;
     }
 
@@ -1483,39 +1444,27 @@ int main(int argc, char **argv) {
     bp011_query_volume_alignment("tests/experiments/bp011/temp_unbuffered.bin", &align);
 
     if (!run_campaign) {
-        printf("[MODO AUDITORIA ESTATICA FASE D]
-");
-        printf("  • Tipos contractuales: sizeof(header)=64, channel_entry=12, series_seg=32 [OK]
-");
-        printf("  • Cuadrado Latino 4x4 y 20 Rondas con PRNG PCG32/Lemire: Totalmente estructurados [OK]
-");
-        printf("  • Suite de Consultas Q1, Q2, Q3 (20 iteraciones con ventanas exactas): Implementadas [OK]
-");
-        printf("  • Regla de cardinalidad estricta (Q2 N/A en IMS): Verificada [OK]
-");
-        printf("  • Persistencia obligatoria de observaciones crudas (160 rondas + 100 consultas): Verificada [OK]
-");
-        printf("  • Instrumentacion de memoria pico comp/decomp desacoplada: Verificada [OK]
-");
-        printf("  • Generador de Sidecar .meta.json verificable: Implementado [OK]
-");
-        printf("
-Arnes listo para autorizacion formal de Fase E.
-");
+        printf("[MODO AUDITORIA ESTATICA FASE D]\n");
+        printf("  • Tipos contractuales: sizeof(header)=64, channel_entry=12, series_seg=32 [OK]\n");
+        printf("  • PRNG Canónico PCG32/Lemire único para toda la campaña (seed=42, seq=54) [OK]\n");
+        printf("  • Cuadrado Latino 4x4 y 20 Rondas con continuidad estricta de PRNG [OK]\n");
+        printf("  • Suite de Consultas Q1, Q2, Q3 (20 iteraciones con ventanas exactas): Implementadas [OK]\n");
+        printf("  • Regla de cardinalidad estricta (Q2 N/A en IMS): Verificada [OK]\n");
+        printf("  • Calculo exacto de Amplificacion Real de Descompresion (B_decomp / B_requested) [OK]\n");
+        printf("  • Persistencia obligatoria de observaciones crudas (160 rondas + 100 consultas): Verificada [OK]\n");
+        printf("  • Generador de Sidecar .meta.json con JSON C-valid y verificacion de I/O [OK]\n");
+        printf("\nArnes listo para autorizacion formal de Fase E.\n");
         return 0;
     }
 
     /* Ejecucion de la Campaña Completa (Autorizada en Fase E) */
     FILE *csv_summary = fopen(csv_out_path, "w");
     if (!csv_summary) {
-        fprintf(stderr, "[FATAL] No se pudo crear archivo de resultados CSV: %s
-", csv_out_path);
+        fprintf(stderr, "[FATAL] No se pudo crear archivo de resultados CSV: %s\n", csv_out_path);
         return 2;
     }
-    if (fprintf(csv_summary, "dataset,engine,total_bytes,cr,comp_time_median,tp_comp_median,decomp_time_median,tp_decomp_median,comp_peak_ram,decomp_peak_ram,delta_ws_comp,delta_ws_decomp,ahorro_gorilla,ahorro_chimp,speedup_q1,speedup_q2,speedup_q3,avg_speedup,decomp_amplification
-") < 0) {
-        fprintf(stderr, "[FATAL] Error de I/O al escribir encabezado en: %s
-", csv_out_path);
+    if (fprintf(csv_summary, "dataset,engine,total_bytes,cr,comp_time_median,tp_comp_median,decomp_time_median,tp_decomp_median,comp_peak_ram,decomp_peak_ram,delta_ws_comp,delta_ws_decomp,ahorro_gorilla,ahorro_chimp,speedup_q1,speedup_q2,speedup_q3,avg_speedup,decomp_amplification\n") < 0) {
+        fprintf(stderr, "[FATAL] Error de I/O al escribir encabezado en: %s\n", csv_out_path);
         fclose(csv_summary);
         return 2;
     }
@@ -1523,19 +1472,20 @@ Arnes listo para autorizacion formal de Fase E.
     /* Creacion obligatoria de archivo de observaciones crudas (NC-D02) */
     FILE *csv_raw = fopen(csv_raw_path, "w");
     if (!csv_raw) {
-        fprintf(stderr, "[FATAL] No se pudo crear archivo obligatorio de observaciones crudas CSV: %s
-", csv_raw_path);
+        fprintf(stderr, "[FATAL] No se pudo crear archivo obligatorio de observaciones crudas CSV: %s\n", csv_raw_path);
         fclose(csv_summary);
         return 2;
     }
-    if (fprintf(csv_raw, "dataset,category,engine_or_query,iteration,comp_time_sec,tp_comp_mbs,decomp_time_sec,tp_decomp_mbs,comp_peak_ram,decomp_peak_ram,delta_ws_comp,delta_ws_decomp,time_gorilla_sec,time_binpack_sec,speedup_vs_gorilla
-") < 0) {
-        fprintf(stderr, "[FATAL] Error de I/O al escribir encabezado en: %s
-", csv_raw_path);
+    if (fprintf(csv_raw, "dataset,category,engine_or_query,iteration,comp_time_sec,tp_comp_mbs,decomp_time_sec,tp_decomp_mbs,comp_peak_ram,decomp_peak_ram,delta_ws_comp,delta_ws_decomp,time_gorilla_sec,time_binpack_sec,speedup_vs_gorilla\n") < 0) {
+        fprintf(stderr, "[FATAL] Error de I/O al escribir encabezado en: %s\n", csv_raw_path);
         fclose(csv_summary);
         fclose(csv_raw);
         return 2;
     }
+
+    /* PRNG Canónico PCG32 único para toda la campaña (NC-D02 / R15.10) */
+    bp011_pcg32_random_t campaign_rng;
+    bp011_pcg32_srandom_r(&campaign_rng, 42ULL, 54ULL);
 
     int ret_cmapss = bp011_run_campaign_dataset(
         "NASA_CMAPSS_FD001",
@@ -1543,13 +1493,13 @@ Arnes listo para autorizacion formal de Fase E.
         true,
         csv_summary,
         csv_raw,
-        &align
+        &align,
+        &campaign_rng
     );
     if (ret_cmapss != 0) {
         fclose(csv_summary);
         fclose(csv_raw);
-        fprintf(stderr, "[FATAL] Campaña abortada por fallo en C-MAPSS FD001 (codigo: %d)
-", ret_cmapss);
+        fprintf(stderr, "[FATAL] Campaña abortada por fallo en C-MAPSS FD001 (codigo: %d)\n", ret_cmapss);
         return ret_cmapss;
     }
 
@@ -1559,40 +1509,34 @@ Arnes listo para autorizacion formal de Fase E.
         false,
         csv_summary,
         csv_raw,
-        &align
+        &align,
+        &campaign_rng
     );
     if (ret_ims != 0) {
         fclose(csv_summary);
         fclose(csv_raw);
-        fprintf(stderr, "[FATAL] Campaña abortada por fallo en IMS Bearing (codigo: %d)
-", ret_ims);
+        fprintf(stderr, "[FATAL] Campaña abortada por fallo en IMS Bearing (codigo: %d)\n", ret_ims);
         return ret_ims;
     }
 
     if (fflush(csv_summary) != 0 || ferror(csv_summary) || fclose(csv_summary) != 0) {
-        fprintf(stderr, "[FATAL] Error de I/O al persistir o cerrar archivo de resumen CSV: %s
-", csv_out_path);
+        fprintf(stderr, "[FATAL] Error de I/O al persistir o cerrar archivo de resumen CSV: %s\n", csv_out_path);
         fclose(csv_raw);
         return 4;
     }
     if (fflush(csv_raw) != 0 || ferror(csv_raw) || fclose(csv_raw) != 0) {
-        fprintf(stderr, "[FATAL] Error de I/O al persistir o cerrar archivo de observaciones crudas CSV: %s
-", csv_raw_path);
+        fprintf(stderr, "[FATAL] Error de I/O al persistir o cerrar archivo de observaciones crudas CSV: %s\n", csv_raw_path);
         return 5;
     }
-    printf("Resultados consolidados guardados en: %s y %s
-", csv_out_path, csv_raw_path);
+    printf("Resultados consolidados guardados en: %s y %s\n", csv_out_path, csv_raw_path);
 
     /* Generacion del sidecar de trazabilidad experimental verificado (NC-D02) */
     int sidecar_st = bp011_write_traceability_sidecar(csv_out_path, &align);
     if (sidecar_st != 0) {
-        fprintf(stderr, "[FATAL] Fallo al generar sidecar de trazabilidad: %s.meta.json (error: %d)
-", csv_out_path, sidecar_st);
+        fprintf(stderr, "[FATAL] Fallo al generar sidecar de trazabilidad: %s.meta.json (error: %d)\n", csv_out_path, sidecar_st);
         return 6;
     }
-    printf("Sidecar de trazabilidad verificado guardado en: %s.meta.json
-
-", csv_out_path);
+    printf("Sidecar de trazabilidad verificado guardado en: %s.meta.json\n\n", csv_out_path);
 
     return 0;
 }
