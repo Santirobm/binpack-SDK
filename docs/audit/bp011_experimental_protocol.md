@@ -1,9 +1,9 @@
-# Protocolo Experimental R15.6 — Hito BP-011
+# Protocolo Experimental R15.7 — Hito BP-011
 ## Industrial Time-Series Benchmark: Gorilla & Chimp vs. BinPack Transpose
 
 **Proyecto:** BinPack Enterprise SDK  
 **Hito:** BP-011  
-**Fase:** Fase A — Acta de Apertura y Protocolo Experimental (Revisión Definitiva R15.6)  
+**Fase:** Fase A — Acta de Apertura y Protocolo Experimental (Revisión Definitiva R15.7)  
 **Documento Rector:** `docs/audit/bp011_experimental_protocol.md`  
 **Rama:** `audit/bp1-core-safety`  
 **Estado:** PROTOCOLO FORMAL DEFINITIVO PARA DICTAMEN DE CIERRE DE FASE A  
@@ -12,21 +12,18 @@
 
 ## Control de Cambios y Registro Integral de Subsanaciones
 
-### Revisiones Previas (R15.1 a R15.5)
+### Revisiones Previas (R15.1 a R15.6)
 - **NC-01 (Cuartiles de Tukey):** Desambiguación formal entre notación estadística en base 1 ($x_{(5)}, x_{(6)}$ y $x_{(15)}, x_{(16)}$) y mapeo en base 0 en C (`arr[4]`, `arr[5]` y `arr[14]`, `arr[15]`).
 - **NC-02 (Separación de Amplificaciones):** Definición independiente de $A_{\text{read}}$, $A_{\text{decomp}}$ y $A_{\text{store}}$, con $B_{\text{target}}$ exhaustivo libre de cabeceras.
 - **NC-03 (Aplicabilidad de Consultas):** Regla de cardinalidad estricta y catalogación de $Q_2$ como `NOT_APPLICABLE` en DS-01 ($N < 10.000$).
 - **NC-04 (Prefijos Inequívocos y Máquina de Estados):** Árbol estrictamente libre de prefijos (*strictly prefix-free*) con `111110` para delta inicial y `111111` para escape absoluto. Aritmética segura en 3 pasos, máquina de estados con `has_prev_delta` y serialización Big-Endian portable en microsegundos `int64_t`.
 - **OBS-01 a OBS-06:** Desglose en 4 componentes de tamaño ($B_{\text{time}}$, $B_{\text{values}}$, $B_{\text{container}}$, $B_{\text{total}}$), densidades (bpv, bpt, bptuple, bpc), regímenes Hot/Cold Cache, reserva de $Q_{\text{conc}}$, familias Holm-Bonferroni por terna $(\text{Dataset}, \text{Consulta}, \text{Métrica})$ a $\alpha = 0.05$, y baseline Chimp128.
 - **Subsanaciones R15.5:** Correspondencia unívoca de estimandos e intervalos ($ar{d}$ para $t$-test, Hodges-Lehmann para Wilcoxon, mediana $\tilde{d}$ para Sign Test), tratamiento canónico de diferencias nulas ($d_i = 0$) y corrección de varianza por empates en rangos, y coeficiente insesgado de asimetría de Fisher-Pearson ($g_1$).
+- **Subsanaciones R15.6:** Implementación C canónica de PCG32 XSH-RR 64/32 con `initstate = 42ULL` e `initseq = 54ULL`; algoritmo de Lemire para mapeo acotado con manejo de rechazos; diseño en bloques de Cuadrados Latinos con balanceo ordinal riguroso ($f_{m, p} \in \{2, 3\}$, desviación máxima $6/7 \approx 0.857 < 1.0$) y tabla de calendario de 20 rondas verificada independientemente.
 
-### Revisión R15.6 (Presente Documento Definitivo)
-1. **Especificación Canónica Completa de PCG32:** Implementación formal en C de la variante unívoca `pcg32_random_r` (XSH-RR de 64 a 32 bits), con estado interno `pcg32_random_t` (`uint64_t state, inc`), rutina de inicialización canónica en dos pasos `pcg32_srandom_r`, y parámetros disjuntos fijados obligatoriamente en `initstate = 42ULL` e `initseq = 54ULL`.
-2. **Implementación de Lemire con Manejo de Rechazos:** Código C autocontenido del algoritmo *Nearly Divisionless Bounded Random* (Lemire 2019) para rango $[0, s)$, con cálculo de umbral de rechazo $t = (-s) \pmod s$ en aritmética de 32 bits no signada y consumo determinista y bit-exacto de enteros del PRNG.
-3. **Diseño en Bloques de Cuadrados Latinos con Balanceo Térmico Óptimo:** Construcción canónica analíticamente balanceada del calendario de 20 rondas mediante tres bloques de Cuadrados Latinos aleatorizados ($7 + 7 + 6$ rondas). Se demuestra matemáticamente que la frecuencia de cada motor $m \in \{1,\dots,7\}$ en cada posición ordinal $p \in \{1,\dots,7\}$ es exactamente $f_{m, p} \in \{2, 3\}$, garantizando una desviación máxima $|f_{m, p} - 20/7| = 6/7 \approx 0.857 < 1.0$ (neutralidad térmica óptima por construcción, sin bucles de rechazo heurístico). Se publica la matriz de frecuencias completa y la tabla exhaustiva de las 20 rondas.
-4. **Reproducibilidad Criptográfica del Bootstrap Percentil Comercial:** Formalización de una instancia independiente de PRNG (`boot_rng`) con semilla canónica `boot_initstate = 0xB00757A7ULL` y `boot_initseq = 0x42ULL`, con procedimiento de remuestreo emparejado con reemplazo de $B = 10.000$ réplicas e intervalo de confianza del 95% $[\bar{d}^*_{(250)}, \bar{d}^*_{(9750)}]$ y $[\Delta_{(250)}^*, \Delta_{(9750)}^*]$.
-5. **Inversión de Rangos de Wilcoxon con Empates:** Formalización del intervalo de Hodges-Lehmann sobre las medias de Walsh $W_{ij} = (d_i + d_j)/2$ ante presencia de empates en rangos absolutos, especificando la inversión asintótica de la suma de rangos corregida por varianza de empates $\sigma_W^2$ con rangos medios (*mid-ranks*).
-6. **Encuadre Metodológico del Árbol de Decisión:** Explicitación formal del árbol como una regla operativa preestablecida vinculante (*a priori protocolized decision heuristic*) para prevenir *p-hacking*, reconociendo que Shapiro-Wilk no demuestra normalidad matemática y que $|g_1| \le 0.5$ no certifica simetría estricta.
+### Revisión R15.7 (Presente Documento Definitivo)
+1. **NC-01 — Regla Canónica Unívoca para el Índice $k$ del Intervalo de Signos:** Se establece la regla matemática determinista para seleccionar $k$ en el intervalo de la mediana $[d_{(k)}, d_{(n_{\text{eff}} - k + 1)}]$ como el mayor entero que garantiza una cobertura bilateral mínima del 95 % ($\ge 0.95$) bajo $B(n_{\text{eff}}, 0.5)$. Para $n_{\text{eff}} = 20$, se fija unívocamente $k = 6$ (cobertura exacta del $95,861\%$, $[d_{(6)}, d_{(15)}]$). Se publica la tabla completa de $k$ para $n_{\text{eff}} < 20$ y la regla para $n_{\text{eff}} \le 5$ con $k=1$ y advertencia `UNDERSIZED_EFFECTIVE_SAMPLE`.
+2. **NC-02 — Criterio de Reproducibilidad Numérica y Aritmética de Punto Flotante en Bootstrap:** Se definen los estándares de punto flotante IEEE 754 Binary64 (`double`), redondeo `roundTiesToEven`, orden secuencial estricto de acumulación, y desactivación de FMA y optimizaciones matemáticas agresivas (`-ffp-contract=off`, `-fno-fast-math`). Se establece que la secuencia de los 200.000 índices de remuestreo es estrictamente bit-exacta, y se define formalmente la reproducibilidad de los resultados flotantes dentro de una tolerancia explícita $\epsilon_{\text{rel}} \le 10^{-7}$ ($\epsilon_{\text{abs}} \le 10^{-9}$) para absorber divergencias de compilador y microarquitectura.
 
 ---
 
@@ -514,19 +511,46 @@ Para garantizar que la prueba de hipótesis y el intervalo de confianza estimen 
          $$\text{CI}_{95\%}(\Delta_{\text{HL}}) = [W_{(k)}, \; W_{(M - k + 1)}]$$
    - Si $|g_1| > 0.5$ (distribución asimétrica o colas pesadas) $\implies$ **Prueba de Signos Binomial exacta** (*Exact Two-Sided Sign Test*).
      - *Estimando Principal:* Mediana poblacional de las diferencias emparejadas $\tilde{d}$.
-     - *Intervalo de Confianza del 95%:* Intervalo binomial no paramétrico para la mediana basado en los estadísticos de orden $[d_{(k)}, d_{(n_{\text{eff}} - k + 1)}]$ correspondientes a los percentiles de la distribución $B(n_{\text{eff}}, 0.5)$ con cobertura $\ge 95\%$.
+     - *Regla Canónica Unívoca para el Intervalo de Confianza de la Mediana (NC-01):*
+       Sea la muestra ordenada de diferencias no nulas $d_{(1)} \le d_{(2)} \le \dots \le d_{(n_{\text{eff}})}$ y sea $K \sim \text{Binomial}(n_{\text{eff}}, 0.5)$. El intervalo de confianza bilateral viene dado por los estadísticos de orden $[d_{(k)}, \; d_{(n_{\text{eff}} - k + 1)}]$.
+       Para garantizar una regla completamente determinista y libre de ambigüedad, el índice entero $k$ se selecciona estrictamente como **el mayor entero $k$ que preserva una cobertura bilateral mínima del 95 % ($\ge 0.95$)**:
+       $$k = \max \left\{ j \in \left\{1, \dots, \left\lfloor \frac{n_{\text{eff}}}{2} \right\rfloor \right\} \;\middle|\; \sum_{i=j}^{n_{\text{eff}}-j} \binom{n_{\text{eff}}}{i} (0.5)^{n_{\text{eff}}} \ge 0.95 \right\}$$
+       - **Caso $n_{\text{eff}} = 20$ (Muestra completa sin empates nulos):**  
+         La distribución acumulada simétrica arroja para $k=6$:  
+         $$\sum_{i=6}^{14} \binom{20}{i} (0.5)^{20} = 1 - 2 \cdot \sum_{i=0}^5 \binom{20}{i} (0.5)^{20} = 1 - 2 \cdot \frac{21.700}{1.048.576} = \frac{1.005.176}{1.048.576} \approx 95,861\%$$  
+         Dado que para $k=7$ la cobertura desciende a $88,468\% < 95\%$, el índice canónico único es **$k = 6$**, y el intervalo bilateral es $[d_{(6)}, \; d_{(15)}]$.
+       - **Tabla Canónica de Selección de $k$ para Tamaños Reducidos ($n_{\text{eff}} < 20$):**
+         - $n_{\text{eff}} = 19, 18, 17 \implies k = 5$ (coberturas bilaterales exactas: $98,079\%$, $96,912\%$, $95,096\%$).
+         - $n_{\text{eff}} = 16, 15 \implies k = 4$ (coberturas bilaterales exactas: $97,873\%$, $96,484\%$).
+         - $n_{\text{eff}} = 14, 13, 12 \implies k = 3$ (coberturas bilaterales exactas: $98,706\%$, $97,798\%$, $96,143\%$).
+         - $n_{\text{eff}} = 11, 10, 9 \implies k = 2$ (coberturas bilaterales exactas: $98,828\%$, $97,852\%$, $96,094\%$).
+         - $n_{\text{eff}} = 8, 7, 6 \implies k = 1$ (coberturas bilaterales exactas: $99,219\%$, $98,438\%$, $96,875\%$).
+       - **Tratamiento Formal para $n_{\text{eff}} \le 5$ (Insuficiencia de Cobertura Nominal al 95 %):**  
+         Para $n_{\text{eff}} \le 5$, la probabilidad acumulada bilateral máxima alcanzable (con $k=1$) es $1 - 2(0.5)^{n_{\text{eff}}} < 95\%$ (ej. para $n_{\text{eff}}=5$ es $93,750\%$; para $n=4$ es $87,500\%$). En tales casos excepcionales:
+         1. Se adopta obligatoriamente $k = 1$, reportando el intervalo envolvente $[d_{(1)}, \; d_{(n_{\text{eff}})}]$.
+         2. Se reporta de forma transparente el nivel de cobertura exacto alcanzado $1 - 2^{1 - n_{\text{eff}}}$.
+         3. Se emite la advertencia metodológica `UNDERSIZED_EFFECTIVE_SAMPLE` indicando que el tamaño muestral efectivo no permite alcanzar el umbral del 95 % con la prueba de signos.
+         4. Si $n_{\text{eff}} = 0$ (empate unánime absoluto), se declara empate con intervalo $[0, 0]$ y $p = 1.0$.
 
-3. **Métrica Comercial Transversal Invariante (Bootstrap Percentil Emparejado Canónico):**
+3. **Métrica Comercial Transversal Invariante (Bootstrap Percentil Emparejado Determinista):**
    Con el fin de proporcionar una magnitud económica unificada y comprensible para directores de infraestructura sin comprometer el rigor de las pruebas no paramétricas, se reportará de manera estandarizada la diferencia media $\bar{d}$ acompañada de su intervalo de confianza al 95% obtenido mediante **Bootstrap Percentil Emparejado Determinista**:
    - **Instancia de PRNG Independiente:** Se emplea una instancia dedicada de PCG32 (`pcg32_random_t boot_rng`).
    - **Semilla Canónica del Bootstrap:** `boot_initstate = 0xB00757A7ULL`, `boot_initseq = 0x42ULL`.
    - **Procedimiento de Remuestreo:**
      - Se ejecutan exactamente $B = 10.000$ réplicas de remuestreo con reemplazo.
-     - En cada réplica $b \in [1, B]$, se extraen $n = 20$ parejas observadas $(x_{A, j}, x_{B, j})$ mediante índices $j = \text{bounded\_rand\_lemire}(\&boot\_rng, 20)$, calculando la media muestral remuestreada $\bar{d}^*_b = \frac{1}{20}\sum_{i=1}^{20} (x_{A, j_i} - x_{B, j_i})$.
+     - En cada réplica $b \in [1, B]$, se extraen $n = 20$ parejas observadas $(x_{A, j}, x_{B, j})$ mediante índices enteros generados unívocamente:
+       $$j_i = \text{bounded\_rand\_lemire}(\&boot\_rng, 20) \quad \text{para } i = 0, \dots, 19$$
+     - Se calcula la media muestral remuestreada acumulando estrictamente de forma secuencial en orden ascendente de índice $i$:
+       $$\bar{d}^*_b = \frac{1}{20} \sum_{i=0}^{19} (x_{A, j_i} - x_{B, j_i})$$
      - Se ordenan las réplicas en orden ascendente: $\bar{d}^*_{(1)} \le \bar{d}^*_{(2)} \le \dots \le \bar{d}^*_{(10000)}$.
-     - **Intervalo Percentil al 95%:** $[\bar{d}^*_{(250)}, \; \bar{d}^*_{(9750)}]$ (percentiles $2.5\%$ y $97.5\%$ exactos).
+     - **Intervalo Percentil al 95%:** $[\bar{d}^*_{(250)}, \; \bar{d}^*_{(9750)}]$ (percentiles $2,5\%$ y $97,5\%$ exactos en base 1; correspondientes a los elementos de índice `reps[249]` y `reps[9749]` en base 0 en C).
      - Para la mejora relativa $\Delta_{\text{rel}}$, cada réplica calcula $\Delta_{\text{rel}, b}^*$ (aplicando inversión de signo para métricas donde menor es mejor), reportando $[\Delta^*_{(250)}, \; \Delta^*_{(9750)}]$.
-   - *Este procedimiento es 100% reproducible bit a bit entre cualquier implementación independiente.*
+   - **Criterio de Reproducibilidad Numérica y Aritmética de Punto Flotante (NC-02):**
+     - **Secuencia de Índices de Remuestreo:** La secuencia completa de los $200.000$ índices generados ($B \times n = 10.000 \times 20$) es **estrictamente idéntica bit a bit** entre plataformas, compiladores y sistemas operativos.
+     - **Formato Numérico y Reglas de Compilación:** La acumulación aritmética debe ejecutarse en formato IEEE 754 Binary64 (`double`), modo de redondeo estándar al más cercano (*roundTiesToEven* / `FE_TONEAREST`), con contracción de operaciones en coma flotante explícitamente desactivada (`-ffp-contract=off`, sin instrucciones FMA espurias) y sin optimizaciones matemáticas agresivas o no asociativas (`-fno-fast-math`).
+     - **Tolerancia Numérica Explícita:** Reconociendo las micro-diferencias inevitables de redondeo en el último bit de la mantisa entre compiladores y microarquitecturas (ej. x86_64 SSE2/AVX frente a ARM64 NEON), los estimadores flotantes resultantes del bootstrap ($\bar{d}^*$, percentiles $[\bar{d}^*_{(250)}, \bar{d}^*_{(9750)}]$ y $[\Delta^*_{(250)}, \Delta^*_{(9750)}]$) se certifican formalmente como **numéricamente reproducibles dentro de una tolerancia relativa explícita**:
+       $$\text{Tolerancia Relativa } \epsilon_{\text{rel}} = \frac{|\text{valor}_{\text{obs}} - \text{valor}_{\text{ref}}|}{|\text{valor}_{\text{ref}}|} \le 10^{-7} \quad (\text{o Tolerancia Absoluta } \epsilon_{\text{abs}} \le 10^{-9})$$
+       *Esta especificación dual (índices bit-exactos + tolerancia de cálculo flotante acotada) erradica la ambigüedad aritmética garantizando replicabilidad independiente incondicional.*
 
 #### D. Orientación del Signo e Intervalo de Mejora Relativa ($\Delta_{\text{rel}}$)
 Con $\bar{x}_B > 0$ y $[\bar{d}_L, \bar{d}_U]$ correspondiente al intervalo de confianza del 95% del estimador de diferencia media:
@@ -595,7 +619,7 @@ Chimp128 se evalúa como una **referencia técnica especializada de alta capacid
 
 ## 9. Próximos Pasos tras la Revisión de la Fase A
 
-Una vez obtenida la aprobación formal de la presente revisión R15.6:
+Una vez obtenida la aprobación formal de la presente revisión R15.7:
 1. **Cierre Formal de la Fase A.**
 2. **Apertura de la Fase B (Auditoría de Codecs y Datasets):** Actividad exclusivamente de solo lectura dedicada a la inspección estática de las implementaciones fuente de Gorilla, Chimp/Chimp128 y la validación de integridad de los datasets formalizados.
 3. **Mantenimiento del Code Freeze:** Ninguna compilación ni ejecución de código hasta completar las Fases B, C y D.
