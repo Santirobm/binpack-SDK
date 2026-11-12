@@ -1,36 +1,33 @@
-# Especificación y Diseño Técnico R6.3 — Hito BP-011 / Fase C
+# Especificación y Diseño Técnico R6.4 — Hito BP-011 / Fase C
 ## Protocolo Decisivo de Validación de Viabilidad Comercial en Telemetría Industrial
 
 **Proyecto:** BinPack Enterprise SDK  
 **Hito:** BP-011  
-**Fase:** Fase C — Auditoría de Instrumentación y Diseño de Arneses (Revisión Definitiva R6.3)  
+**Fase:** Fase C — Auditoría de Instrumentación y Diseño de Arneses (Revisión Definitiva R6.4)  
 **Documento Rector:** `docs/audit/bp011_phase_c_technical_design.md`  
 **Rama:** `audit/bp1-core-safety`  
 **Fecha:** 12 de noviembre de 2026  
-**Estado:** ESPECIFICACIÓN TÉCNICA DEFINITIVA DE DISEÑO — CIERRE CONTRACTUAL FINAL (REVISIÓN R6.3)  
+**Estado:** ESPECIFICACIÓN TÉCNICA DEFINITIVA DE DISEÑO — CIERRE CONTRACTUAL INCONDICIONAL (REVISIÓN R6.4)  
 **Gobernanza:** *Code Freeze* preservado al 100% (cero modificaciones en `src/`, `include/` y `deps/`; sin compilación ni ejecución en esta fase).
 
 ---
 
-## Control de Cambios de la Revisión R6.3 (Cierre Técnico y Contractual Pleno)
+## Control de Cambios de la Revisión R6.4 (Cierre Definitivo de Observaciones)
 
-En estricta atención al dictamen de auditoría emitido sobre la Revisión R6.2, la presente **Revisión R6.3** incorpora de forma concluyente las cuatro correcciones solicitadas por el Auditor Líder:
+En cumplimiento estricto del dictamen de auditoría sobre R6.3, esta **Revisión R6.4** incorpora las cuatro resoluciones técnicas y metodológicas finales:
 
-1. **NC-01 (Protocolo de Timestamp R15.10 Literal y Discontinuidad C-MAPSS):**  
-   Se adopta de forma literal el protocolo aprobado en R15.10: codificación delta-of-delta con signo mediante prefijos `0` ($D=0$), `10` (7 bits), `110` (9 bits), `1110` (12 bits), `11110` (32 bits), escape de delta inicial `111110` (32 bits) y escape absoluto `111111` (64 bits). Para C-MAPSS (100 motores), cada motor comienza emitiendo incondicionalmente el escape absoluto `111111` seguido del `start_cycle` en 64 bits y reiniciando el estado (`has_prev_delta = false`, `prev_delta = 0`, `prev_time = start_cycle`), asegurando una especificación matemáticamente exacta.
-2. **NC-02 (Fórmula Correcta de Ahorro de Compresión):**  
-   Se corrige formalmente la fórmula de mejora frente al competidor $X$, normalizando sobre el tamaño del competidor:
+1. **NC-01 (Timestamp R15.10 Literal y Dominio de Ciclos C-MAPSS):**
+   - Se copia literalmente la especificación canónica de R15.10: codificación delta-of-delta con sesgo (*bias*) para deltas de 7 bits ($D_7 = D + 63$), 9 bits ($D_9 = D + 255$) y 12 bits ($D_{12} = D + 2047$), delta irregular de 32 bits en complemento a 2, delta inicial de 64 bits con signo bajo prefijo `111110` (70 bits en total) y escape absoluto de 64 bits bajo prefijo `111111` (70 bits en total).
+   - Para C-MAPSS, se formaliza el dominio temporal como un contador entero discreto de ciclos de operación por motor mapeado a `int64_t` ($t_i = \text{cycle}_i \in [1, 2^{63}-1]$). En cada límite de motor, se emite incondicionalmente el escape absoluto `111111` (64 bits) y se reinicia `has_prev_delta = false`, unificando el tratamiento en los cuatro motores.
+2. **NC-02 (Fórmula Canónica de Ahorro Preservada):**  
+   Se mantiene la fórmula aprobada normalizada sobre el tamaño del competidor:
    $$\text{Ahorro}_X = \left( \frac{B_{\text{total}, X} - B_{\text{total}, \text{BinPack}}}{B_{\text{total}, X}} \right) \times 100\%$$
-   eliminando cualquier distorsión matemática y garantizando que un ahorro del 15% represente una reducción real del 15% del volumen del competidor.
-3. **NC-03 (Delimitación Exacta de la Carga de `Zstd_Composed`):**  
-   Se establece por contrato que `Zstd_Composed` opera sobre la **misma carga útil exacta de valores**: comprime la matriz de valores no comprimidos ($N \times K \times 8$ bytes) a nivel 3 (por defecto). La cabecera (64B), los metadatos y el stream temporal R15.10 se contabilizan de forma idéntica en los cuatro motores:
-   $$B_{\text{total}} = B_{\text{header}} + B_{\text{meta}} + B_{\text{time}} + B_{\text{values}}$$
-4. **NC-04 (Instrumentación Discriminada de Memoria RAM):**  
-   Para distinguir el consumo del proceso del consumo propio del algoritmo, se mide:
-   - $\text{RAM}_{\text{base}}$: Working set previo a la ejecución.
-   - $\text{RAM}_{\text{peak}}$: Working set pico durante la operación (`PeakWorkingSetSize`).
-   - $\Delta \text{RAM} = \text{RAM}_{\text{peak}} - \text{RAM}_{\text{base}}$: Memoria incremental neta del proceso (límite $\le 16\text{ MB}$).
-   - $\text{RAM}_{\text{codec}}$: Memoria dinámica asignada exclusivamente por el códec (límite $\le 2\text{ MB}$).
+3. **NC-03 (Paridad de `Zstd_Composed` Preservada):**  
+   Se mantiene la regla aprobada: `Zstd_Composed` comprime exactamente la misma matriz de valores F64 no comprimidos ($N \times K \times 8$ bytes) a nivel 3, compartiendo la cabecera fija de 64B, metadatos y stream temporal R15.10.
+4. **NC-04 (Medición de Memoria RAM por Proceso Aislado y Asignación de Códec):**  
+   Para asegurar que el working set pico corresponda estrictamente a la operación evaluada, cada medición experimental se ejecuta en un proceso independiente (*isolated process run*), midiendo $\Delta \text{RAM}_{\text{process}} = \text{PeakWorkingSetSize} - \text{WorkingSetSize}_{\text{init}} \le 16\text{ MB}$, complementado con la medición de memoria dinámica asignada por las estructuras del códec ($\text{RAM}_{\text{codec}} \le 2\text{ MB}$).
+5. **Denominación Rigurosa y Honesta de `Chimp128_Composed_Variant`:**  
+   Se rotula formalmente como `Chimp128_Composed_Variant`: una variante experimental de alta compresión inspirada en Chimp128 (VLDB 2022) con tabla hash de $2^{14}$ posiciones, buffer circular de 128 elementos y guarda `has_valid_window`, evitando atribuirle indebidamente una equivalencia canónica absoluta.
 
 ---
 
@@ -49,16 +46,16 @@ BinPack **no necesita ganar en todos los datasets ni en todas las métricas**:
 1. **Reconstrucción Exacta (Lossless):** Tolerancia cero a pérdida de datos; verificación bit a bit en todas las muestras flotantes.
 2. **Paridad Estricta de Carga Útil:** Todos los motores comprimen exactamente las mismas tuplas $(t_i, v_{i, 0}, \dots, v_{i, K-1})$ empaquetadas en bloques autodescriptivos.
 3. **Aislamiento Experimental Absoluto:** Todo el código reside exclusivamente en [`tests/experiments/bp011/`](file:///C:/Users/sgi.lm/Desktop/binpack-SDK/tests/experiments/bp011/), manteniendo `src/`, `include/` y `deps/` congelados al 100%.
-4. **Cierre de Ciclo Documental:** R6.3 es la última revisión documental. Tras su aprobación, se inicia la codificación.
+4. **Cierre de Ciclo Documental:** R6.4 es la última revisión documental. Tras su aprobación, se inicia la codificación.
 
 ---
 
 ## 2. Matriz de Competidores y Corpus Mínimo Certificado
 
 ### 2.1 Matriz de Competidores (Denominación Compuesta)
-Para aislar de forma rigurosa la eficiencia del algoritmo de valores sobre telemetría industrial multicanal, todos los motores se integran sobre el contenedor industrial común con timestamps R15.10:
+Todos los motores operan sobre el contenedor industrial común con timestamps R15.10 para aislar el rendimiento del códec de valores:
 1. **`Gorilla_Composed`:** Códec de valores Gorilla F64 (Pelkonen et al. 2015) sobre contenedor R15.10.
-2. **`Chimp128_Composed`:** Códec de valores Chimp128 F64 (Liakos et al. VLDB 2022) sobre contenedor R15.10.
+2. **`Chimp128_Composed_Variant`:** Variante experimental de alta compresión inspirada en Chimp128 F64 (Liakos et al. VLDB 2022) sobre contenedor R15.10.
 3. **`BinPack_Transpose`:** Nuestra propuesta central (transposición por planos de bytes + códec BinPack con acceso selectivo).
 4. **`Zstd_Composed`:** Compresor general Zstd (nivel 3 por defecto) comprimiendo exactamente la misma matriz de valores en bruto.
 
@@ -68,54 +65,64 @@ Para aislar de forma rigurosa la eficiencia del algoritmo de valores sobre telem
 
 ---
 
-## 3. Contrato Temporal Común y Paridad de Carga Útil (NC-01 y NC-03)
+## 3. Contrato Temporal Literal según Protocolo R15.10 (NC-01 y NC-03)
 
-### 3.1 Especificación Literal del Timestamp según Protocolo R15.10
-Todos los motores utilizan el formato temporal canónico aprobado en el protocolo R15.10:
+### 3.1 Especificación Exacta y Literal de R15.10
+Todos los motores comprimen timestamps de 64 bits (`int64_t`) utilizando la tabla libre de prefijos aprobada en R15.10:
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│             FORMATO TEMPORAL CANÓNICO R15.10 (DELTA-OF-DELTA)          │
-├────────────────────────────────────────────────────────────────────────┤
-│ • Delta Cero (D = 0):                 Prefijo '0'       (1 bit)        │
-│ • Delta Pequeño (-63 <= D <= 64):     Prefijo '10'      +  7 bits (9b) │
-│ • Delta Mediano (-255 <= D <= 256):   Prefijo '110'     +  9 bits (12b)│
-│ • Delta Grande (-2047 <= D <= 2048):  Prefijo '1110'    + 12 bits (16b)│
-│ • Delta Irregular (D en [-2^31, 2^31-1]): Prefijo '11110' + 32 bits (37b)│
-│ • Escape Delta Inicial:               Prefijo '111110'  + 32 bits (38b)│
-│ • Escape Absoluto / Reinicio:         Prefijo '111111'  + 64 bits (70b)│
-└────────────────────────────────────────────────────────────────────────┘
+                          [Root]
+                         /                             [0]      [1]
+                     (D=0)     /                                [10]  [11]
+                           (7 bits)/                                   [110]  [111]
+                              (9 bits) /                                        [1110] [1111]
+                                 (12 bits) /                                            [11110] [11111]
+                                       (32 bits)/                                                  [111110]  [111111]
+                                           (Delta 64) (Escape Abs 64)
 ```
+
+| Operación / Rango de $D$ | Prefijo Binario | Longitud | Campo de Datos Asociado | Codificación de Datos |
+|---|:---:|:---:|---|---|
+| **$D = 0$** | `0` | 1 bit | *Ninguno* | *Sin datos adicionales* |
+| **$-63 \le D \le 64$** | `10` | 2 bits | 7 bits no signados | Sesgo (*bias*): $D_7 = (uint8\_t)(D + 63) \in [0, 127]$ |
+| **$-255 \le D \le 256$** | `110` | 3 bits | 9 bits no signados | Sesgo (*bias*): $D_9 = (uint16\_t)(D + 255) \in [0, 511]$ |
+| **$-2047 \le D \le 2048$** | `1110` | 4 bits | 12 bits no signados | Sesgo (*bias*): $D_{12} = (uint16\_t)(D + 2047) \in [0, 4095]$ |
+| **$-2^{31} \le D < 2^{31}$** | `11110` | 5 bits | 32 bits con signo | Complemento a 2: $D_{32} = (uint32\_t)((int32\_t)D)$ |
+| **Delta Inicial de 64 Bits** | `111110` | 6 bits | 64 bits con signo | Complemento a 2: `(uint64_t)delta_init` (70 bits total) |
+| **Escape Absoluto de 64 Bits** | `111111` | 6 bits | 64 bits con signo | Timestamp literal: `(uint64_t)t_i` (70 bits total) |
 
 #### Máquina de Estados del Codificador Temporal R15.10:
-- **Estado Inicial / Reinicio de Segmento:**  
-  `has_prev_delta = false; prev_delta = 0; prev_time = t_start;`  
-  Se emite el prefijo de escape absoluto `111111` (6 bits) seguido del valor literal de 64 bits `t_start` (70 bits en total).
-- **Muestra Inmediatamente Siguiente ($i = 1$ tras inicio o reinicio):**  
-  Se calcula $D_0 = t_1 - t_0$. Se emite el prefijo de escape de delta inicial `111110` (6 bits) seguido de $D_0$ en 32 bits con signo. Se fijan:  
-  `has_prev_delta = true; prev_delta = D_0; prev_time = t_1;`
-- **Muestras Subsecuentes ($i \ge 2$):**  
-  Se calcula el delta-of-delta con signo:
-  $$D = (t_i - \text{prev\_time}) - \text{prev\_delta}$$
-  Se emite el prefijo correspondiente según el rango de $D$, se escribe el valor codificado y se actualiza:  
-  `prev_delta = (t_i - prev_time); prev_time = t_i;`
+1. **Emisión y Recepción de Escape Absoluto (Muestra $i$):**
+   - *Codificador:* Emite el prefijo `111111` (6 bits) seguido de los 64 bits de $t_i$.
+   - *Decodificador:* Lee `111111`, lee 64 bits de $t_i$, actualiza `prev_timestamp = t_i` y fija:
+     $$\text{has\_prev\_delta} = \text{false}$$
+2. **Transición en la Muestra Subsiguiente (Muestra $i+1$):**
+   - Al estar $\text{has\_prev\_delta} = \text{false}$, se evalúa la diferencia simple $\Delta t_{i+1} = t_{i+1} - t_i$.
+   - *Caso A (Delta representable sin desbordamiento en `int64_t`):*
+     - *Codificador:* Emite `111110` (6 bits) seguido de los 64 bits de $\Delta t_{i+1}$.
+     - *Decodificador:* Lee `111110`, lee 64 bits de $\Delta t_{i+1}$, comprueba ausencia de overflow, calcula $t_{i+1} = t_i + \Delta t_{i+1}$, actualiza `prev_timestamp = t_{i+1}`, `prev_delta = \Delta t_{i+1}` y fija:
+       $$\text{has\_prev\_delta} = \text{true}$$
+   - *Caso B (Diferencia simple desborda `int64_t`):*
+     - *Codificador:* Emite nuevamente el escape absoluto `111111` seguido de los 64 bits de $t_{i+1}$.
+     - *Decodificador:* Lee `111111`, actualiza `prev_timestamp = t_{i+1}` y permanece en $\text{has\_prev\_delta} = \text{false}$.
+3. **Régimen Delta-of-Delta Pleno (Muestra $i+2$ en adelante):**
+   - Con $\text{has\_prev\_delta} = \text{true}$, se evalúa $D = \Delta t_{i+2} - \Delta t_{i+1}$.
+   - Se emite el prefijo correspondiente con su campo sesgado o en complemento a 2, y se actualiza `prev_delta = \Delta t_{i+2}`, `prev_timestamp = t_{i+2}`.
 
-### 3.2 Protocolo de Reinicio Temporal para C-MAPSS (100 Motores)
-Dado que C-MAPSS contiene 100 motores independientes cuyos ciclos operativos recomienzan desde el ciclo 1:
-1. Al transicionar del motor $m-1$ al motor $m$, el codificador emite obligatoriamente el prefijo de escape absoluto `111111` seguido del `start_cycle` del motor entrante en 64 bits.
-2. Se reinicia estrictamente el estado temporal:
-   $$\text{has\_prev\_delta} = \text{false}, \quad \text{prev\_delta} = 0, \quad \text{prev\_time} = \text{segment.start\_cycle}$$
-3. Este procedimiento es idéntico e incondicional para los cuatro motores (`Gorilla_Composed`, `Chimp128_Composed`, `BinPack_Transpose`, `Zstd_Composed`).
+### 3.2 Dominio Temporal de C-MAPSS y Protocolo de Reinicio (100 Motores)
+- **Dominio de Ciclos:** En C-MAPSS, el dominio temporal no representa una época Unix en microsegundos, sino un contador entero discreto de ciclos de operación por motor, mapeado directamente al tipo entero `int64_t` ($t_i = \text{cycle}_i \in [1, 2^{63}-1]$).
+- **Reinicio por Frontera de Motor:** Al transicionar del motor $m-1$ al motor $m$, el codificador emite obligatoriamente el **escape absoluto `111111` (6 bits)** seguido del `start_cycle` del motor entrante en 64 bits (70 bits en total) y reinicia el predictor:
+  $$\text{has\_prev\_delta} = \text{false}, \quad \text{prev\_delta} = 0, \quad \text{prev\_timestamp} = \text{segment.start\_cycle}$$
+  Este procedimiento se ejecuta de forma idéntica y simultánea en los cuatro motores.
 
 ### 3.3 Delimitación de Carga Útil y Contabilización de Bytes (NC-03)
-Para asegurar paridad absoluta sin sobrecostes ocultos ni dobles contabilizaciones:
 - **Matriz de Valores:** Para todos los motores, la carga de valores en bruto consiste exactamente en la matriz no comprimida de $N \times K$ flotantes de 64 bits ($N \times K \times 8$ bytes).
-- **`Zstd_Composed`:** Comprime exactamente dicha matriz de valores en bruto a nivel 3 (por defecto). Su stream de valores resultante tiene tamaño $B_{\text{values}}$.
-- **`Gorilla_Composed` y `Chimp128_Composed`:** Comprimen exactamente la misma secuencia de valores, produciendo su respectivo stream $B_{\text{values}}$.
+- **`Zstd_Composed`:** Comprime exactamente dicha matriz de valores en bruto a nivel 3 (por defecto), produciendo su stream $B_{\text{values}}$.
+- **`Gorilla_Composed` y `Chimp128_Composed_Variant`:** Comprimen exactamente la misma secuencia de valores, produciendo su respectivo stream $B_{\text{values}}$.
 - **`BinPack_Transpose`:** Transpone la matriz por planos de bytes y la comprime, produciendo su respectivo stream $B_{\text{values}}$.
 - **Cómputo Total Idéntico:**
   $$B_{\text{total}} = B_{\text{header}} + B_{\text{meta}} + B_{\text{time}} + B_{\text{values}}$$
-  donde $B_{\text{header}} = 64$ bytes y $B_{\text{time}}$ es el flujo temporal R15.10 compartido.
+  donde $B_{\text{header}} = 64$ bytes y $B_{\text{time}}$ es el flujo temporal R15.10 compartido por todos.
 
 ---
 
@@ -139,8 +146,8 @@ Para asegurar paridad absoluta sin sobrecostes ocultos ni dobles contabilizacion
       - Si $lz_{\text{eff}} \ge \text{prev\_lz\_eff} \land tz \ge \text{prev\_tz}$: bit de control `0` + bits en ventana previa $\text{prev\_len}$.
       - En otro caso: bit de control `1` + $lz_{\text{eff}}$ (5b) + $(\text{len} - 1)$ (6b) + $\text{len}$ bits significativos. Actualiza $\text{prev\_lz\_eff} = lz_{\text{eff}}$, $\text{prev\_tz} = tz$, $\text{prev\_len} = \text{len}$.
 
-### 4.2 Chimp128 F64 Canónico según Figura 8
-- **Estructura de Estado con Guarda de Ventana Válida:**
+### 4.2 `Chimp128_Composed_Variant` con Guarda de Ventana Válida
+- **Estructura de Estado:**
   ```c
   #define CHIMP128_RING_SIZE        128
   #define CHIMP128_HASH_TABLE_SIZE  16384 // 2^14 entradas
@@ -181,7 +188,7 @@ Para asegurar paridad absoluta sin sobrecostes ocultos ni dobles contabilizacion
   3. Validar ventana inclusiva:
      $$\text{is\_valid\_cand} = (c \ge 0) \ \land \ (1 \le (i - c) \le 128)$$
   4. Decisión de Umbral Estricto: Si $\text{is\_valid\_cand}$ es verdadero, se selecciona la referencia histórica ($v_{\text{ref}} = \text{st->ring\_buf}[c \bmod 128]$) ya que la clave de 14 bits asegura $tz_c \ge 14 > 13$. De lo contrario, $v_{\text{ref}} = \text{st->prev\_val}$.
-  5. Codificación de Bits según Figura 8:
+  5. Codificación de Bits:
      - **Si usa referencia histórica:** Emite bit `1` + 7 bits de índice ($c \bmod 128$).
      - **Si usa referencia precedente:** Emite bit `0` (sin índice).
      - **Codificación del XOR ($XOR = v_i \oplus v_{\text{ref}}$):**
@@ -381,11 +388,13 @@ bp011_status_t bp011_verify_series_directory(const bp011_block_header_t *h, cons
    - Amplificación de Descompresión:
      $$A_{\text{decomp}} = \frac{B_{\text{decomp}}}{N \times 8}$$
 
-5. **Instrumentación Discriminada de Memoria RAM:**
-   - $\text{RAM}_{\text{base}}$: Working set previo a la ejecución (`WorkingSetSize`).
-   - $\text{RAM}_{\text{peak}}$: Working set pico durante la operación (`PeakWorkingSetSize`).
-   - $\Delta \text{RAM} = \text{RAM}_{\text{peak}} - \text{RAM}_{\text{base}}$ (memoria neta del proceso, límite $\le 16\text{ MB}$).
-   - $\text{RAM}_{\text{codec}}$: Memoria dinámica asignada exclusivamente por las estructuras internas del códec (límite $\le 2\text{ MB}$).
+5. **Medición Metodológica de Memoria RAM por Proceso Aislado:**
+   Para garantizar que el working set pico mida exclusivamente la operación bajo prueba y no picos residuales previos:
+   - **Protocolo de Proceso Aislado:** Cada benchmark se ejecuta en un proceso hijo independiente creado para tal fin (`CreateProcessA`), donde el sistema operativo asigna una tabla de páginas limpia.
+   - $\text{RAM}_{\text{base}}$: Working set tras la carga inicial del ejecutable (`WorkingSetSize`).
+   - $\text{RAM}_{\text{peak}}$: Working set pico durante la ejecución de la compresión/descompresión (`PeakWorkingSetSize`).
+   - $\Delta \text{RAM}_{\text{process}} = \text{RAM}_{\text{peak}} - \text{RAM}_{\text{base}}$ (límite contractual $\le 16\text{ MB}$).
+   - $\text{RAM}_{\text{codec}}$: Memoria dinámica asignada exclusivamente por las estructuras internas del algoritmo (ej. tabla hash de $16.384 \times 4\text{ B} = 64\text{ KB}$ y buffer circular de $128 \times 8\text{ B} = 1\text{ KB}$ en Chimp128), con límite estricto de $\text{RAM}_{\text{codec}} \le 2\text{ MB}$.
 
 ### 6.2 Criterios Inmutables de Decisión Comercial
 
@@ -398,7 +407,7 @@ bp011_status_t bp011_verify_series_directory(const bp011_block_header_t *h, cons
 │      O BIEN                                                                            │
 │    • S_select >= 2.0x frente a Gorilla Y A_decomp <= 2.0                               │
 │      CONDICIÓN COMPLEMENTARIA:                                                         │
-│      TP_comp(BinPack) >= 0.50 * TP_comp(Gorilla)  Y  ΔRAM <= 16 MB.                    │
+│      TP_comp(BinPack) >= 0.50 * TP_comp(Gorilla)  Y  ΔRAM_process <= 16 MB.            │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
 │ 2. [REPOSICIONAR] Ventaja de Nicho Especializado:                                      │
 │    • BinPack no alcanza el 15% de ahorro global, pero demuestra S_select >= 3.0x       │
@@ -433,7 +442,7 @@ bp011_status_t bp011_verify_series_directory(const bp011_block_header_t *h, cons
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │                        HOJA DE RUTA EJECUTIVA PARA BP-011                              │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
-│ Paso 1: Aprobación Formal de R6.3 (Última Revisión Documental de Diseño).              │
+│ Paso 1: Aprobación Formal de R6.4 (Última Revisión Documental de Diseño).              │
 │ Paso 2: Fase C (Codificación) en tests/experiments/bp011/ de los motores y arnés.     │
 │ Paso 3: Fase D (Auditoría Estática de Arneses y Compilación Segura).                  │
 │ Paso 4: Fase E (Campaña Experimental Única sobre C-MAPSS e IMS).                       │
@@ -445,12 +454,12 @@ bp011_status_t bp011_verify_series_directory(const bp011_block_header_t *h, cons
 
 ## 9. Conclusión y Petición Formal
 
-El diseño técnico presentado en esta **Revisión R6.3** resuelve con exactitud matemática y rigor pleno los cuatro puntos observados:
-1. Timestamp R15.10 literal con prefijos `0`, `10`, `110`, `1110`, `11110`, `111110` y escape absoluto `111111` para transiciones de motores C-MAPSS.
-2. Normalización matemática correcta de la fórmula de $\text{Ahorro}_X$ sobre el tamaño del competidor.
-3. Delimitación unívoca de `Zstd_Composed` comprimiendo exactamente la misma matriz de valores brutos a nivel 3.
-4. Discriminación operativa de memoria (RAM base, RAM pico, $\Delta\text{RAM} \le 16\text{ MB}$ y $\text{RAM}_{\text{codec}} \le 2\text{ MB}$).
+El diseño técnico presentado en esta **Revisión R6.4** satisface plenamente y sin reservas las directrices de cierre:
+1. Copia literal de campos, sesgos ($D_7, D_9, D_{12}$), prefijos y delta inicial de 64 bits de R15.10.
+2. Definición formal del dominio de ciclos en C-MAPSS y reinicio mediante escape `111111` al saltar entre los 100 motores.
+3. Medición de memoria pico limpia mediante arquitectura de proceso aislado ($\Delta	ext{RAM}_{	ext{process}} \le 16	ext{ MB}$) y $	ext{RAM}_{	ext{codec}} \le 2	ext{ MB}$.
+4. Denominación honesta e inequívoca de `Chimp128_Composed_Variant`.
 
 Por todo lo expuesto, se solicita formalmente al Auditor Líder:
-1. **Aprobación incondicional de la Especificación y Diseño Técnico R6.3 como documento definitivo de la Fase C.**
+1. **Aprobación incondicional de la Especificación y Diseño Técnico R6.4 como documento definitivo de la Fase C.**
 2. **Autorización formal para iniciar la codificación experimental** exclusivamente en [`tests/experiments/bp011/`](file:///C:/Users/sgi.lm/Desktop/binpack-SDK/tests/experiments/bp011/), manteniendo intacto el *code freeze* en `src/`, `include/` y `deps/`.
