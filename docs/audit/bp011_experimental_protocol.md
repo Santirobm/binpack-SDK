@@ -1,9 +1,9 @@
-# Protocolo Experimental R15.8 — Hito BP-011
+# Protocolo Experimental R15.9 — Hito BP-011
 ## Industrial Time-Series Benchmark: Gorilla & Chimp vs. BinPack Transpose
 
 **Proyecto:** BinPack Enterprise SDK  
 **Hito:** BP-011  
-**Fase:** Fase A — Acta de Apertura y Protocolo Experimental (Revisión Definitiva R15.8)  
+**Fase:** Fase A — Acta de Apertura y Protocolo Experimental (Revisión Definitiva R15.9)  
 **Documento Rector:** `docs/audit/bp011_experimental_protocol.md`  
 **Rama:** `audit/bp1-core-safety`  
 **Estado:** PROTOCOLO FORMAL DEFINITIVO PARA DICTAMEN DE CIERRE DE FASE A  
@@ -12,18 +12,17 @@
 
 ## Control de Cambios y Registro Integral de Subsanaciones
 
-### Revisiones Previas (R15.1 a R15.7)
+### Revisiones Previas (R15.1 a R15.8)
 - **NC-01 (Cuartiles de Tukey y Regla de Signos):** Cuartiles de Tukey en base 1 y base 0 (`arr[4]`, `arr[5]`, etc.); regla unívoca de $k$ para la mediana en la prueba de signos como el mayor entero con cobertura bilateral $\ge 95\%$ ($k=6$, cobertura $95,861\%$ para $n_{\text{eff}}=20$), tabla exhaustiva para $n_{\text{eff}} < 20$ y tratamiento con $k=1$ y advertencia `UNDERSIZED_EFFECTIVE_SAMPLE` para $n_{\text{eff}} \le 5$.
 - **NC-02 (Separación de Amplificaciones y Bootstrap):** Definición independiente de $A_{\text{read}}$, $A_{\text{decomp}}$ y $A_{\text{store}}$ con $B_{\text{target}}$ libre de cabeceras; bootstrap percentil determinista con PRNG independiente.
 - **NC-03 (Aplicabilidad de Consultas):** Regla de cardinalidad estricta y catalogación de $Q_2$ como `NOT_APPLICABLE` en DS-01 ($N < 10.000$).
 - **NC-04 (Prefijos Inequívocos y Máquina de Estados):** Árbol estrictamente libre de prefijos (*strictly prefix-free*) con `111110` para delta inicial y `111111` para escape absoluto. Aritmética segura en 3 pasos, máquina de estados con `has_prev_delta` y serialización Big-Endian portable en microsegundos `int64_t`.
 - **OBS-01 a OBS-06:** Desglose en 4 componentes de tamaño ($B_{\text{time}}$, $B_{\text{values}}$, $B_{\text{container}}$, $B_{\text{total}}$), densidades (bpv, bpt, bptuple, bpc), regímenes Hot/Cold Cache, reserva de $Q_{\text{conc}}$, familias Holm-Bonferroni por terna $(\text{Dataset}, \text{Consulta}, \text{Métrica})$ a $\alpha = 0.05$, y baseline Chimp128.
-- **Subsanaciones R15.5:** Correspondencia unívoca de estimandos e intervalos ($ar{d}$ para $t$-test, Hodges-Lehmann para Wilcoxon, mediana $\tilde{d}$ para Sign Test), tratamiento canónico de diferencias nulas ($d_i = 0$) y corrección de varianza por empates en rangos, y coeficiente insesgado de asimetría de Fisher-Pearson ($g_1$).
-- **Subsanaciones R15.6:** Implementación C canónica de PCG32 XSH-RR 64/32 con `initstate = 42ULL` e `initseq = 54ULL`; algoritmo de Lemire para mapeo acotado con manejo de rechazos; diseño en bloques de Cuadrados Latinos con balanceo ordinal riguroso ($f_{m, p} \in \{2, 3\}$, desviación máxima $6/7 \approx 0.857 < 1.0$) y tabla de calendario de 20 rondas verificada independientemente.
+- **Subsanaciones R15.5 a R15.7:** Correspondencia unívoca de estimandos e intervalos; tratamiento riguroso de empates y ceros; coeficiente de Fisher-Pearson; PCG32 canónico; Lemire en C; diseño en bloques de Cuadrados Latinos con balanceo $f_{m, p} \in \{2, 3\}$; desambiguación contractual entre índices bit-exactos y resultados flotantes con tolerancia.
 
-### Revisión R15.8 (Presente Documento Definitivo)
-1. **Tabla de Equivalencias de Compilación en Punto Flotante Multi-Compilador (NC-02):** Formalización de las banderas de compilación obligatorias para garantizar evaluación precisa IEEE 754 Binary64 abarcando GCC (`-ffp-contract=off -fno-fast-math -frounding-math`), Clang (`-ffp-contract=off -fno-fast-math`) y Microsoft Visual C++ (`/fp:precise` o `/fp:strict`), con exclusión explícita de compiladores no conformes.
-2. **Precisión Contractual de la Reproducibilidad Numérica (NC-02):** Delimitación nítida entre la **bit-exactitud estricta** (restringida a los 200.000 índices enteros del bootstrap generados por PCG32/Lemire) y la **reproducibilidad numérica independiente** de los resultados flotantes bajo las tolerancias acotadas especificadas ($\epsilon_{\text{rel}} \le 10^{-7}$, $\epsilon_{\text{abs}} \le 10^{-9}$), sustituyendo cualquier afirmación de replicabilidad incondicional.
+### Revisión R15.9 (Presente Documento Definitivo)
+1. **Configuración Canónica de MSVC y Semántica Real de Toolchains (NC-02):** Se fija `/fp:strict` como configuración canónica obligatoria para MSVC (desactivando contracciones FMA implícitas en todas las versiones); se documenta el alcance real y no especulativo de las opciones de GCC (`-ffp-contract=off -fno-fast-math`, retirando el experimental `-frounding-math`) y Clang (`-ffp-contract=off -fno-fast-math -ffp-model=precise`); y se mandata la comprobación estricta en tiempo de ejecución del modo de redondeo `FE_TONEAREST` mediante `fegetround()`.
+2. **Regla Unificada de Tolerancia Numérica para Referencia Cero (NC-02):** Se formaliza el criterio canónico unificado de verificación combinando tolerancias absoluta y relativa: $|\text{valor}_{\text{obs}} - \text{valor}_{\text{ref}}| \le \max(10^{-9}, \; 10^{-7} \cdot |\text{valor}_{\text{ref}}|)$, garantizando validez analítica tanto para valores normales como para magnitudes nulas o próximas a cero.
 
 ---
 
@@ -549,23 +548,33 @@ Para garantizar que la prueba de hipótesis y el intervalo de confianza estimen 
      - **Secuencia de Índices de Remuestreo (Bit-Exactitud Estricta):** La secuencia completa de los $200.000$ índices de remuestreo generados ($B \times n = 10.000 \times 20$) mediante `bounded_rand_lemire(&boot_rng, 20)` sobre la instancia canónica `boot_rng` es **estrictamente bit-exacta** (idéntica bit a bit) entre todas las plataformas, compiladores y sistemas operativos admitidos.
      - **Formato Numérico y Reglas de Evaluación IEEE 754:** La acumulación aritmética de cada réplica se ejecuta obligatoriamente en formato IEEE 754 Binary64 (`double`), modo de redondeo estándar al más cercano (*roundTiesToEven* / `FE_TONEAREST`), en orden secuencial estricto y ascendente:
        $$\bar{d}^*_b = \frac{1}{20} \sum_{i=0}^{19} (x_{A, j_i} - x_{B, j_i})$$
+     - **Comprobación en Tiempo de Ejecución del Modo de Redondeo:**  
+       El ejecutable verificará formalmente al inicio de la fase analítica (mediante `<fenv.h>`) que el entorno de punto flotante se encuentra configurado en el modo canónico:
+       ```c
+       #include <fenv.h>
+       #include <assert.h>
+       assert(fegetround() == FE_TONEAREST);
+       ```
+       Queda estrictamente prohibida la alteración del entorno de redondeo o de control durante el cálculo estadístico.
      - **Tabla Canónica de Opciones de Compilación por Compilador Admitido:**  
-       Para garantizar la consistencia numérica y evitar contracciones FMA asimétricas o reasociaciones espurias entre diferentes toolchains admitidos:
+       Para garantizar la consistencia numérica y evitar contracciones FMA implícitas o reasociaciones espurias entre diferentes toolchains admitidos:
 
-| Compilador Admitido | Plataforma Típica | Banderas Obligatorias de Compilación | Semántica Garantizada |
+| Compilador Admitido | Plataforma Típica | Banderas Obligatorias de Compilación | Semántica Real y Alcance Documentado |
 | :--- | :--- | :--- | :--- |
-| **GCC (GNU C)** | Linux, Windows (MinGW) | `-ffp-contract=off -fno-fast-math -frounding-math` | Desactiva fusión FMA no explícita, preserva orden estricto de operaciones y respeta redondeo IEEE 754. |
-| **Clang / LLVM** | Linux, macOS, Windows | `-ffp-contract=off -fno-fast-math` | Inhibe contracciones en punto flotante y evita reasociaciones algebraicas no seguras. |
-| **MSVC (Visual C++)** | Windows (MSVC x64/ARM64) | `/fp:precise` *(o `/fp:strict`)* | Modelo estándar preciso de MSVC; deshabilita optimizaciones que alteren el redondeo y preserva evaluación precisa IEEE 754. |
+| **GCC (GNU C)** | Linux, Windows (MinGW) | `-ffp-contract=off -fno-fast-math` | Desactiva fusión FMA no explícita (`fp-contract=off`) y preserva la asociatividad estricta de expresiones flotantes (`fno-fast-math`). Se opera bajo el entorno estático por defecto `FE_TONEAREST` sin requerir `-frounding-math` (el cual es experimental según la documentación oficial de GCC). |
+| **Clang / LLVM** | Linux, macOS, Windows | `-ffp-contract=off -fno-fast-math -ffp-model=precise` | Establece el modelo de punto flotante preciso (`-ffp-model=precise`), inhibe contracciones FMA no explícitas y evita reasociaciones algebraicas no seguras bajo entorno flotante estándar. |
+| **MSVC (Visual C++)** | Windows (MSVC x64/ARM64) | `/fp:strict` | Configuración canónica obligatoria para MSVC. Deshabilita de forma universal las contracciones FMA implícitas en todas las versiones de Visual Studio, preserva el orden secuencial estricto de evaluación de expresiones y garantiza el respeto íntegro de la semántica de excepciones y redondeo IEEE 754. |
 
 *(Nota de Delimitación de Alcance: Compiladores o modos de compilación que no implementen la semántica estricta IEEE 754 Binary64, o que fuercen flags de relajación aritmética de tipo `fast-math` que rompen la asociatividad, quedan formalmente excluidos del alcance de la garantía de reproducibilidad).*
 
-     - **Reproducibilidad Numérica Independiente y Tolerancia Explícita:**  
+     - **Reproducibilidad Numérica Independiente y Criterio Unificado de Tolerancia:**  
        Se establece de forma rigurosa la distinción conceptual entre:
        1. **Bit-Exactitud Absoluta:** Aplica *exclusivamente* a la generación de los $200.000$ índices enteros del bootstrap.
-       2. **Reproducibilidad Numérica Independiente:** Aplica a los estimadores y percentiles flotantes ($\bar{d}^*$, percentiles $[\bar{d}^*_{(250)}, \bar{d}^*_{(9750)}]$ y $[\Delta^*_{(250)}, \Delta^*_{(9750)}]$), los cuales se certifican como **reproducibles numéricamente de manera independiente bajo las reglas aritméticas y tolerancias especificadas**:
-          $$\text{Tolerancia Relativa } \epsilon_{\text{rel}} = \frac{|\text{valor}_{\text{obs}} - \text{valor}_{\text{ref}}|}{|\text{valor}_{\text{ref}}|} \le 10^{-7} \quad (\text{o Tolerancia Absoluta } \epsilon_{\text{abs}} \le 10^{-9})$$
-       *Esta formulación delimita contractualmente la reproducibilidad numérica independiente bajo las tolerancias declaradas, absorbiendo micro-diferencias inevitables de redondeo en el último bit de la mantisa entre microarquitecturas de registros (ej. x86_64 SSE2/AVX frente a ARM64 NEON).*
+       2. **Reproducibilidad Numérica Independiente:** Aplica a los estimadores y percentiles flotantes ($\bar{d}^*$, percentiles $[\bar{d}^*_{(250)}, \bar{d}^*_{(9750)}]$ y $[\Delta^*_{(250)}, \Delta^*_{(9750)}]$), los cuales se certifican como **reproducibles numéricamente de manera independiente bajo las reglas aritméticas y la regla unificada de tolerancia**:
+          $$|\text{valor}_{\text{obs}} - \text{valor}_{\text{ref}}| \le \max\left(10^{-9}, \; 10^{-7} \cdot |\text{valor}_{\text{ref}}|\right)$$
+       - **Régimen de Magnitudes Normales ($|\text{valor}_{\text{ref}}| > 10^{-2}$):** La cota está dominada por la tolerancia relativa de $10^{-7}$ (0.1 partes por millón).
+       - **Régimen Próximo a Cero o Cero Exacto ($|\text{valor}_{\text{ref}}| \le 10^{-2}$ y en particular $|\text{valor}_{\text{ref}}| \to 0$):** La cota está gobernada por la tolerancia absoluta $\epsilon_{\text{abs}} = 10^{-9}$, evitando divisiones espurias por cero o divergencias relativas artificiales cuando la diferencia entre motores es nula o infinitesimal.
+       *Esta formulación unificada delimita contractualmente la reproducibilidad numérica independiente, absorbiendo micro-diferencias inevitables de redondeo en el último bit de la mantisa entre microarquitecturas de registros (ej. x86_64 SSE2/AVX frente a ARM64 NEON).*
 
 #### D. Orientación del Signo e Intervalo de Mejora Relativa ($\Delta_{\text{rel}}$)
 Con $\bar{x}_B > 0$ y $[\bar{d}_L, \bar{d}_U]$ correspondiente al intervalo de confianza del 95% del estimador de diferencia media:
@@ -634,7 +643,7 @@ Chimp128 se evalúa como una **referencia técnica especializada de alta capacid
 
 ## 9. Próximos Pasos tras la Revisión de la Fase A
 
-Una vez obtenida la aprobación formal de la presente revisión R15.8:
+Una vez obtenida la aprobación formal de la presente revisión R15.9:
 1. **Cierre Formal de la Fase A.**
 2. **Apertura de la Fase B (Auditoría de Codecs y Datasets):** Actividad exclusivamente de solo lectura dedicada a la inspección estática de las implementaciones fuente de Gorilla, Chimp/Chimp128 y la validación de integridad de los datasets formalizados.
 3. **Mantenimiento del Code Freeze:** Ninguna compilación ni ejecución de código hasta completar las Fases B, C y D.
