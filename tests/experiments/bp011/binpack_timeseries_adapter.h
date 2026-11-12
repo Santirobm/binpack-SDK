@@ -224,7 +224,7 @@ static inline bp011_status_t binpack_decode_single_channel(
 }
 
 /* ========================================================================= */
-/* Ensamblaje Canónico de Bloque con Serialización Explícita y Validación    */
+/* Ensamblaje Canónico de Bloque con Doble Verificación Anti-Overflow (NC-D05)*/
 /* ========================================================================= */
 static inline bp011_status_t bp011_package_block(
     uint8_t *file_buf,
@@ -260,11 +260,12 @@ static inline bp011_status_t bp011_package_block(
     h.num_channels = num_channels;
     h.sample_count = num_samples;
 
-    /* Tabla de canales (M7) serializada campo a campo en Little-Endian (NC-D05) */
+    /* Tabla de canales (M7) con doble verificacion anti-overflow de cursor de 32 bits (NC-D05) */
     if (chan_table) {
         if (num_channels > (UINT32_MAX / 12U)) return BP011_ERR_BUFFER_OVERFLOW;
         uint32_t table_bytes = num_channels * 12U;
-        if (table_bytes > file_cap - cursor) return BP011_ERR_BUFFER_OVERFLOW;
+        if (table_bytes > UINT32_MAX - cursor) return BP011_ERR_BUFFER_OVERFLOW;
+        if ((size_t)table_bytes > file_cap - (size_t)cursor) return BP011_ERR_BUFFER_OVERFLOW;
 
         h.flags |= BP011_FLAG_HAS_CHANNEL_TABLE;
         h.channel_table_offset = cursor;
@@ -276,11 +277,12 @@ static inline bp011_status_t bp011_package_block(
         cursor += table_bytes;
     }
 
-    /* Directorio de series C-MAPSS serializado campo a campo en Little-Endian (NC-D05) */
+    /* Directorio de series C-MAPSS con doble verificacion anti-overflow de cursor (NC-D05) */
     if (series_dir && num_series > 0) {
         if (num_series > (UINT32_MAX / 32U)) return BP011_ERR_BUFFER_OVERFLOW;
         uint32_t dir_bytes = num_series * 32U;
-        if (dir_bytes > file_cap - cursor) return BP011_ERR_BUFFER_OVERFLOW;
+        if (dir_bytes > UINT32_MAX - cursor) return BP011_ERR_BUFFER_OVERFLOW;
+        if ((size_t)dir_bytes > file_cap - (size_t)cursor) return BP011_ERR_BUFFER_OVERFLOW;
 
         h.flags |= BP011_FLAG_HAS_SERIES_DIR;
         h.series_dir_offset = cursor;
@@ -292,21 +294,25 @@ static inline bp011_status_t bp011_package_block(
         cursor += dir_bytes;
     }
 
-    /* Stream de tiempo con comprobacion por resta (NC-D05) */
-    if ((uint32_t)time_bytes > file_cap - cursor) return BP011_ERR_BUFFER_OVERFLOW;
+    /* Stream de tiempo con doble verificacion anti-overflow de cursor (NC-D05) */
+    uint32_t t_bytes = (uint32_t)time_bytes;
+    if (t_bytes > UINT32_MAX - cursor) return BP011_ERR_BUFFER_OVERFLOW;
+    if ((size_t)t_bytes > file_cap - (size_t)cursor) return BP011_ERR_BUFFER_OVERFLOW;
     h.time_stream_offset = cursor;
-    h.time_stream_bytes  = (uint32_t)time_bytes;
+    h.time_stream_bytes  = t_bytes;
     h.time_stream_bits   = (uint32_t)time_bits;
     memcpy(file_buf + cursor, time_stream, time_bytes);
-    cursor += (uint32_t)time_bytes;
+    cursor += t_bytes;
 
-    /* Stream de valores con comprobacion por resta (NC-D05) */
-    if ((uint32_t)values_bytes > file_cap - cursor) return BP011_ERR_BUFFER_OVERFLOW;
+    /* Stream de valores con doble verificacion anti-overflow de cursor (NC-D05) */
+    uint32_t v_bytes = (uint32_t)values_bytes;
+    if (v_bytes > UINT32_MAX - cursor) return BP011_ERR_BUFFER_OVERFLOW;
+    if ((size_t)v_bytes > file_cap - (size_t)cursor) return BP011_ERR_BUFFER_OVERFLOW;
     h.values_stream_offset = cursor;
-    h.values_stream_bytes  = (uint32_t)values_bytes;
+    h.values_stream_bytes  = v_bytes;
     h.values_stream_bits   = (uint32_t)values_bits;
     memcpy(file_buf + cursor, values_stream, values_bytes);
-    cursor += (uint32_t)values_bytes;
+    cursor += v_bytes;
 
     h.total_file_bytes = cursor;
     h.crc32 = 0;
