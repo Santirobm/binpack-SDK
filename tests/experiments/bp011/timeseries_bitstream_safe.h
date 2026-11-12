@@ -25,30 +25,37 @@ typedef struct {
     uint8_t  bits_in_cur;    /* Cantidad de bits acumulados en cur_byte (0 a 7) */
 } bp011_bitwriter_t;
 
-static inline void bp011_bitwriter_init(bp011_bitwriter_t *w, uint8_t *buf, size_t capacity) {
-    if (!w) return;
+static inline bp011_status_t bp011_bitwriter_init(bp011_bitwriter_t *w, uint8_t *buf, size_t capacity) {
+    if (!w || !buf) return BP011_ERR_NULL_POINTER;
+    if (capacity == 0) return BP011_ERR_INVALID_ARG;
     w->buf = buf;
     w->capacity_bytes = capacity;
     w->byte_pos = 0;
     w->total_bits = 0;
     w->cur_byte = 0;
     w->bits_in_cur = 0;
+    return BP011_OK;
 }
 
 static inline bp011_status_t bp011_bitwriter_write_bit(bp011_bitwriter_t *w, uint8_t bit) {
     if (!w || !w->buf) return BP011_ERR_NULL_POINTER;
-    w->cur_byte = (uint8_t)((w->cur_byte << 1) | (bit & 1U));
-    w->bits_in_cur++;
-    w->total_bits++;
 
-    if (w->bits_in_cur == 8) {
+    /* Si este bit completara el byte (bits_in_cur == 7), verifica capacidad ANTES de mutar estado (NC-D04) */
+    if (w->bits_in_cur == 7) {
         if (w->byte_pos >= w->capacity_bytes) {
             return BP011_ERR_BUFFER_OVERFLOW;
         }
-        w->buf[w->byte_pos++] = w->cur_byte;
+        uint8_t full_byte = (uint8_t)((w->cur_byte << 1) | (bit & 1U));
+        w->buf[w->byte_pos++] = full_byte;
         w->cur_byte = 0;
         w->bits_in_cur = 0;
+        w->total_bits++;
+        return BP011_OK;
     }
+
+    w->cur_byte = (uint8_t)((w->cur_byte << 1) | (bit & 1U));
+    w->bits_in_cur++;
+    w->total_bits++;
     return BP011_OK;
 }
 
@@ -68,14 +75,14 @@ static inline bp011_status_t bp011_bitwriter_write_bits(bp011_bitwriter_t *w, ui
 static inline bp011_status_t bp011_bitwriter_flush(bp011_bitwriter_t *w) {
     if (!w || !w->buf) return BP011_ERR_NULL_POINTER;
     if (w->bits_in_cur > 0) {
-        /* Desplaza los bits utiles hacia los bits mas significativos (MSB) */
-        uint8_t pad = (uint8_t)(8 - w->bits_in_cur);
-        w->cur_byte = (uint8_t)(w->cur_byte << pad);
-
         if (w->byte_pos >= w->capacity_bytes) {
             return BP011_ERR_BUFFER_OVERFLOW;
         }
-        w->buf[w->byte_pos++] = w->cur_byte;
+        /* Desplaza los bits utiles hacia los bits mas significativos (MSB) */
+        uint8_t pad = (uint8_t)(8 - w->bits_in_cur);
+        uint8_t flushed_byte = (uint8_t)(w->cur_byte << pad);
+
+        w->buf[w->byte_pos++] = flushed_byte;
         w->cur_byte = 0;
         w->bits_in_cur = 0;
     }
@@ -100,12 +107,17 @@ typedef struct {
     uint64_t       bit_cursor;  /* Cursor actual de lectura en bits */
 } bp011_bitreader_t;
 
-static inline void bp011_bitreader_init(bp011_bitreader_t *r, const uint8_t *buf, size_t total_bytes, uint64_t total_bits) {
-    if (!r) return;
+static inline bp011_status_t bp011_bitreader_init(bp011_bitreader_t *r, const uint8_t *buf, size_t total_bytes, uint64_t total_bits) {
+    if (!r || !buf) return BP011_ERR_NULL_POINTER;
+    /* Comprobacion incondicional de consistencia de longitud (NC-D04) */
+    if (total_bits > (uint64_t)total_bytes * 8ULL) {
+        return BP011_ERR_INVALID_ARG;
+    }
     r->buf = buf;
     r->total_bytes = total_bytes;
     r->total_bits = total_bits;
     r->bit_cursor = 0;
+    return BP011_OK;
 }
 
 static inline bp011_status_t bp011_bitreader_read_bit(bp011_bitreader_t *r, uint8_t *out_bit) {
@@ -127,7 +139,10 @@ static inline bp011_status_t bp011_bitreader_read_bits(bp011_bitreader_t *r, uin
     *out_val = 0;
     if (num_bits == 0) return BP011_OK;
 
-    if (r->bit_cursor + num_bits > r->total_bits) return BP011_ERR_STREAM_TRUNCATED;
+    /* Comprobacion por resta segura para evitar overflow en bit_cursor + num_bits (NC-D04) */
+    if ((uint64_t)num_bits > r->total_bits - r->bit_cursor) {
+        return BP011_ERR_STREAM_TRUNCATED;
+    }
 
     uint64_t val = 0;
     for (uint8_t i = 0; i < num_bits; i++) {
@@ -145,7 +160,8 @@ static inline bp011_status_t bp011_bitreader_read_bits(bp011_bitreader_t *r, uin
 
 static inline bool bp011_bitreader_has_bits(const bp011_bitreader_t *r, uint64_t num_bits) {
     if (!r) return false;
-    return (r->bit_cursor + num_bits <= r->total_bits);
+    if (num_bits > r->total_bits - r->bit_cursor) return false;
+    return true;
 }
 
 #ifdef __cplusplus

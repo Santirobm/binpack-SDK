@@ -58,7 +58,9 @@ static inline bp011_status_t binpack_encode_channels(
     }
     if (num_samples == 0 || num_channels == 0) return BP011_ERR_INVALID_ARG;
 
+    if (num_samples > SIZE_MAX / sizeof(double)) return BP011_ERR_BUFFER_OVERFLOW;
     size_t raw_chan_bytes = (size_t)num_samples * sizeof(double);
+
     uint8_t *transposed_tmp = (uint8_t *)bp011_tracked_malloc(raw_chan_bytes);
     if (!transposed_tmp) return BP011_ERR_BUFFER_OVERFLOW;
 
@@ -68,11 +70,11 @@ static inline bp011_status_t binpack_encode_channels(
     opts.mode = BINPACK_MODE_DEFAULT;
 
     for (uint32_t k = 0; k < num_channels; k++) {
-        const double *chan_src = &matrix[k * num_samples];
+        const double *chan_src = &matrix[(size_t)k * num_samples];
         bp011_transpose_f64_forward(chan_src, transposed_tmp, num_samples);
 
         size_t max_comp_sz = binpack_compress_bound(raw_chan_bytes);
-        if (cur_offset + max_comp_sz > out_cap) {
+        if (max_comp_sz > out_cap - cur_offset) {
             bp011_tracked_free(transposed_tmp);
             return BP011_ERR_BUFFER_OVERFLOW;
         }
@@ -84,7 +86,12 @@ static inline bp011_status_t binpack_encode_channels(
             &comp_sz, &opts
         );
 
-        if (bp_st != BINPACK_OK) {
+        if (bp_st != BINPACK_OK || comp_sz > UINT32_MAX) {
+            bp011_tracked_free(transposed_tmp);
+            return BP011_ERR_BUFFER_OVERFLOW;
+        }
+
+        if (cur_offset > UINT32_MAX - channel_base_offset) {
             bp011_tracked_free(transposed_tmp);
             return BP011_ERR_BUFFER_OVERFLOW;
         }
@@ -117,15 +124,26 @@ static inline bp011_status_t binpack_decode_channels(
     if (!in_buf || !channel_table || !out_matrix) return BP011_ERR_NULL_POINTER;
     if (num_samples == 0 || num_channels == 0) return BP011_ERR_INVALID_ARG;
 
+    if (num_samples > SIZE_MAX / sizeof(double)) return BP011_ERR_BUFFER_OVERFLOW;
     size_t raw_chan_bytes = (size_t)num_samples * sizeof(double);
+
     uint8_t *transposed_tmp = (uint8_t *)bp011_tracked_malloc(raw_chan_bytes);
     if (!transposed_tmp) return BP011_ERR_BUFFER_OVERFLOW;
 
     for (uint32_t k = 0; k < num_channels; k++) {
+        /* Comprobacion incondicional anti-underflow y limites seguros (NC-D06) */
+        if (channel_table[k].byte_offset < channel_base_offset) {
+            bp011_tracked_free(transposed_tmp);
+            return BP011_ERR_INVALID_OFFSET;
+        }
         uint32_t rel_offset = channel_table[k].byte_offset - channel_base_offset;
         uint32_t comp_bytes = channel_table[k].byte_length;
 
-        if (rel_offset + comp_bytes > in_bytes) {
+        if ((size_t)rel_offset > in_bytes) {
+            bp011_tracked_free(transposed_tmp);
+            return BP011_ERR_STREAM_TRUNCATED;
+        }
+        if ((size_t)comp_bytes > in_bytes - (size_t)rel_offset) {
             bp011_tracked_free(transposed_tmp);
             return BP011_ERR_STREAM_TRUNCATED;
         }
@@ -142,7 +160,7 @@ static inline bp011_status_t binpack_decode_channels(
             return BP011_ERR_DATA_MISMATCH;
         }
 
-        double *chan_dst = &out_matrix[k * num_samples];
+        double *chan_dst = &out_matrix[(size_t)k * num_samples];
         bp011_transpose_f64_inverse(transposed_tmp, chan_dst, num_samples);
     }
 
@@ -151,7 +169,7 @@ static inline bp011_status_t binpack_decode_channels(
 }
 
 /* ========================================================================= */
-/* Consulta Selectiva Directa de Canal en BinPack (O(1) Seek via Tabla M7)   */
+/* Consulta Selectiva Directa de Canal en BinPack con Metricas Exactas (NC-D06)*/
 /* ========================================================================= */
 static inline bp011_status_t binpack_decode_single_channel(
     const uint8_t *in_buf,
@@ -161,17 +179,26 @@ static inline bp011_status_t binpack_decode_single_channel(
     uint32_t target_channel,
     double *out_channel,
     uint32_t num_samples,
-    uint32_t num_channels
+    uint32_t num_channels,
+    size_t *out_bytes_read,
+    size_t *out_bytes_decompressed
 ) {
     if (!in_buf || !channel_table || !out_channel) return BP011_ERR_NULL_POINTER;
     if (target_channel >= num_channels || num_samples == 0) return BP011_ERR_INVALID_ARG;
 
+    /* Proteccion incondicional anti-underflow (NC-D06) */
+    if (channel_table[target_channel].byte_offset < channel_base_offset) {
+        return BP011_ERR_INVALID_OFFSET;
+    }
     uint32_t rel_offset = channel_table[target_channel].byte_offset - channel_base_offset;
     uint32_t comp_bytes = channel_table[target_channel].byte_length;
 
-    if (rel_offset + comp_bytes > in_bytes) return BP011_ERR_STREAM_TRUNCATED;
+    if ((size_t)rel_offset > in_bytes) return BP011_ERR_STREAM_TRUNCATED;
+    if ((size_t)comp_bytes > in_bytes - (size_t)rel_offset) return BP011_ERR_STREAM_TRUNCATED;
 
+    if (num_samples > SIZE_MAX / sizeof(double)) return BP011_ERR_BUFFER_OVERFLOW;
     size_t raw_chan_bytes = (size_t)num_samples * sizeof(double);
+
     uint8_t *transposed_tmp = (uint8_t *)bp011_tracked_malloc(raw_chan_bytes);
     if (!transposed_tmp) return BP011_ERR_BUFFER_OVERFLOW;
 
@@ -189,11 +216,15 @@ static inline bp011_status_t binpack_decode_single_channel(
 
     bp011_transpose_f64_inverse(transposed_tmp, out_channel, num_samples);
     bp011_tracked_free(transposed_tmp);
+
+    if (out_bytes_read) *out_bytes_read = (size_t)comp_bytes;
+    if (out_bytes_decompressed) *out_bytes_decompressed = raw_chan_bytes;
+
     return BP011_OK;
 }
 
 /* ========================================================================= */
-/* Ensamblaje Canónico de Bloque BinPack con Cabecera de 64 Bytes e Integridad*/
+/* Ensamblaje Canónico de Bloque con Serialización Explícita y Validación    */
 /* ========================================================================= */
 static inline bp011_status_t bp011_package_block(
     uint8_t *file_buf,
@@ -214,6 +245,8 @@ static inline bp011_status_t bp011_package_block(
     if (!file_buf || !actual_file_bytes || !time_stream || !values_stream) {
         return BP011_ERR_NULL_POINTER;
     }
+    if (time_bytes > UINT32_MAX || values_bytes > UINT32_MAX) return BP011_ERR_BUFFER_OVERFLOW;
+    if (file_cap < BP011_HEADER_SIZE_BYTES) return BP011_ERR_BUFFER_OVERFLOW;
 
     uint32_t cursor = BP011_HEADER_SIZE_BYTES;
     bp011_block_header_t h;
@@ -224,55 +257,68 @@ static inline bp011_status_t bp011_package_block(
     h.num_channels = num_channels;
     h.sample_count = num_samples;
 
-    /* Tabla de canales (M7) */
+    /* Tabla de canales (M7) serializada campo a campo en Little-Endian (NC-D05) */
     if (chan_table) {
+        if (num_channels > (UINT32_MAX / 12U)) return BP011_ERR_BUFFER_OVERFLOW;
+        uint32_t table_bytes = num_channels * 12U;
+        if (table_bytes > file_cap - cursor) return BP011_ERR_BUFFER_OVERFLOW;
+
         h.flags |= BP011_FLAG_HAS_CHANNEL_TABLE;
         h.channel_table_offset = cursor;
-        h.channel_table_bytes = num_channels * (uint32_t)sizeof(bp011_channel_entry_t);
-        if (cursor + h.channel_table_bytes > file_cap) return BP011_ERR_BUFFER_OVERFLOW;
-        memcpy(file_buf + cursor, chan_table, h.channel_table_bytes);
-        cursor += h.channel_table_bytes;
+        h.channel_table_bytes = table_bytes;
+
+        for (uint32_t k = 0; k < num_channels; k++) {
+            bp011_serialize_channel_entry(file_buf + cursor + k * 12U, &chan_table[k]);
+        }
+        cursor += table_bytes;
     }
 
-    /* Directorio de series C-MAPSS */
+    /* Directorio de series C-MAPSS serializado campo a campo en Little-Endian (NC-D05) */
     if (series_dir && num_series > 0) {
+        if (num_series > (UINT32_MAX / 32U)) return BP011_ERR_BUFFER_OVERFLOW;
+        uint32_t dir_bytes = num_series * 32U;
+        if (dir_bytes > file_cap - cursor) return BP011_ERR_BUFFER_OVERFLOW;
+
         h.flags |= BP011_FLAG_HAS_SERIES_DIR;
         h.series_dir_offset = cursor;
-        h.series_dir_bytes = num_series * (uint32_t)sizeof(bp011_series_segment_t);
-        if (cursor + h.series_dir_bytes > file_cap) return BP011_ERR_BUFFER_OVERFLOW;
-        memcpy(file_buf + cursor, series_dir, h.series_dir_bytes);
-        cursor += h.series_dir_bytes;
+        h.series_dir_bytes = dir_bytes;
+
+        for (uint32_t m = 0; m < num_series; m++) {
+            bp011_serialize_series_segment(file_buf + cursor + m * 32U, &series_dir[m]);
+        }
+        cursor += dir_bytes;
     }
 
-    /* Stream de tiempo */
+    /* Stream de tiempo con comprobacion por resta (NC-D05) */
+    if ((uint32_t)time_bytes > file_cap - cursor) return BP011_ERR_BUFFER_OVERFLOW;
     h.time_stream_offset = cursor;
     h.time_stream_bytes  = (uint32_t)time_bytes;
     h.time_stream_bits   = (uint32_t)time_bits;
-    if (cursor + time_bytes > file_cap) return BP011_ERR_BUFFER_OVERFLOW;
     memcpy(file_buf + cursor, time_stream, time_bytes);
     cursor += (uint32_t)time_bytes;
 
-    /* Stream de valores */
+    /* Stream de valores con comprobacion por resta (NC-D05) */
+    if ((uint32_t)values_bytes > file_cap - cursor) return BP011_ERR_BUFFER_OVERFLOW;
     h.values_stream_offset = cursor;
     h.values_stream_bytes  = (uint32_t)values_bytes;
     h.values_stream_bits   = (uint32_t)values_bits;
-    if (cursor + values_bytes > file_cap) return BP011_ERR_BUFFER_OVERFLOW;
     memcpy(file_buf + cursor, values_stream, values_bytes);
     cursor += (uint32_t)values_bytes;
 
     h.total_file_bytes = cursor;
-    h.crc32 = 0; /* CRC temporal para calcular sobre el archivo */
+    h.crc32 = 0;
 
+    /* Serializa cabecera provisional con crc32 = 0 */
     bp011_serialize_header(file_buf, &h);
 
-    /* Calculo de CRC-32 IEEE 802.3 sobre el archivo completo */
-    uint32_t calculated_crc = bp011_crc32(file_buf, cursor);
+    /* Calculo de CRC-32 determinista IEEE 802.3 sobre el archivo completo (NC-D05) */
+    uint32_t calculated_crc = bp011_calculate_block_crc32(file_buf, cursor);
     h.crc32 = calculated_crc;
     bp011_serialize_header(file_buf, &h);
 
     *actual_file_bytes = cursor;
 
-    /* Verificacion incondicional de validacion tras empaquetado */
+    /* Verificacion incondicional de validacion tras empaquetado (valida bounds, padding y CRC) */
     bp011_status_t val_st = bp011_validate_header(&h, file_buf, cursor);
     if (val_st != BP011_OK) return val_st;
 

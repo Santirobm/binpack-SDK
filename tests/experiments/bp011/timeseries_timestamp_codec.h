@@ -15,6 +15,25 @@ extern "C" {
 #endif
 
 /* ========================================================================= */
+/* Rutinas de Aritmética Verificada de 64 Bits con Signo (NC-D03)           */
+/* ========================================================================= */
+static inline bool bp011_safe_add_i64(int64_t a, int64_t b, int64_t *out) {
+    if ((b > 0 && a > INT64_MAX - b) || (b < 0 && a < INT64_MIN - b)) {
+        return false;
+    }
+    *out = a + b;
+    return true;
+}
+
+static inline bool bp011_safe_sub_i64(int64_t a, int64_t b, int64_t *out) {
+    if ((b > 0 && a < INT64_MIN + b) || (b < 0 && a > INT64_MAX + b)) {
+        return false;
+    }
+    *out = a - b;
+    return true;
+}
+
+/* ========================================================================= */
 /* Estructura de Estado del Predictor Temporal R15.10                        */
 /* ========================================================================= */
 typedef struct {
@@ -51,22 +70,17 @@ static inline bp011_status_t bp011_timestamp_encode_escape(bp011_timestamp_codec
 }
 
 /* ========================================================================= */
-/* Codificacion de Muestra Temporal R15.10                                   */
+/* Codificacion de Muestra Temporal R15.10 con Aritmética Protegida          */
 /* ========================================================================= */
 static inline bp011_status_t bp011_timestamp_encode_sample(bp011_timestamp_codec_state_t *st, int64_t t_i, bp011_bitwriter_t *w) {
     if (!st || !w) return BP011_ERR_NULL_POINTER;
 
     if (!st->has_prev_delta) {
-        /* Evaluacion de la primera diferencia simple tras escape o inicio */
-        bool overflow = false;
-        if (st->prev_timestamp > 0 && t_i < INT64_MIN + st->prev_timestamp) overflow = true;
-        if (st->prev_timestamp < 0 && t_i > INT64_MAX + st->prev_timestamp) overflow = true;
-
-        if (overflow) {
+        int64_t delta_init = 0;
+        if (!bp011_safe_sub_i64(t_i, st->prev_timestamp, &delta_init)) {
+            /* Desbordamiento en diferencia simple: emite escape absoluto seguro */
             return bp011_timestamp_encode_escape(st, t_i, w);
         }
-
-        int64_t delta_init = t_i - st->prev_timestamp;
 
         /* Prefijo 111110 (6 bits binarios = 0x3E) */
         bp011_status_t ret = bp011_bitwriter_write_bits(w, 0x3EU, 6);
@@ -83,25 +97,15 @@ static inline bp011_status_t bp011_timestamp_encode_sample(bp011_timestamp_codec
     }
 
     /* Regimen Delta-of-Delta pleno */
-    bool diff_overflow = false;
-    if (st->prev_timestamp > 0 && t_i < INT64_MIN + st->prev_timestamp) diff_overflow = true;
-    if (st->prev_timestamp < 0 && t_i > INT64_MAX + st->prev_timestamp) diff_overflow = true;
-
-    if (diff_overflow) {
+    int64_t cur_delta = 0;
+    if (!bp011_safe_sub_i64(t_i, st->prev_timestamp, &cur_delta)) {
         return bp011_timestamp_encode_escape(st, t_i, w);
     }
 
-    int64_t cur_delta = t_i - st->prev_timestamp;
-
-    bool dod_overflow = false;
-    if (st->prev_delta > 0 && cur_delta < INT64_MIN + st->prev_delta) dod_overflow = true;
-    if (st->prev_delta < 0 && cur_delta > INT64_MAX + st->prev_delta) dod_overflow = true;
-
-    if (dod_overflow) {
+    int64_t D = 0;
+    if (!bp011_safe_sub_i64(cur_delta, st->prev_delta, &D)) {
         return bp011_timestamp_encode_escape(st, t_i, w);
     }
-
-    int64_t D = cur_delta - st->prev_delta;
 
     bp011_status_t ret;
     if (D == 0) {
@@ -151,7 +155,7 @@ static inline bp011_status_t bp011_timestamp_encode_sample(bp011_timestamp_codec
 }
 
 /* ========================================================================= */
-/* Decodificacion de Muestra Temporal R15.10                                 */
+/* Decodificacion de Muestra Temporal R15.10 con Sumas Verificadas (NC-D03)   */
 /* ========================================================================= */
 static inline bp011_status_t bp011_timestamp_decode_sample(bp011_timestamp_codec_state_t *st, bp011_bitreader_t *r, int64_t *out_t_i) {
     if (!st || !r || !out_t_i) return BP011_ERR_NULL_POINTER;
@@ -163,9 +167,12 @@ static inline bp011_status_t bp011_timestamp_decode_sample(bp011_timestamp_codec
     if (bit == 0) {
         /* Prefijo 0: D = 0 */
         if (!st->has_prev_delta) return BP011_ERR_DATA_MISMATCH;
-        int64_t t_i = st->prev_timestamp + st->prev_delta;
-        st->prev_timestamp = t_i;
-        *out_t_i = t_i;
+        int64_t next_t = 0;
+        if (!bp011_safe_add_i64(st->prev_timestamp, st->prev_delta, &next_t)) {
+            return BP011_ERR_ARITHMETIC_OVERFLOW;
+        }
+        st->prev_timestamp = next_t;
+        *out_t_i = next_t;
         return BP011_OK;
     }
 
@@ -179,12 +186,15 @@ static inline bp011_status_t bp011_timestamp_decode_sample(bp011_timestamp_codec
         ret = bp011_bitreader_read_bits(r, 7, &raw);
         if (ret != BP011_OK) return ret;
         int64_t D = (int64_t)raw - 63;
-        int64_t cur_delta = st->prev_delta + D;
-        int64_t t_i = st->prev_timestamp + cur_delta;
-        st->prev_timestamp = t_i;
-        st->prev_delta = cur_delta;
+        int64_t next_delta = 0, next_t = 0;
+        if (!bp011_safe_add_i64(st->prev_delta, D, &next_delta) ||
+            !bp011_safe_add_i64(st->prev_timestamp, next_delta, &next_t)) {
+            return BP011_ERR_ARITHMETIC_OVERFLOW;
+        }
+        st->prev_timestamp = next_t;
+        st->prev_delta = next_delta;
         st->has_prev_delta = true;
-        *out_t_i = t_i;
+        *out_t_i = next_t;
         return BP011_OK;
     }
 
@@ -198,12 +208,15 @@ static inline bp011_status_t bp011_timestamp_decode_sample(bp011_timestamp_codec
         ret = bp011_bitreader_read_bits(r, 9, &raw);
         if (ret != BP011_OK) return ret;
         int64_t D = (int64_t)raw - 255;
-        int64_t cur_delta = st->prev_delta + D;
-        int64_t t_i = st->prev_timestamp + cur_delta;
-        st->prev_timestamp = t_i;
-        st->prev_delta = cur_delta;
+        int64_t next_delta = 0, next_t = 0;
+        if (!bp011_safe_add_i64(st->prev_delta, D, &next_delta) ||
+            !bp011_safe_add_i64(st->prev_timestamp, next_delta, &next_t)) {
+            return BP011_ERR_ARITHMETIC_OVERFLOW;
+        }
+        st->prev_timestamp = next_t;
+        st->prev_delta = next_delta;
         st->has_prev_delta = true;
-        *out_t_i = t_i;
+        *out_t_i = next_t;
         return BP011_OK;
     }
 
@@ -217,12 +230,15 @@ static inline bp011_status_t bp011_timestamp_decode_sample(bp011_timestamp_codec
         ret = bp011_bitreader_read_bits(r, 12, &raw);
         if (ret != BP011_OK) return ret;
         int64_t D = (int64_t)raw - 2047;
-        int64_t cur_delta = st->prev_delta + D;
-        int64_t t_i = st->prev_timestamp + cur_delta;
-        st->prev_timestamp = t_i;
-        st->prev_delta = cur_delta;
+        int64_t next_delta = 0, next_t = 0;
+        if (!bp011_safe_add_i64(st->prev_delta, D, &next_delta) ||
+            !bp011_safe_add_i64(st->prev_timestamp, next_delta, &next_t)) {
+            return BP011_ERR_ARITHMETIC_OVERFLOW;
+        }
+        st->prev_timestamp = next_t;
+        st->prev_delta = next_delta;
         st->has_prev_delta = true;
-        *out_t_i = t_i;
+        *out_t_i = next_t;
         return BP011_OK;
     }
 
@@ -236,12 +252,15 @@ static inline bp011_status_t bp011_timestamp_decode_sample(bp011_timestamp_codec
         ret = bp011_bitreader_read_bits(r, 32, &raw);
         if (ret != BP011_OK) return ret;
         int64_t D = (int64_t)(int32_t)(uint32_t)raw;
-        int64_t cur_delta = st->prev_delta + D;
-        int64_t t_i = st->prev_timestamp + cur_delta;
-        st->prev_timestamp = t_i;
-        st->prev_delta = cur_delta;
+        int64_t next_delta = 0, next_t = 0;
+        if (!bp011_safe_add_i64(st->prev_delta, D, &next_delta) ||
+            !bp011_safe_add_i64(st->prev_timestamp, next_delta, &next_t)) {
+            return BP011_ERR_ARITHMETIC_OVERFLOW;
+        }
+        st->prev_timestamp = next_t;
+        st->prev_delta = next_delta;
         st->has_prev_delta = true;
-        *out_t_i = t_i;
+        *out_t_i = next_t;
         return BP011_OK;
     }
 
@@ -257,19 +276,25 @@ static inline bp011_status_t bp011_timestamp_decode_sample(bp011_timestamp_codec
         int64_t val = (int64_t)raw;
         if (!st->has_prev_delta) {
             /* Delta inicial */
-            int64_t t_i = st->prev_timestamp + val;
-            st->prev_timestamp = t_i;
+            int64_t next_t = 0;
+            if (!bp011_safe_add_i64(st->prev_timestamp, val, &next_t)) {
+                return BP011_ERR_ARITHMETIC_OVERFLOW;
+            }
+            st->prev_timestamp = next_t;
             st->prev_delta = val;
             st->has_prev_delta = true;
-            *out_t_i = t_i;
+            *out_t_i = next_t;
         } else {
             /* Delta-of-delta de 64 bits */
-            int64_t cur_delta = st->prev_delta + val;
-            int64_t t_i = st->prev_timestamp + cur_delta;
-            st->prev_timestamp = t_i;
-            st->prev_delta = cur_delta;
+            int64_t next_delta = 0, next_t = 0;
+            if (!bp011_safe_add_i64(st->prev_delta, val, &next_delta) ||
+                !bp011_safe_add_i64(st->prev_timestamp, next_delta, &next_t)) {
+                return BP011_ERR_ARITHMETIC_OVERFLOW;
+            }
+            st->prev_timestamp = next_t;
+            st->prev_delta = next_delta;
             st->has_prev_delta = true;
-            *out_t_i = t_i;
+            *out_t_i = next_t;
         }
         return BP011_OK;
     }
@@ -303,7 +328,8 @@ static inline bp011_status_t bp011_timestamp_encode_stream(
     if (count == 0) return BP011_ERR_INVALID_ARG;
 
     bp011_bitwriter_t writer;
-    bp011_bitwriter_init(&writer, out_buf, out_cap);
+    bp011_status_t init_st = bp011_bitwriter_init(&writer, out_buf, out_cap);
+    if (init_st != BP011_OK) return init_st;
 
     bp011_timestamp_codec_state_t st;
     bp011_timestamp_codec_init(&st);
@@ -353,7 +379,8 @@ static inline bp011_status_t bp011_timestamp_decode_stream(
     if (count == 0) return BP011_ERR_INVALID_ARG;
 
     bp011_bitreader_t reader;
-    bp011_bitreader_init(&reader, in_buf, in_bytes, in_bits);
+    bp011_status_t init_st = bp011_bitreader_init(&reader, in_buf, in_bytes, in_bits);
+    if (init_st != BP011_OK) return init_st;
 
     bp011_timestamp_codec_state_t st;
     bp011_timestamp_codec_init(&st);

@@ -21,21 +21,23 @@ extern "C" {
 /* Códigos de Estado y Error Unívocos                                        */
 /* ========================================================================= */
 typedef enum {
-    BP011_OK                      =  0,
-    BP011_ERR_NULL_POINTER        = -1,
-    BP011_ERR_INVALID_ARG         = -2,
-    BP011_ERR_BUFFER_OVERFLOW     = -3,
-    BP011_ERR_STREAM_TRUNCATED    = -4,
-    BP011_ERR_BUFFER_UNDERFLOW    = -5,
-    BP011_ERR_CORRUPT_PADDING     = -6,
-    BP011_ERR_CORRUPT_CRC         = -7,
-    BP011_ERR_CORRUPT_DIRECTORY   = -8,
-    BP011_ERR_INVALID_OFFSET      = -9,
+    BP011_OK                      =   0,
+    BP011_ERR_NULL_POINTER        =  -1,
+    BP011_ERR_INVALID_ARG         =  -2,
+    BP011_ERR_BUFFER_OVERFLOW     =  -3,
+    BP011_ERR_STREAM_TRUNCATED    =  -4,
+    BP011_ERR_BUFFER_UNDERFLOW    =  -5,
+    BP011_ERR_CORRUPT_PADDING     =  -6,
+    BP011_ERR_CORRUPT_CRC         =  -7,
+    BP011_ERR_CORRUPT_DIRECTORY   =  -8,
+    BP011_ERR_INVALID_OFFSET      =  -9,
     BP011_ERR_UNKNOWN_FLAGS       = -10,
     BP011_ERR_EMPTY_SERIES        = -11,
     BP011_ERR_OVERLAPPING_SEGMENT = -12,
     BP011_ERR_UNALIGNED_BUFFER    = -13,
-    BP011_ERR_DATA_MISMATCH       = -14
+    BP011_ERR_DATA_MISMATCH       = -14,
+    BP011_ERR_ARITHMETIC_OVERFLOW = -15,
+    BP011_ERR_IO_DEVICE           = -16
 } bp011_status_t;
 
 /* ========================================================================= */
@@ -177,6 +179,43 @@ static inline void bp011_deserialize_header(bp011_block_header_t *h, const uint8
 }
 
 /* ========================================================================= */
+/* Serialización Explícita Little-Endian de Entradas de Tablas (NC-D05)     */
+/* ========================================================================= */
+static inline void bp011_serialize_channel_entry(uint8_t *dst, const bp011_channel_entry_t *entry) {
+    bp011_write_le32(dst + 0, entry->byte_offset);
+    bp011_write_le32(dst + 4, entry->byte_length);
+    bp011_write_le32(dst + 8, entry->bit_length);
+}
+
+static inline void bp011_deserialize_channel_entry(bp011_channel_entry_t *entry, const uint8_t *src) {
+    entry->byte_offset = bp011_read_le32(src + 0);
+    entry->byte_length = bp011_read_le32(src + 4);
+    entry->bit_length  = bp011_read_le32(src + 8);
+}
+
+static inline void bp011_serialize_series_segment(uint8_t *dst, const bp011_series_segment_t *seg) {
+    bp011_write_le32(dst + 0,  seg->unit_id);
+    bp011_write_le32(dst + 4,  seg->start_sample_idx);
+    bp011_write_le32(dst + 8,  seg->sample_count);
+    bp011_write_le32(dst + 12, seg->start_cycle);
+    bp011_write_le32(dst + 16, seg->time_stream_byte_offset);
+    bp011_write_le32(dst + 20, seg->time_stream_bytes);
+    bp011_write_le32(dst + 24, seg->values_stream_byte_offset);
+    bp011_write_le32(dst + 28, seg->values_stream_bytes);
+}
+
+static inline void bp011_deserialize_series_segment(bp011_series_segment_t *seg, const uint8_t *src) {
+    seg->unit_id                   = bp011_read_le32(src + 0);
+    seg->start_sample_idx          = bp011_read_le32(src + 4);
+    seg->sample_count              = bp011_read_le32(src + 8);
+    seg->start_cycle               = bp011_read_le32(src + 12);
+    seg->time_stream_byte_offset   = bp011_read_le32(src + 16);
+    seg->time_stream_bytes         = bp011_read_le32(src + 20);
+    seg->values_stream_byte_offset = bp011_read_le32(src + 24);
+    seg->values_stream_bytes       = bp011_read_le32(src + 28);
+}
+
+/* ========================================================================= */
 /* Máscara de 64 Bits Segura (Inmune a Comportamiento Indefinido)           */
 /* ========================================================================= */
 static inline uint64_t bp011_make_mask64(uint8_t len) {
@@ -188,8 +227,7 @@ static inline uint64_t bp011_make_mask64(uint8_t len) {
 /* ========================================================================= */
 /* Cálculo Canónico de CRC-32 (IEEE 802.3, Polinomio 0xEDB88320)             */
 /* ========================================================================= */
-static inline uint32_t bp011_crc32(const uint8_t *buf, size_t len) {
-    uint32_t crc = 0xFFFFFFFFU;
+static inline uint32_t bp011_crc32_update(uint32_t crc, const uint8_t *buf, size_t len) {
     for (size_t i = 0; i < len; i++) {
         crc ^= (uint32_t)buf[i];
         for (int b = 0; b < 8; b++) {
@@ -200,11 +238,35 @@ static inline uint32_t bp011_crc32(const uint8_t *buf, size_t len) {
             }
         }
     }
+    return crc;
+}
+
+static inline uint32_t bp011_crc32(const uint8_t *buf, size_t len) {
+    uint32_t crc = bp011_crc32_update(0xFFFFFFFFU, buf, len);
+    return ~crc;
+}
+
+/**
+ * @brief Calcula el CRC-32 de un bloque completo asumiendo que los 4 bytes de
+ *        campo crc32 (offset 0x3C..0x3F) son 0x00, sin mutar el buffer fuente.
+ */
+static inline uint32_t bp011_calculate_block_crc32(const uint8_t *file_buf, uint32_t total_bytes) {
+    if (total_bytes < BP011_HEADER_SIZE_BYTES) return 0;
+    uint32_t crc = 0xFFFFFFFFU;
+    /* Segmento previo a crc32 (bytes 0x00 a 0x3B = 60 bytes) */
+    crc = bp011_crc32_update(crc, file_buf, 0x3CU);
+    /* 4 bytes de cero representativos del campo crc32 = 0 */
+    uint8_t zeros[4] = {0, 0, 0, 0};
+    crc = bp011_crc32_update(crc, zeros, 4U);
+    /* Segmento posterior a la cabecera (offset 0x40 hasta total_bytes) */
+    if (total_bytes > BP011_HEADER_SIZE_BYTES) {
+        crc = bp011_crc32_update(crc, file_buf + BP011_HEADER_SIZE_BYTES, (size_t)(total_bytes - BP011_HEADER_SIZE_BYTES));
+    }
     return ~crc;
 }
 
 /* ========================================================================= */
-/* Validación Incondicional de Cabecera y No Solapamiento                    */
+/* Validación Incondicional de Cabecera, No Solapamiento y CRC-32 (NC-D05)   */
 /* ========================================================================= */
 typedef struct {
     uint32_t start;
@@ -267,7 +329,11 @@ static inline bp011_status_t bp011_validate_header(const bp011_block_header_t *h
         }
     }
 
-    /* Inspección segura de padding: ejecutada estrictamente tras validar límites */
+    /* Recalculo y comparacion obligatoria de integridad CRC-32 (NC-D05) */
+    uint32_t expected_crc = bp011_calculate_block_crc32(file_buf, h->total_file_bytes);
+    if (h->crc32 != expected_crc) return BP011_ERR_CORRUPT_CRC;
+
+    /* Inspección segura de padding: ejecutada estrictamente tras validar límites y CRC */
     uint8_t time_pad = (uint8_t)((h->time_stream_bytes * 8ULL) - h->time_stream_bits);
     if (time_pad > 0 && time_pad < 8) {
         uint8_t last_byte = file_buf[h->time_stream_offset + h->time_stream_bytes - 1];
@@ -325,8 +391,13 @@ static inline bp011_status_t bp011_verify_series_directory(const bp011_block_hea
 }
 
 /* ========================================================================= */
-/* Asignador Rastreable de Memoria Dinámica (NC-04)                          */
+/* Asignador Rastreable de Memoria Dinámica con Alineación de 16 Bytes (NC-D01)*/
 /* ========================================================================= */
+typedef struct {
+    size_t size;
+    size_t reserved; /* Garantiza alineación estricta de 16 bytes en x86_64 */
+} bp011_alloc_hdr_t;
+
 typedef struct {
     size_t current_bytes;
     size_t base_bytes;
@@ -355,19 +426,26 @@ static inline size_t bp011_mem_tracker_get_peak_net(void) {
 
 static inline void *bp011_tracked_malloc(size_t size) {
     if (size == 0) return NULL;
-    /* Almacena el tamaño antes del puntero devuelto */
-    size_t total = size + sizeof(size_t);
+    /* Comprobación de overflow de tamaño total */
+    if (size > SIZE_MAX - sizeof(bp011_alloc_hdr_t)) return NULL;
+
+    size_t total = size + sizeof(bp011_alloc_hdr_t);
     void *raw = malloc(total);
     if (!raw) return NULL;
-    *(size_t *)raw = size;
+
+    bp011_alloc_hdr_t *hdr = (bp011_alloc_hdr_t *)raw;
+    hdr->size = size;
+    hdr->reserved = 0;
+
     g_bp011_mem_tracker.current_bytes += size;
     if (g_bp011_mem_tracker.current_bytes > g_bp011_mem_tracker.peak_bytes) {
         g_bp011_mem_tracker.peak_bytes = g_bp011_mem_tracker.current_bytes;
     }
-    return (void *)((uint8_t *)raw + sizeof(size_t));
+    return (void *)((uint8_t *)raw + sizeof(bp011_alloc_hdr_t));
 }
 
 static inline void *bp011_tracked_calloc(size_t num, size_t size) {
+    if (size != 0 && num > SIZE_MAX / size) return NULL;
     size_t total_payload = num * size;
     void *ptr = bp011_tracked_malloc(total_payload);
     if (ptr) memset(ptr, 0, total_payload);
@@ -376,8 +454,9 @@ static inline void *bp011_tracked_calloc(size_t num, size_t size) {
 
 static inline void bp011_tracked_free(void *ptr) {
     if (!ptr) return;
-    void *raw = (void *)((uint8_t *)ptr - sizeof(size_t));
-    size_t size = *(size_t *)raw;
+    void *raw = (void *)((uint8_t *)ptr - sizeof(bp011_alloc_hdr_t));
+    bp011_alloc_hdr_t *hdr = (bp011_alloc_hdr_t *)raw;
+    size_t size = hdr->size;
     if (g_bp011_mem_tracker.current_bytes >= size) {
         g_bp011_mem_tracker.current_bytes -= size;
     } else {
@@ -392,10 +471,13 @@ static inline void *bp011_tracked_realloc(void *ptr, size_t new_size) {
         bp011_tracked_free(ptr);
         return NULL;
     }
-    void *raw = (void *)((uint8_t *)ptr - sizeof(size_t));
-    size_t old_size = *(size_t *)raw;
+    void *raw = (void *)((uint8_t *)ptr - sizeof(bp011_alloc_hdr_t));
+    bp011_alloc_hdr_t *hdr = (bp011_alloc_hdr_t *)raw;
+    size_t old_size = hdr->size;
+
     void *new_ptr = bp011_tracked_malloc(new_size);
     if (!new_ptr) return NULL;
+
     size_t copy_size = (old_size < new_size) ? old_size : new_size;
     memcpy(new_ptr, ptr, copy_size);
     bp011_tracked_free(ptr);
