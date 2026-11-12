@@ -169,22 +169,25 @@ static inline bp011_status_t binpack_decode_channels(
 }
 
 /* ========================================================================= */
-/* Consulta Selectiva Directa de Canal en BinPack con Metricas Exactas (NC-D06)*/
+/* Consulta Selectiva de Ventana de Canal en BinPack (NC-D02-Q)              */
 /* ========================================================================= */
-static inline bp011_status_t binpack_decode_single_channel(
+static inline bp011_status_t binpack_decode_channel_window(
     const uint8_t *in_buf,
     size_t in_bytes,
     const bp011_channel_entry_t *channel_table,
     uint32_t channel_base_offset,
     uint32_t target_channel,
-    double *out_channel,
-    uint32_t num_samples,
+    uint32_t total_samples,
     uint32_t num_channels,
+    uint32_t win_start,
+    uint32_t win_len,
+    double *out_window,
     size_t *out_bytes_read,
     size_t *out_bytes_decompressed
 ) {
-    if (!in_buf || !channel_table || !out_channel) return BP011_ERR_NULL_POINTER;
-    if (target_channel >= num_channels || num_samples == 0) return BP011_ERR_INVALID_ARG;
+    if (!in_buf || !channel_table || !out_window) return BP011_ERR_NULL_POINTER;
+    if (target_channel >= num_channels || total_samples == 0 || win_len == 0) return BP011_ERR_INVALID_ARG;
+    if (win_start > total_samples || win_len > total_samples - win_start) return BP011_ERR_INVALID_ARG;
 
     /* Proteccion incondicional anti-underflow (NC-D06) */
     if (channel_table[target_channel].byte_offset < channel_base_offset) {
@@ -196,8 +199,8 @@ static inline bp011_status_t binpack_decode_single_channel(
     if ((size_t)rel_offset > in_bytes) return BP011_ERR_STREAM_TRUNCATED;
     if ((size_t)comp_bytes > in_bytes - (size_t)rel_offset) return BP011_ERR_STREAM_TRUNCATED;
 
-    if (num_samples > SIZE_MAX / sizeof(double)) return BP011_ERR_BUFFER_OVERFLOW;
-    size_t raw_chan_bytes = (size_t)num_samples * sizeof(double);
+    if (total_samples > SIZE_MAX / sizeof(double)) return BP011_ERR_BUFFER_OVERFLOW;
+    size_t raw_chan_bytes = (size_t)total_samples * sizeof(double);
 
     uint8_t *transposed_tmp = (uint8_t *)bp011_tracked_malloc(raw_chan_bytes);
     if (!transposed_tmp) return BP011_ERR_BUFFER_OVERFLOW;
@@ -214,13 +217,47 @@ static inline bp011_status_t binpack_decode_single_channel(
         return BP011_ERR_DATA_MISMATCH;
     }
 
-    bp011_transpose_f64_inverse(transposed_tmp, out_channel, num_samples);
+    if (win_start == 0 && win_len == total_samples) {
+        bp011_transpose_f64_inverse(transposed_tmp, out_window, total_samples);
+    } else {
+        double *full_chan = (double *)bp011_tracked_malloc(raw_chan_bytes);
+        if (!full_chan) {
+            bp011_tracked_free(transposed_tmp);
+            return BP011_ERR_BUFFER_OVERFLOW;
+        }
+        bp011_transpose_f64_inverse(transposed_tmp, full_chan, total_samples);
+        memcpy(out_window, full_chan + win_start, (size_t)win_len * sizeof(double));
+        bp011_tracked_free(full_chan);
+    }
     bp011_tracked_free(transposed_tmp);
 
     if (out_bytes_read) *out_bytes_read = (size_t)comp_bytes;
     if (out_bytes_decompressed) *out_bytes_decompressed = raw_chan_bytes;
 
     return BP011_OK;
+}
+
+/* ========================================================================= */
+/* Consulta Selectiva Directa de Canal en BinPack con Metricas Exactas (NC-D06)*/
+/* ========================================================================= */
+static inline bp011_status_t binpack_decode_single_channel(
+    const uint8_t *in_buf,
+    size_t in_bytes,
+    const bp011_channel_entry_t *channel_table,
+    uint32_t channel_base_offset,
+    uint32_t target_channel,
+    double *out_channel,
+    uint32_t num_samples,
+    uint32_t num_channels,
+    size_t *out_bytes_read,
+    size_t *out_bytes_decompressed
+) {
+    return binpack_decode_channel_window(
+        in_buf, in_bytes, channel_table, channel_base_offset,
+        target_channel, num_samples, num_channels,
+        0, num_samples, out_channel,
+        out_bytes_read, out_bytes_decompressed
+    );
 }
 
 /* ========================================================================= */

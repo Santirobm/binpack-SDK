@@ -319,6 +319,51 @@ static inline bp011_status_t gorilla_decode_channels(
 }
 
 /* ========================================================================= */
+/* Consulta Selectiva de Ventana de Canal en Gorilla (NC-D02-Q)              */
+/* ========================================================================= */
+static inline bp011_status_t gorilla_decode_channel_window(
+    const uint8_t *in_buf,
+    size_t in_bytes,
+    uint64_t in_bits,
+    uint32_t target_channel,
+    uint32_t total_samples,
+    uint32_t num_channels,
+    uint32_t win_start,
+    uint32_t win_len,
+    double *out_window
+) {
+    if (!in_buf || !out_window) return BP011_ERR_NULL_POINTER;
+    if (target_channel >= num_channels || total_samples == 0 || win_len == 0) return BP011_ERR_INVALID_ARG;
+    if (win_start > total_samples || win_len > total_samples - win_start) return BP011_ERR_INVALID_ARG;
+
+    bp011_bitreader_t reader;
+    bp011_bitreader_init(&reader, in_buf, in_bytes, in_bits);
+
+    for (uint32_t k = 0; k <= target_channel; k++) {
+        gorilla_f64_state_t st;
+        gorilla_f64_init(&st);
+
+        uint32_t samples_to_read = (k == target_channel) ? (win_start + win_len) : total_samples;
+        for (uint32_t i = 0; i < samples_to_read; i++) {
+            uint64_t u = 0;
+            bp011_status_t s;
+            if (i == 0) {
+                s = gorilla_f64_decode_first(&st, &reader, &u);
+            } else {
+                s = gorilla_f64_decode_sample(&st, &reader, &u);
+            }
+            if (s != BP011_OK) return s;
+
+            if (k == target_channel && i >= win_start) {
+                out_window[i - win_start] = bp011_u64_to_double(u);
+            }
+        }
+    }
+
+    return BP011_OK;
+}
+
+/* ========================================================================= */
 /* Consulta Selectiva Secuencial de Canal en Gorilla (Sin Tabla de Saltos)   */
 /* ========================================================================= */
 static inline bp011_status_t gorilla_decode_single_channel_sequential(
@@ -330,33 +375,11 @@ static inline bp011_status_t gorilla_decode_single_channel_sequential(
     uint32_t num_channels,
     double *out_channel
 ) {
-    if (!in_buf || !out_channel) return BP011_ERR_NULL_POINTER;
-    if (target_channel >= num_channels) return BP011_ERR_INVALID_ARG;
-
-    bp011_bitreader_t reader;
-    bp011_bitreader_init(&reader, in_buf, in_bytes, in_bits);
-
-    for (uint32_t k = 0; k <= target_channel; k++) {
-        gorilla_f64_state_t st;
-        gorilla_f64_init(&st);
-
-        for (uint32_t i = 0; i < num_samples; i++) {
-            uint64_t u = 0;
-            bp011_status_t s;
-            if (i == 0) {
-                s = gorilla_f64_decode_first(&st, &reader, &u);
-            } else {
-                s = gorilla_f64_decode_sample(&st, &reader, &u);
-            }
-            if (s != BP011_OK) return s;
-
-            if (k == target_channel) {
-                out_channel[i] = bp011_u64_to_double(u);
-            }
-        }
-    }
-
-    return BP011_OK;
+    return gorilla_decode_channel_window(
+        in_buf, in_bytes, in_bits,
+        target_channel, num_samples, num_channels,
+        0, num_samples, out_channel
+    );
 }
 
 #ifdef __cplusplus
