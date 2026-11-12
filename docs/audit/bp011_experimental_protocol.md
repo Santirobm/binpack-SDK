@@ -1,9 +1,9 @@
-# Protocolo Experimental R15.7 — Hito BP-011
+# Protocolo Experimental R15.8 — Hito BP-011
 ## Industrial Time-Series Benchmark: Gorilla & Chimp vs. BinPack Transpose
 
 **Proyecto:** BinPack Enterprise SDK  
 **Hito:** BP-011  
-**Fase:** Fase A — Acta de Apertura y Protocolo Experimental (Revisión Definitiva R15.7)  
+**Fase:** Fase A — Acta de Apertura y Protocolo Experimental (Revisión Definitiva R15.8)  
 **Documento Rector:** `docs/audit/bp011_experimental_protocol.md`  
 **Rama:** `audit/bp1-core-safety`  
 **Estado:** PROTOCOLO FORMAL DEFINITIVO PARA DICTAMEN DE CIERRE DE FASE A  
@@ -12,18 +12,18 @@
 
 ## Control de Cambios y Registro Integral de Subsanaciones
 
-### Revisiones Previas (R15.1 a R15.6)
-- **NC-01 (Cuartiles de Tukey):** Desambiguación formal entre notación estadística en base 1 ($x_{(5)}, x_{(6)}$ y $x_{(15)}, x_{(16)}$) y mapeo en base 0 en C (`arr[4]`, `arr[5]` y `arr[14]`, `arr[15]`).
-- **NC-02 (Separación de Amplificaciones):** Definición independiente de $A_{\text{read}}$, $A_{\text{decomp}}$ y $A_{\text{store}}$, con $B_{\text{target}}$ exhaustivo libre de cabeceras.
+### Revisiones Previas (R15.1 a R15.7)
+- **NC-01 (Cuartiles de Tukey y Regla de Signos):** Cuartiles de Tukey en base 1 y base 0 (`arr[4]`, `arr[5]`, etc.); regla unívoca de $k$ para la mediana en la prueba de signos como el mayor entero con cobertura bilateral $\ge 95\%$ ($k=6$, cobertura $95,861\%$ para $n_{\text{eff}}=20$), tabla exhaustiva para $n_{\text{eff}} < 20$ y tratamiento con $k=1$ y advertencia `UNDERSIZED_EFFECTIVE_SAMPLE` para $n_{\text{eff}} \le 5$.
+- **NC-02 (Separación de Amplificaciones y Bootstrap):** Definición independiente de $A_{\text{read}}$, $A_{\text{decomp}}$ y $A_{\text{store}}$ con $B_{\text{target}}$ libre de cabeceras; bootstrap percentil determinista con PRNG independiente.
 - **NC-03 (Aplicabilidad de Consultas):** Regla de cardinalidad estricta y catalogación de $Q_2$ como `NOT_APPLICABLE` en DS-01 ($N < 10.000$).
 - **NC-04 (Prefijos Inequívocos y Máquina de Estados):** Árbol estrictamente libre de prefijos (*strictly prefix-free*) con `111110` para delta inicial y `111111` para escape absoluto. Aritmética segura en 3 pasos, máquina de estados con `has_prev_delta` y serialización Big-Endian portable en microsegundos `int64_t`.
 - **OBS-01 a OBS-06:** Desglose en 4 componentes de tamaño ($B_{\text{time}}$, $B_{\text{values}}$, $B_{\text{container}}$, $B_{\text{total}}$), densidades (bpv, bpt, bptuple, bpc), regímenes Hot/Cold Cache, reserva de $Q_{\text{conc}}$, familias Holm-Bonferroni por terna $(\text{Dataset}, \text{Consulta}, \text{Métrica})$ a $\alpha = 0.05$, y baseline Chimp128.
 - **Subsanaciones R15.5:** Correspondencia unívoca de estimandos e intervalos ($ar{d}$ para $t$-test, Hodges-Lehmann para Wilcoxon, mediana $\tilde{d}$ para Sign Test), tratamiento canónico de diferencias nulas ($d_i = 0$) y corrección de varianza por empates en rangos, y coeficiente insesgado de asimetría de Fisher-Pearson ($g_1$).
 - **Subsanaciones R15.6:** Implementación C canónica de PCG32 XSH-RR 64/32 con `initstate = 42ULL` e `initseq = 54ULL`; algoritmo de Lemire para mapeo acotado con manejo de rechazos; diseño en bloques de Cuadrados Latinos con balanceo ordinal riguroso ($f_{m, p} \in \{2, 3\}$, desviación máxima $6/7 \approx 0.857 < 1.0$) y tabla de calendario de 20 rondas verificada independientemente.
 
-### Revisión R15.7 (Presente Documento Definitivo)
-1. **NC-01 — Regla Canónica Unívoca para el Índice $k$ del Intervalo de Signos:** Se establece la regla matemática determinista para seleccionar $k$ en el intervalo de la mediana $[d_{(k)}, d_{(n_{\text{eff}} - k + 1)}]$ como el mayor entero que garantiza una cobertura bilateral mínima del 95 % ($\ge 0.95$) bajo $B(n_{\text{eff}}, 0.5)$. Para $n_{\text{eff}} = 20$, se fija unívocamente $k = 6$ (cobertura exacta del $95,861\%$, $[d_{(6)}, d_{(15)}]$). Se publica la tabla completa de $k$ para $n_{\text{eff}} < 20$ y la regla para $n_{\text{eff}} \le 5$ con $k=1$ y advertencia `UNDERSIZED_EFFECTIVE_SAMPLE`.
-2. **NC-02 — Criterio de Reproducibilidad Numérica y Aritmética de Punto Flotante en Bootstrap:** Se definen los estándares de punto flotante IEEE 754 Binary64 (`double`), redondeo `roundTiesToEven`, orden secuencial estricto de acumulación, y desactivación de FMA y optimizaciones matemáticas agresivas (`-ffp-contract=off`, `-fno-fast-math`). Se establece que la secuencia de los 200.000 índices de remuestreo es estrictamente bit-exacta, y se define formalmente la reproducibilidad de los resultados flotantes dentro de una tolerancia explícita $\epsilon_{\text{rel}} \le 10^{-7}$ ($\epsilon_{\text{abs}} \le 10^{-9}$) para absorber divergencias de compilador y microarquitectura.
+### Revisión R15.8 (Presente Documento Definitivo)
+1. **Tabla de Equivalencias de Compilación en Punto Flotante Multi-Compilador (NC-02):** Formalización de las banderas de compilación obligatorias para garantizar evaluación precisa IEEE 754 Binary64 abarcando GCC (`-ffp-contract=off -fno-fast-math -frounding-math`), Clang (`-ffp-contract=off -fno-fast-math`) y Microsoft Visual C++ (`/fp:precise` o `/fp:strict`), con exclusión explícita de compiladores no conformes.
+2. **Precisión Contractual de la Reproducibilidad Numérica (NC-02):** Delimitación nítida entre la **bit-exactitud estricta** (restringida a los 200.000 índices enteros del bootstrap generados por PCG32/Lemire) y la **reproducibilidad numérica independiente** de los resultados flotantes bajo las tolerancias acotadas especificadas ($\epsilon_{\text{rel}} \le 10^{-7}$, $\epsilon_{\text{abs}} \le 10^{-9}$), sustituyendo cualquier afirmación de replicabilidad incondicional.
 
 ---
 
@@ -546,11 +546,26 @@ Para garantizar que la prueba de hipótesis y el intervalo de confianza estimen 
      - **Intervalo Percentil al 95%:** $[\bar{d}^*_{(250)}, \; \bar{d}^*_{(9750)}]$ (percentiles $2,5\%$ y $97,5\%$ exactos en base 1; correspondientes a los elementos de índice `reps[249]` y `reps[9749]` en base 0 en C).
      - Para la mejora relativa $\Delta_{\text{rel}}$, cada réplica calcula $\Delta_{\text{rel}, b}^*$ (aplicando inversión de signo para métricas donde menor es mejor), reportando $[\Delta^*_{(250)}, \; \Delta^*_{(9750)}]$.
    - **Criterio de Reproducibilidad Numérica y Aritmética de Punto Flotante (NC-02):**
-     - **Secuencia de Índices de Remuestreo:** La secuencia completa de los $200.000$ índices generados ($B \times n = 10.000 \times 20$) es **estrictamente idéntica bit a bit** entre plataformas, compiladores y sistemas operativos.
-     - **Formato Numérico y Reglas de Compilación:** La acumulación aritmética debe ejecutarse en formato IEEE 754 Binary64 (`double`), modo de redondeo estándar al más cercano (*roundTiesToEven* / `FE_TONEAREST`), con contracción de operaciones en coma flotante explícitamente desactivada (`-ffp-contract=off`, sin instrucciones FMA espurias) y sin optimizaciones matemáticas agresivas o no asociativas (`-fno-fast-math`).
-     - **Tolerancia Numérica Explícita:** Reconociendo las micro-diferencias inevitables de redondeo en el último bit de la mantisa entre compiladores y microarquitecturas (ej. x86_64 SSE2/AVX frente a ARM64 NEON), los estimadores flotantes resultantes del bootstrap ($\bar{d}^*$, percentiles $[\bar{d}^*_{(250)}, \bar{d}^*_{(9750)}]$ y $[\Delta^*_{(250)}, \Delta^*_{(9750)}]$) se certifican formalmente como **numéricamente reproducibles dentro de una tolerancia relativa explícita**:
-       $$\text{Tolerancia Relativa } \epsilon_{\text{rel}} = \frac{|\text{valor}_{\text{obs}} - \text{valor}_{\text{ref}}|}{|\text{valor}_{\text{ref}}|} \le 10^{-7} \quad (\text{o Tolerancia Absoluta } \epsilon_{\text{abs}} \le 10^{-9})$$
-       *Esta especificación dual (índices bit-exactos + tolerancia de cálculo flotante acotada) erradica la ambigüedad aritmética garantizando replicabilidad independiente incondicional.*
+     - **Secuencia de Índices de Remuestreo (Bit-Exactitud Estricta):** La secuencia completa de los $200.000$ índices de remuestreo generados ($B \times n = 10.000 \times 20$) mediante `bounded_rand_lemire(&boot_rng, 20)` sobre la instancia canónica `boot_rng` es **estrictamente bit-exacta** (idéntica bit a bit) entre todas las plataformas, compiladores y sistemas operativos admitidos.
+     - **Formato Numérico y Reglas de Evaluación IEEE 754:** La acumulación aritmética de cada réplica se ejecuta obligatoriamente en formato IEEE 754 Binary64 (`double`), modo de redondeo estándar al más cercano (*roundTiesToEven* / `FE_TONEAREST`), en orden secuencial estricto y ascendente:
+       $$\bar{d}^*_b = \frac{1}{20} \sum_{i=0}^{19} (x_{A, j_i} - x_{B, j_i})$$
+     - **Tabla Canónica de Opciones de Compilación por Compilador Admitido:**  
+       Para garantizar la consistencia numérica y evitar contracciones FMA asimétricas o reasociaciones espurias entre diferentes toolchains admitidos:
+
+| Compilador Admitido | Plataforma Típica | Banderas Obligatorias de Compilación | Semántica Garantizada |
+| :--- | :--- | :--- | :--- |
+| **GCC (GNU C)** | Linux, Windows (MinGW) | `-ffp-contract=off -fno-fast-math -frounding-math` | Desactiva fusión FMA no explícita, preserva orden estricto de operaciones y respeta redondeo IEEE 754. |
+| **Clang / LLVM** | Linux, macOS, Windows | `-ffp-contract=off -fno-fast-math` | Inhibe contracciones en punto flotante y evita reasociaciones algebraicas no seguras. |
+| **MSVC (Visual C++)** | Windows (MSVC x64/ARM64) | `/fp:precise` *(o `/fp:strict`)* | Modelo estándar preciso de MSVC; deshabilita optimizaciones que alteren el redondeo y preserva evaluación precisa IEEE 754. |
+
+*(Nota de Delimitación de Alcance: Compiladores o modos de compilación que no implementen la semántica estricta IEEE 754 Binary64, o que fuercen flags de relajación aritmética de tipo `fast-math` que rompen la asociatividad, quedan formalmente excluidos del alcance de la garantía de reproducibilidad).*
+
+     - **Reproducibilidad Numérica Independiente y Tolerancia Explícita:**  
+       Se establece de forma rigurosa la distinción conceptual entre:
+       1. **Bit-Exactitud Absoluta:** Aplica *exclusivamente* a la generación de los $200.000$ índices enteros del bootstrap.
+       2. **Reproducibilidad Numérica Independiente:** Aplica a los estimadores y percentiles flotantes ($\bar{d}^*$, percentiles $[\bar{d}^*_{(250)}, \bar{d}^*_{(9750)}]$ y $[\Delta^*_{(250)}, \Delta^*_{(9750)}]$), los cuales se certifican como **reproducibles numéricamente de manera independiente bajo las reglas aritméticas y tolerancias especificadas**:
+          $$\text{Tolerancia Relativa } \epsilon_{\text{rel}} = \frac{|\text{valor}_{\text{obs}} - \text{valor}_{\text{ref}}|}{|\text{valor}_{\text{ref}}|} \le 10^{-7} \quad (\text{o Tolerancia Absoluta } \epsilon_{\text{abs}} \le 10^{-9})$$
+       *Esta formulación delimita contractualmente la reproducibilidad numérica independiente bajo las tolerancias declaradas, absorbiendo micro-diferencias inevitables de redondeo en el último bit de la mantisa entre microarquitecturas de registros (ej. x86_64 SSE2/AVX frente a ARM64 NEON).*
 
 #### D. Orientación del Signo e Intervalo de Mejora Relativa ($\Delta_{\text{rel}}$)
 Con $\bar{x}_B > 0$ y $[\bar{d}_L, \bar{d}_U]$ correspondiente al intervalo de confianza del 95% del estimador de diferencia media:
@@ -619,7 +634,7 @@ Chimp128 se evalúa como una **referencia técnica especializada de alta capacid
 
 ## 9. Próximos Pasos tras la Revisión de la Fase A
 
-Una vez obtenida la aprobación formal de la presente revisión R15.7:
+Una vez obtenida la aprobación formal de la presente revisión R15.8:
 1. **Cierre Formal de la Fase A.**
 2. **Apertura de la Fase B (Auditoría de Codecs y Datasets):** Actividad exclusivamente de solo lectura dedicada a la inspección estática de las implementaciones fuente de Gorilla, Chimp/Chimp128 y la validación de integridad de los datasets formalizados.
 3. **Mantenimiento del Code Freeze:** Ninguna compilación ni ejecución de código hasta completar las Fases B, C y D.
