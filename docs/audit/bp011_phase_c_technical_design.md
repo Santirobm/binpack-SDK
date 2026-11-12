@@ -1,33 +1,30 @@
-# Especificación y Diseño Técnico R6.4 — Hito BP-011 / Fase C
+# Especificación y Diseño Técnico R6.5 — Hito BP-011 / Fase C
 ## Protocolo Decisivo de Validación de Viabilidad Comercial en Telemetría Industrial
 
 **Proyecto:** BinPack Enterprise SDK  
 **Hito:** BP-011  
-**Fase:** Fase C — Auditoría de Instrumentación y Diseño de Arneses (Revisión Definitiva R6.4)  
+**Fase:** Fase C — Auditoría de Instrumentación y Diseño de Arneses (Revisión Definitiva R6.5)  
 **Documento Rector:** `docs/audit/bp011_phase_c_technical_design.md`  
 **Rama:** `audit/bp1-core-safety`  
 **Fecha:** 12 de noviembre de 2026  
-**Estado:** ESPECIFICACIÓN TÉCNICA DEFINITIVA DE DISEÑO — CIERRE CONTRACTUAL INCONDICIONAL (REVISIÓN R6.4)  
+**Estado:** ESPECIFICACIÓN TÉCNICA DEFINITIVA DE DISEÑO — CIERRE INCONDICIONAL (REVISIÓN R6.5)  
 **Gobernanza:** *Code Freeze* preservado al 100% (cero modificaciones en `src/`, `include/` y `deps/`; sin compilación ni ejecución en esta fase).
 
 ---
 
-## Control de Cambios de la Revisión R6.4 (Cierre Definitivo de Observaciones)
+## Control de Cambios de la Revisión R6.5 (Cierre Metodológico de Memoria)
 
-En cumplimiento estricto del dictamen de auditoría sobre R6.3, esta **Revisión R6.4** incorpora las cuatro resoluciones técnicas y metodológicas finales:
+En estricta atención al dictamen técnico emitido sobre la Revisión R6.4, la presente **Revisión R6.5** subsana de forma quirúrgica la observación metodológica pendiente sobre la medición de memoria (NC-04):
 
-1. **NC-01 (Timestamp R15.10 Literal y Dominio de Ciclos C-MAPSS):**
-   - Se copia literalmente la especificación canónica de R15.10: codificación delta-of-delta con sesgo (*bias*) para deltas de 7 bits ($D_7 = D + 63$), 9 bits ($D_9 = D + 255$) y 12 bits ($D_{12} = D + 2047$), delta irregular de 32 bits en complemento a 2, delta inicial de 64 bits con signo bajo prefijo `111110` (70 bits en total) y escape absoluto de 64 bits bajo prefijo `111111` (70 bits en total).
-   - Para C-MAPSS, se formaliza el dominio temporal como un contador entero discreto de ciclos de operación por motor mapeado a `int64_t` ($t_i = \text{cycle}_i \in [1, 2^{63}-1]$). En cada límite de motor, se emite incondicionalmente el escape absoluto `111111` (64 bits) y se reinicia `has_prev_delta = false`, unificando el tratamiento en los cuatro motores.
-2. **NC-02 (Fórmula Canónica de Ahorro Preservada):**  
-   Se mantiene la fórmula aprobada normalizada sobre el tamaño del competidor:
-   $$\text{Ahorro}_X = \left( \frac{B_{\text{total}, X} - B_{\text{total}, \text{BinPack}}}{B_{\text{total}, X}} \right) \times 100\%$$
-3. **NC-03 (Paridad de `Zstd_Composed` Preservada):**  
-   Se mantiene la regla aprobada: `Zstd_Composed` comprime exactamente la misma matriz de valores F64 no comprimidos ($N \times K \times 8$ bytes) a nivel 3, compartiendo la cabecera fija de 64B, metadatos y stream temporal R15.10.
-4. **NC-04 (Medición de Memoria RAM por Proceso Aislado y Asignación de Códec):**  
-   Para asegurar que el working set pico corresponda estrictamente a la operación evaluada, cada medición experimental se ejecuta en un proceso independiente (*isolated process run*), midiendo $\Delta \text{RAM}_{\text{process}} = \text{PeakWorkingSetSize} - \text{WorkingSetSize}_{\text{init}} \le 16\text{ MB}$, complementado con la medición de memoria dinámica asignada por las estructuras del códec ($\text{RAM}_{\text{codec}} \le 2\text{ MB}$).
-5. **Denominación Rigurosa y Honesta de `Chimp128_Composed_Variant`:**  
-   Se rotula formalmente como `Chimp128_Composed_Variant`: una variante experimental de alta compresión inspirada en Chimp128 (VLDB 2022) con tabla hash de $2^{14}$ posiciones, buffer circular de 128 elementos y guarda `has_valid_window`, evitando atribuirle indebidamente una equivalencia canónica absoluta.
+1. **Corrección de la Justificación de `PeakWorkingSetSize`:**  
+   Se elimina la premisa de que `CreateProcessA` o `PeakWorkingSetSize` miden de forma aislada la operación computacional. Se reconoce formalmente que `PeakWorkingSetSize` es un acumulador histórico desde la creación del proceso que incluye la carga del ejecutable, carga de DLLs del sistema, inicialización del runtime C (CRT) y configuración del arnés, por lo que no puede atribuirse exclusivamente al códec.
+2. **Asignador Rastreable Específico para el Códec (`RAM_codec_peak`):**  
+   Se formaliza que la métrica primaria determinista del algoritmo se mide mediante un envoltorio rastreador de memoria (`bp011_tracked_malloc`, `bp011_tracked_free`) que monitoriza los bytes activos y registra el pico estricto alcanzado durante la invocación de compresión o descompresión, restableciendo `codec_peak = codec_current` inmediatamente antes de la llamada. Límite contractual inmutable:
+   $$\text{RAM}_{\text{codec\_peak}} \le 2\text{ MB}$$
+3. **Muestreo Diferencial del Working Set del Proceso ($\Delta W_{\text{operation}}$):**  
+   A nivel de sistema operativo, el arnés toma una instantánea del Working Set inmediatamente antes de invocar la operación ($W_{\text{before}}$) y otra inmediatamente al concluir ($W_{\text{after}}$), reportando el incremento neto $\Delta W_{\text{operation}} = \max(0, W_{\text{after}} - W_{\text{before}})$ junto con el working set total del proceso, acotado como diagnóstico de sistema a $\le 16\text{ MB}$.
+4. **Preservación Íntegra de Acuerdos Aprobados:**  
+   Se mantienen intactas las subsanaciones aprobadas: timestamp R15.10 literal con escape `111111` y reinicio en C-MAPSS (NC-01), fórmula canónica de ahorro sobre el competidor (NC-02), paridad simétrica de `Zstd_Composed` (NC-03) y denominación honesta `Chimp128_Composed_Variant`.
 
 ---
 
@@ -46,7 +43,7 @@ BinPack **no necesita ganar en todos los datasets ni en todas las métricas**:
 1. **Reconstrucción Exacta (Lossless):** Tolerancia cero a pérdida de datos; verificación bit a bit en todas las muestras flotantes.
 2. **Paridad Estricta de Carga Útil:** Todos los motores comprimen exactamente las mismas tuplas $(t_i, v_{i, 0}, \dots, v_{i, K-1})$ empaquetadas en bloques autodescriptivos.
 3. **Aislamiento Experimental Absoluto:** Todo el código reside exclusivamente en [`tests/experiments/bp011/`](file:///C:/Users/sgi.lm/Desktop/binpack-SDK/tests/experiments/bp011/), manteniendo `src/`, `include/` y `deps/` congelados al 100%.
-4. **Cierre de Ciclo Documental:** R6.4 es la última revisión documental. Tras su aprobación, se inicia la codificación.
+4. **Cierre de Ciclo Documental:** R6.5 es la última revisión documental. Tras su aprobación, se inicia la codificación.
 
 ---
 
@@ -388,13 +385,21 @@ bp011_status_t bp011_verify_series_directory(const bp011_block_header_t *h, cons
    - Amplificación de Descompresión:
      $$A_{\text{decomp}} = \frac{B_{\text{decomp}}}{N \times 8}$$
 
-5. **Medición Metodológica de Memoria RAM por Proceso Aislado:**
-   Para garantizar que el working set pico mida exclusivamente la operación bajo prueba y no picos residuales previos:
-   - **Protocolo de Proceso Aislado:** Cada benchmark se ejecuta en un proceso hijo independiente creado para tal fin (`CreateProcessA`), donde el sistema operativo asigna una tabla de páginas limpia.
-   - $\text{RAM}_{\text{base}}$: Working set tras la carga inicial del ejecutable (`WorkingSetSize`).
-   - $\text{RAM}_{\text{peak}}$: Working set pico durante la ejecución de la compresión/descompresión (`PeakWorkingSetSize`).
-   - $\Delta \text{RAM}_{\text{process}} = \text{RAM}_{\text{peak}} - \text{RAM}_{\text{base}}$ (límite contractual $\le 16\text{ MB}$).
-   - $\text{RAM}_{\text{codec}}$: Memoria dinámica asignada exclusivamente por las estructuras internas del algoritmo (ej. tabla hash de $16.384 \times 4\text{ B} = 64\text{ KB}$ y buffer circular de $128 \times 8\text{ B} = 1\text{ KB}$ en Chimp128), con límite estricto de $\text{RAM}_{\text{codec}} \le 2\text{ MB}$.
+5. **Medición Metodológica Discriminada de Memoria RAM (NC-04):**
+   Para garantizar que la memoria medida corresponda estrictamente al algoritmo y no a artefactos del proceso o del sistema operativo:
+   
+   - **Métrica Primaria Determinista del Algoritmo ($\text{RAM}_{\text{codec\_peak}}$):**  
+     El arnés implementa un asignador rastreador (`bp011_tracked_malloc`, `bp011_tracked_free`) que monitoriza cada byte dinámico solicitado por las estructuras internas del motor:
+     - Inmediatamente antes de invocar `compress()` o `decompress()`, el arnés registra la memoria activa base y resetea el acumulador de pico: `codec_peak = codec_current`.
+     - Durante la operación, cada asignación/reubicación actualiza el pico exacto: `codec_peak = max(codec_peak, codec_current)`.
+     - Al retornar, se calcula el consumo neto pico atribuible al algoritmo:
+       $$\text{RAM}_{\text{codec\_peak}} = \text{codec\_peak} - \text{codec\_base}$$
+     - **Límite Contractual Inmutable:** $\text{RAM}_{\text{codec\_peak}} \le 2\text{ MB}$ (garantizando idoneidad para microcontroladores y gateways edge modestos).
+   
+   - **Métrica Diagnóstica de Sistema Operativo ($\Delta W_{\text{operation}}$):**  
+     Se reconoce formalmente que `PeakWorkingSetSize` representa el máximo histórico de todo el proceso (incluyendo carga de binarios, DLLs y runtime C) y no el pico exclusivo de la operación. En consecuencia, el arnés toma una instantánea del working set inmediatamente antes de la llamada ($W_{\text{before}}$) y otra inmediatamente al concluir ($W_{\text{after}}$) mediante `GetProcessMemoryInfo`:
+     $$\Delta W_{\text{operation}} = \max(0, \ W_{\text{after}} - W_{\text{before}})$$
+     - **Límite Contractual de Sistema:** $\Delta W_{\text{operation}} \le 16\text{ MB}$ y Working Set total del proceso $\le 32\text{ MB}$.
 
 ### 6.2 Criterios Inmutables de Decisión Comercial
 
@@ -406,8 +411,9 @@ bp011_status_t bp011_verify_series_directory(const bp011_block_header_t *h, cons
 │    • Ahorro_Gorilla >= 15.0%  Y  Ahorro_Chimp128 >= 15.0%                              │
 │      O BIEN                                                                            │
 │    • S_select >= 2.0x frente a Gorilla Y A_decomp <= 2.0                               │
-│      CONDICIÓN COMPLEMENTARIA:                                                         │
-│      TP_comp(BinPack) >= 0.50 * TP_comp(Gorilla)  Y  ΔRAM_process <= 16 MB.            │
+│      CONDICIONES COMPLEMENTARIAS:                                                      │
+│      TP_comp(BinPack) >= 0.50 * TP_comp(Gorilla)                                       │
+│      RAM_codec_peak <= 2 MB  Y  ΔW_operation <= 16 MB.                                 │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
 │ 2. [REPOSICIONAR] Ventaja de Nicho Especializado:                                      │
 │    • BinPack no alcanza el 15% de ahorro global, pero demuestra S_select >= 3.0x       │
@@ -442,7 +448,7 @@ bp011_status_t bp011_verify_series_directory(const bp011_block_header_t *h, cons
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │                        HOJA DE RUTA EJECUTIVA PARA BP-011                              │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
-│ Paso 1: Aprobación Formal de R6.4 (Última Revisión Documental de Diseño).              │
+│ Paso 1: Aprobación Formal de R6.5 (Última Revisión Documental de Diseño).              │
 │ Paso 2: Fase C (Codificación) en tests/experiments/bp011/ de los motores y arnés.     │
 │ Paso 3: Fase D (Auditoría Estática de Arneses y Compilación Segura).                  │
 │ Paso 4: Fase E (Campaña Experimental Única sobre C-MAPSS e IMS).                       │
@@ -454,12 +460,11 @@ bp011_status_t bp011_verify_series_directory(const bp011_block_header_t *h, cons
 
 ## 9. Conclusión y Petición Formal
 
-El diseño técnico presentado en esta **Revisión R6.4** satisface plenamente y sin reservas las directrices de cierre:
-1. Copia literal de campos, sesgos ($D_7, D_9, D_{12}$), prefijos y delta inicial de 64 bits de R15.10.
-2. Definición formal del dominio de ciclos en C-MAPSS y reinicio mediante escape `111111` al saltar entre los 100 motores.
-3. Medición de memoria pico limpia mediante arquitectura de proceso aislado ($\Delta	ext{RAM}_{	ext{process}} \le 16	ext{ MB}$) y $	ext{RAM}_{	ext{codec}} \le 2	ext{ MB}$.
-4. Denominación honesta e inequívoca de `Chimp128_Composed_Variant`.
+El diseño técnico presentado en esta **Revisión R6.5** cierra con total rigor científico la última observación pendiente:
+1. Se elimina la atribución incorrecta sobre `PeakWorkingSetSize` y `CreateProcessA`.
+2. Se formaliza el asignador rastreable interno (`RAM_codec_peak <= 2 MB`) como métrica primaria determinista del algoritmo.
+3. Se establece el muestreo diferencial de Working Set ($\Delta W_{	ext{operation}} \le 16	ext{ MB}$) como diagnóstico de sistema operativo.
 
 Por todo lo expuesto, se solicita formalmente al Auditor Líder:
-1. **Aprobación incondicional de la Especificación y Diseño Técnico R6.4 como documento definitivo de la Fase C.**
+1. **Aprobación incondicional de la Especificación y Diseño Técnico R6.5 como documento definitivo de la Fase C.**
 2. **Autorización formal para iniciar la codificación experimental** exclusivamente en [`tests/experiments/bp011/`](file:///C:/Users/sgi.lm/Desktop/binpack-SDK/tests/experiments/bp011/), manteniendo intacto el *code freeze* en `src/`, `include/` y `deps/`.
