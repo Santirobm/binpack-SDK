@@ -1,28 +1,42 @@
-# Protocolo de Reproducibilidad Experimental, Trazabilidad Metodológica y Baselines — Hito BP-008D (Revisión R3)
+# Protocolo de Reproducibilidad Experimental, Trazabilidad Metodológica y Baselines — Hito BP-008D (Revisión R14)
 
-**Expediente:** BP-008D-R3 — Cierre Definitivo de Observaciones de Auditoría: Sincronización Código-Protocolo, PRNG Lemire Sin Sesgo, Aislamiento Exhaustivo VEX/EVEX, Desglose Analítico de Memoria de Trabajo y Verificación de Checksum Zstd  
+**Expediente:** BP-008D-R14 — Subsanación Documental Final: Precisión Criptográfica sobre Identificadores de Contenido SHA-1 vs Firmas de Autor, Actualización Certificada del Checklist de CI Multiplataforma (8/8 Trabajos Exitosos en R13) y Preparación para Cierre Formal del Protocolo Experimental.  
 **Proyecto:** BinPack Enterprise SDK  
 **Ramas Auditadas:** `audit/bp1-core-safety`  
-**Hito Previo:** BP-008C-R6 (Cierre Técnico Aprobado — Commit `4dc098dd7a6c38fc39d0a411b24114e27231bd97`)  
-**Fecha:** 6 de Noviembre de 2026  
+**Hito Previo:** BP-008D-R13 (Commit `35a82ef4d89d7739232da87f826f8033428f17a2`, Workflow Runs `42344207762` [evento `push`] y `42344210926` [evento `pull_request`], con 8/8 trabajos verificados exitosos en GitHub Actions)  
+**Fecha:** 7 de Noviembre de 2026  
 **Autor:** Santiago Robledo (<santiagorobledo198@gmail.com>)  
 **Responsable Técnico:** Antigravity AI — Advanced Agentic Coding & Systems Architecture  
 
 ---
 
-## 1. Resumen Ejecutivo y Respuesta a la Auditoría BP-008D-R2
+## 1. Resumen Ejecutivo y Respuesta a la Auditoría BP-008D-R13
 
-El presente expediente constituye la **Revisión R3 de BP-008D**, formalizada para subsanar de forma exhaustiva las observaciones formuladas en el dictamen de auditoría R2. 
+El presente documento formaliza la **Revisión R14 del Expediente BP-008D**, en respuesta directa a las dos observaciones documentales formuladas en el Dictamen Técnico Independiente sobre R13 (revisión en la cual la implementación técnica fue plenamente aprobada sin nuevas deficiencias bloqueantes):
 
-En esta revisión, se elimina toda discrepancia entre la especificación documental y el código fuente ejecutable: **todas las implementaciones descritas en este protocolo se encuentran materializadas y verificables bit a bit en el harness [`tests/benchmarks/benchmark_decisive_suite.c`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c)**.
+1. **R14-01 — Precisión Criptográfica sobre el Modelo de Objetos Git (SHA-1 vs Firmas de Autor):**
+   - Se rectifica la caracterización previa de "inmutabilidad matemática absoluta del grafo Git".
+   - Se precisa con rigor técnico que Git emplea un modelo de almacenamiento direccionado por contenido (*content-addressable storage*) sustentado en hashes SHA-1 de 40 caracteres hexadecimales.
+   - Si bien SHA-1 no proporciona una garantía matemática absoluta contra colisiones teóricas ni acredita la identidad del autor (función que corresponde exclusivamente a firmas criptográficas GPG/SSH, las cuales no están implementadas en los commits del proyecto), sí provee una integridad referencial práctica y sólida detección de manipulaciones dentro del árbol de objetos del repositorio, verificable externamente mediante la API de GitHub.
 
-### Matriz de Subsanaciones R3:
-| Control de Auditoría | Estado R2 | Estado R3 | Ubicación en Código |
+2. **R14-02 — Actualización y Coherencia del Checklist de Integración Continua (Sección 8, Punto 7):**
+   - En la entrega R13, el punto 7 del checklist permanecía desmarcado (`[ ]`) de forma contradictoria con la evidencia empírica verificada de CI.
+   - En esta revisión R14, se actualiza a marcado formal (`[x]`), reflejando la ejecución y aprobación plena de los 8/8 trabajos de CI sobre el commit exacto de R13 (`35a82ef4d89d7739232da87f826f8033428f17a2`) en ambos eventos de GitHub Actions (`push` [Run `42344207762`] y `pull_request` [Run `42344210926`]), con ejecución certificada de la suite CSV 7/7 en Linux y Windows y la auditoría estricta de aislamiento ISA en Linux.
+
+3. **Mantenimiento Estricto del Congelamiento de Código de Producción y Campaña Decisiva:**
+   - La revisión R14 es de carácter **exclusivamente documental**.
+   - No se introduce modificación alguna en el código del SDK (`src/`, `include/`, `deps/`).
+   - El harness y los scripts conservan la implementación aprobada en R13.
+   - La campaña decisiva de 20 iteraciones permanece estrictamente **congelada** y no autorizada hasta la formalización del cierre por parte de la auditoría técnica independiente.
+
+---
+
+### Matriz Consolidada de Estado Documental R14:
+| Control de Auditoría | Estado en R13 | Subsanación Efectiva en R14 | Evidencia en Repositorio |
 | :--- | :--- | :--- | :--- |
-| **R1-01 — PRNG Lemire y Estado Global** | No conforme (discrepancia doc vs. código) | **SUBSANADO Y SINCRONIZADO** | [`tests/benchmarks/benchmark_decisive_suite.c:401-438`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c#L401-L438) |
-| **R1-02 — Aislamiento ISA (VEX / EVEX)** | Parcialmente conforme | **SUBSANADO Y AUDITABLE** | Sección 2.2 + Cuádruple compuerta en [`src/binpack_cpu.c:62-97`](file:///C:/Users/usuario/Desktop/binpack/src/binpack_cpu.c#L62-L97) |
-| **R1-03 — Memoria de Trabajo vs. RSS** | Conceptualmente conforme | **SUBSANADO Y MODELADO** | Sección 4.2 (Fórmula analítica exacta + alcance monohilo) |
-| **R1-04 — Checksum Zstd Strict y Pre-flight** | Documentado sin evidencia | **SUBSANADO Y VERIFICADO** | [`tests/benchmarks/benchmark_decisive_suite.c:556-618`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c#L556-L618) |
+| **R14-01 — Precisión Criptográfica** | Calificación categórica de "inmutabilidad matemática" | **SUBSANADO**: Delimitación rigurosa de SHA-1 como direccionamiento por contenido con integridad referencial práctica, sin atribuirle invulnerabilidad teórica a colisiones ni acreditación de autoría. | Sección 1 y Sección 2.3 de este documento |
+| **R14-02 — Coherencia de Checklist CI** | Punto 7 desmarcado `[ ]` pese a 8/8 jobs exitosos | **SUBSANADO**: Checklist actualizado a `[x]` con trazabilidad explícita de Runs `42344207762` y `42344210926`. | Sección 8, Punto 7 de este documento |
+| **Congelamiento de Campaña Decisiva** | Conforme / Congelada | **MANTENIDO**: Sin ejecución de benchmark de 20 iteraciones ni cambios en `src/`, `include/`, `deps/`. | Repositorio general |
 
 ---
 
@@ -34,323 +48,142 @@ En esta revisión, se elimina toda discrepancia entre la especificación documen
 * **Aislamiento de Memoria:** Subprocesos independientes instanciados vía `fork()` y sincronizados mediante `wait4()` en Linux / WSL2, con monitoreo del consumo de memoria residente (*Peak RSS*) vía `struct rusage`.
 * **Temporización de Alta Resolución:** `clock_gettime(CLOCK_MONOTONIC)` en sistemas POSIX / Linux, con resolución de nanosegundos; `QueryPerformanceCounter` / `QueryPerformanceFrequency` en Windows nativo.
 
-### 2.2. Compilación, Unidades de Traducción y Aislamiento de ISA (VEX / EVEX) (R1-02)
+### 2.2. Aislamiento de ISA y Procedimiento Formal de Inspección (Aprobado)
 
-La compilación se rige por un esquema estricto por unidad de traducción (TU), evitando que la autovectorización global del compilador contamine módulos que deben ser portables:
+La arquitectura de compilación garantiza que los módulos portables se generen con banderas estrictamente escalares, impidiendo que el compilador autovectorice bucles utilizando extensiones AVX/AVX2/AVX-512:
 
 ```
 [ UNIDADES PORTABLES (TU 1..8) ]              [ UNIDAD SIMD AISLADA (TU 9) ]
-clang -O3 -march=x86-64                       clang -O3 -mavx2 -mavx
-      -mno-avx -mno-avx2                            (binpack_core_avx2.c)
-(binpack_core.c, binpack_cpu.c, stream, etc.)                 |
+gcc -O3 -march=x86-64 -fPIC                   gcc -O3 -mavx2 -fPIC
+    -mno-avx -mno-avx2                              (binpack_core_avx2.c)
+(binpack_core.c, cpu, eval, stream, etc.)                     |
              |                                                |
              +-----------------------+------------------------+
                                      |
                                      v
                        [ ENLACE DINÁMICO / ESTÁTICO ]
-                             binpack.dll / .a
-                                     |
-                                     v
-                    [ DISPATCH DINÁMICO EN TIEMPO DE EJECUCIÓN ]
-                     bp_ensure_cpu_dispatch_initialized()
-                      - CPUID.1:ECX[28] == 1 (AVX)
-                      - CPUID.1:ECX[27] == 1 (OSXSAVE)
-                      - _xgetbv(0) -> XCR0 & 0x06 == 0x06 (XMM/YMM)
-                      - CPUID.7:EBX[5]  == 1 (AVX2)
-                     -> g_bp_dispatch (Scalar vs AVX2)
 ```
 
-#### A. Opciones de Compilación por Unidad de Traducción:
-1. **Unidades de Traducción Portables (TU 1 a 8):**
-   - `binpack_core.c`, `binpack_cpu.c`, `binpack_eval.c`, `binpack_stream.c`, `binpack_sdk.c`, `binpack_dict.c`, `binpack_patch.c`, `binpack_archive.c`.
-   - **Flags Obligatorias:** `-O3 -march=x86-64 -mno-avx -mno-avx2 -Wall -Wextra -pthread -D_GNU_SOURCE`.
-   - **Garantía:** Prohíbe al compilador generar cualquier instrucción vectorizada con prefijos VEX (256 bits) o EVEX (512 bits).
-2. **Unidad de Traducción SIMD Acelerada (TU 9):**
-   - `binpack_core_avx2.c`.
-   - **Flags Obligatorias:** `-O3 -mavx2 -mavx`.
-   - Contiene exclusivamente las funciones vectorizadas con intrinsics explícitos (`_mm256_*`).
-3. **Módulo del Harness de Benchmark:**
-   - `benchmark_decisive_suite.c`.
-   - **Flags Obligatorias:** `-O3 -march=x86-64 -mno-avx -mno-avx2`.
+### 2.3. Trazabilidad de CI y Deslinde Criptográfico de Commits
 
-#### B. Inspección Exhaustiva de Conjunto de Instrucciones (ISA Audit — VEX y EVEX):
-La verificación no se limita a un filtrado de nombres de mnemónicos, sino que analiza la codificación binaria de instrucciones mediante desensamblado y clasificación de ISA:
-* **Codificación Binaria VEX:** 
-  - Prefijo de 2 bytes: `0xC5` (seguido de `[R, ~vvvv, L, pp]`).
-  - Prefijo de 3 bytes: `0xC4` (seguido de `[~R, ~X, ~B, m-mmmm] [W, ~vvvv, L, pp]`).
-* **Codificación Binaria EVEX:**
-  - Prefijo de 4 bytes: `0x62` (seguido de payload de 3 bytes `P0, P1, P2` con bits invertidos `~R, ~X, ~B, ~R', 0, 0, m-mm`, etc.).
-
-**Procedimiento de Comprobación Automatizable:**
-```bash
-# 1. Detección exhaustiva de mnemónicos y prefijos VEX (emisión con prefijo 'v')
-llvm-objdump -d --no-show-raw-insn <objeto.o> | grep -E "^\s*[0-9a-f]+:\s+v[a-z0-9]+"
-
-# 2. Detección exhaustiva de instrucciones EVEX (máscaras vectoriales {%k}, broadcast {1toN})
-llvm-objdump -d --no-show-raw-insn <objeto.o> | grep -E "\{[k1-7][0-9]*\}|\{1to[0-9]+\}"
-
-# 3. Escaneo de opcodes binarios (inspección de bytes brutos)
-objdump -d <objeto.o> | grep -E "^\s*[0-9a-f]+:\s+(c4|c5|62)\s+"
-```
-
-**Tabla de Certificación de Objetos Portables:**
-| Archivo Objeto | Compilador / Flags | Conteo VEX | Conteo EVEX | Estado de Aislamiento |
-| :--- | :--- | :--- | :--- | :--- |
-| `binpack_core.o` | `-O3 -march=x86-64 -mno-avx -mno-avx2` | **0** | **0** | Conforme (Scalar) |
-| `binpack_cpu.o` | `-O3 -march=x86-64 -mno-avx -mno-avx2` | **0** | **0** | Conforme (Scalar) |
-| `binpack_eval.o` | `-O3 -march=x86-64 -mno-avx -mno-avx2` | **0** | **0** | Conforme (Scalar) |
-| `binpack_stream.o` | `-O3 -march=x86-64 -mno-avx -mno-avx2` | **0** | **0** | Conforme (Scalar) |
-| `binpack_sdk.o` | `-O3 -march=x86-64 -mno-avx -mno-avx2` | **0** | **0** | Conforme (Scalar) |
-| `binpack_dict.o` | `-O3 -march=x86-64 -mno-avx -mno-avx2` | **0** | **0** | Conforme (Scalar) |
-| `binpack_patch.o` | `-O3 -march=x86-64 -mno-avx -mno-avx2` | **0** | **0** | Conforme (Scalar) |
-| `binpack_archive.o` | `-O3 -march=x86-64 -mno-avx -mno-avx2` | **0** | **0** | Conforme (Scalar) |
-| `benchmark_decisive_suite.o` | `-O3 -march=x86-64 -mno-avx -mno-avx2` | **0** | **0** | Conforme (Harness) |
-| `binpack_core_avx2.o` | `-O3 -mavx2 -mavx` | $>0$ (Explícito) | **0** | Conforme (AVX2 Only) |
-
-#### C. Ruta de Despacho en Tiempo de Ejecución con Verificación OSXSAVE:
-El despacho dinámico en [`src/binpack_cpu.c:62-97`](file:///C:/Users/usuario/Desktop/binpack/src/binpack_cpu.c#L62-L97) evalúa formalmente cuatro condiciones acumulativas de silicio y de sistema operativo:
-1. **Soporte de Silicio AVX:** `CPUID Leaf 1: ECX bit 28 == 1`.
-2. **Soporte de Silicio y SO para OSXSAVE:** `CPUID Leaf 1: ECX bit 27 == 1`. Garantiza que el sistema operativo ha inicializado el soporte de contexto extendido y que la instrucción `xgetbv` puede ser ejecutada por el espacio de usuario sin provocar una excepción `#UD`.
-3. **Validación del Registro de Control Extendido (XGETBV):** Se ejecuta `_xgetbv(0)` para consultar `XCR0`. Se exige estrictamente:
-   $$(\text{XCR0} \ \& \ 0\text{x}06) == 0\text{x}06$$
-   garantizando que el sistema operativo preserva activamente los registros XMM (bit 1) y YMM (bit 2) en los cambios de contexto.
-4. **Soporte de Silicio AVX2:** `CPUID Leaf 7, Subleaf 0: EBX bit 5 == 1`.
-
-Si cualquiera de las cuatro comprobaciones devuelve falso, `g_bp_dispatch` apunta a los kernels escalares portables (`bp_*_scalar`). Si las cuatro son verdaderas, apunta a `bp_*_avx2`. El backend activo se reporta en el banner inicial del harness (`BINPACK_BACKEND_AVX2` o `BINPACK_BACKEND_SCALAR`).
-
-### 2.3. Topología de CPU y Condiciones de Virtualización
-* **Procesador de Referencia:** Intel Core i5-13500 (Arquitectura Híbrida Raptor Lake-S, 6 Performance Cores / 12 hilos Raptor Cove @ 2.5–4.8 GHz + 8 Efficient Cores Gracemont @ 1.8–3.5 GHz; L2 Cache: 2 MB/P-core, L3 Cache: 24 MB compartido).
-* **Asignación de Afinidad Determinista:**
-  - En Linux / WSL2: `sched_setaffinity()` anclado estrictamente a `logical_id = 2` (vCPU 2).
-  - Verificación de máscara: Exigencia de `CPU_ISSET(2)` y `CPU_COUNT == 1` mediante `sched_getaffinity()`.
-  - Forzado de conmutación: `sched_yield()` inmediatamente después de la fijación.
-* **Precedencia e Inspección CPUID (BP-008C-R6):**
-  1. Consulta de `CPUID Leaf 0`: comprobación de `max_basic_leaf >= 1`.
-  2. Consulta de `CPUID Leaf 1`: extracción de `is_hypervisor = (ECX >> 31) & 1`.
-  3. **Ruta Virtualizada (`is_hypervisor == 1`):**
-     - Se asigna `physical_core_verified = 0`.
-     - Se asigna `topology_gate_passed = 1` (afinidad y máscara verificadas).
-     - Se consulta `CPUID Leaf 0x40000000`: si el máximo anunciado cumple `h_eax >= 0x40000000 && h_eax < 0x40010000`, se extrae la firma de 12 bytes del hipervisor (`Microsoft Hv`, `KVMKVMKVM`, `VMwareVMware`).
-     - Se retorna inmediatamente sin evaluar ni certificar silicio físico.
-  4. **Ruta Bare-Metal (`is_hypervisor == 0`):**
-     - Se comprueba `max_basic_leaf >= 0x1A`. Si es menor, se aborta con error controlado.
-     - Se consulta `CPUID Leaf 0x1A`: si `core_type == 0x40`, se certifica `physical_core_verified = 1` y `topology_gate_passed = 1`. Si devuelve `0x20` (E-Core), la suite aborta inmediatamente.
-
-### 2.4. Motores Competidores y Versiones Exactas Auditadas
-| Motor / Codec | Versión Exacta Compilada | Procedencia de Implementación | Enlace / Biblioteca |
-| :--- | :--- | :--- | :--- |
-| **Meta Zstandard (Zstd)** | **v1.5.7** (`ZSTD_VERSION_NUMBER = 10507`) | Meta Platforms (BSD 3-Clause) | Enlace estático (`libzstd_static.lib` / `.a`) |
-| **Yann Collet LZ4** | **v1.10.1** (`LZ4_VERSION_NUMBER = 11001`) | Yann Collet (BSD 2-Clause) | Enlace estático / compilación de `deps/lz4_src/lz4.c` |
-| **Igor Pavlov 7-Zip LZMA** | **SDK v19.00** (`_7ZIP_ST`) | Dominio Público | Compilación de `deps/lzma/` monohilo |
-| **Facebook Gorilla** | **VLDB 2015 C99** | Implementación local auditada | [`deps/timeseries/timeseries_codecs.h`](file:///C:/Users/usuario/Desktop/binpack/deps/timeseries/timeseries_codecs.h#L87-L140) |
-| **Chimp** | **PVLDB 2022 C99** | Implementación local auditada | [`deps/timeseries/timeseries_codecs.h`](file:///C:/Users/usuario/Desktop/binpack/deps/timeseries/timeseries_codecs.h#L248-L305) |
-| **Sprintz** | **PVLDB 2018 C99** | Implementación local | **En Cuarentena Estricta** (Excluido de mediciones activas por UB) |
-
-### 2.5. Datasets y Hashes Criptográficos Congelados
-* **`busybox_armv7l`** (1.109.128 Bytes): `SHA-256: 8fceda57d83418bb288de0aef3c6df5e9421344ed0515c90fa5206f15c50f7e4`
-* **`nasa_turbofan_float32.bin`** (1.980.576 Bytes): `SHA-256: ee06f50d129b163884753299939c7e150d785e63928de860777b9f7869ce7c59`
-* **`mozilla`** (51.220.480 Bytes): `SHA-256: 657fc3764b0c75ac9de9623125705831ebbfbe08fed248df73bc2dc66e2a963b`
-* **`samba`** (21.606.400 Bytes): `SHA-256: 93ba07bc44d8267789c1d911992f40b089ffa2140b4a160fac11ccae9a40e7b2`
-* **`ooffice`** (6.152.192 Bytes): `SHA-256: e7ee013880d34dd5208283d0d3d91b07f442e067454276095ded14f322a656eb`
-* **`mr`** (9.970.564 Bytes): `SHA-256: 68637ed52e3e4860174ed2dc0840ac77d5f1a60abbcb13770d5754e3774d53e6`
+1. **Trazabilidad Exacta de Eventos en GitHub Actions:**
+   - En el flujo de CI del repositorio, cada empuje a la rama `audit/bp1-core-safety` dispara simultáneamente dos workflow runs debido a la existencia de un Pull Request abierto sobre la misma rama:
+     - **Evento `push`:** Run ID correspondiente al push directo sobre la rama.
+     - **Evento `pull_request`:** Run ID asociado a la evaluación del pull request sobre el commit de destino.
+   - En R13, ambos runs completaron la matriz integral de 4 trabajos (Windows x86_64, Linux x86_64, macOS Apple Silicon / Universal, y Bundle Unity UPM Package) con conclusión `Success` pleno en los 8/8 trabajos.
+2. **Matriz de Tareas por Sistema Operativo:**
+   - **Linux x86_64:** Compilación de LZMA Core y `libbinpack.so`, ejecución de la suite unitaria `test_sdk`, auditoría formal de aislamiento ISA (`scripts/audit_isa_isolation.sh`), y ejecución de la suite de fallos y concurrencia CSV (`bench_suite --test-csv-errors`).
+   - **Windows x86_64:** Compilación nativa, ejecución de las 14 suites C de regresión mediante `build.bat`, verificación de bindings de Python, y ejecución de la suite de fallos y concurrencia CSV (`bench_suite.exe --test-csv-errors`).
+3. **Deslinde Criptográfico: Identificación de Contenido vs Firmas de Autor:**
+   - Los commits del repositorio se encuentran referenciados mediante el modelo de objetos direccionados por contenido (*content-addressable storage*) de Git a través de sus hashes SHA-1 de 40 caracteres hexadecimales.
+   - Se hace constar formalmente que SHA-1 no constituye una prueba matemática absoluta contra colisiones teóricas, ni valida por sí mismo la autoría humana del cambio (función privativa de firmas GPG/SSH, las cuales no están configuradas en los commits).
+   - Su valor estriba en la integridad referencial práctica dentro del historial de Git y su verificación auditable contra la API pública de GitHub.
 
 ---
 
-## 3. Protocolo de Reproducibilidad Experimental y Calidad del PRNG (R1-01)
+## 3. Generación Pseudoaleatoria y Permutación Fisher-Yates
 
-### 3.1. Especificación del PRNG y Eliminación de Sesgo en Fisher-Yates (R1-01)
-El generador LCG de 32 bits implementado en [`tests/benchmarks/benchmark_decisive_suite.c:397-438`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c#L397-L438) responde a la recurrencia canónica:
-$$X_{n+1} = (1664525 \times X_n + 1013904223) \pmod{2^{32}}$$
+### 3.1. Algoritmo LCG Determinista Multiplataforma
+Para garantizar bit a bit la misma secuencia de aleatorización entre compiladores y sistemas operativos (Windows, Linux, macOS), el harness implementa su propio generador LCG de 32 bits conforme al estándar de Knuth / Numerical Recipes:
+$$X_{n+1} = (1664525 \times X_n + 1013904223) \bmod 2^{32}$$
 
-#### A. Resolución de la Debilidad de Bits Bajos del LCG:
-Es un teorema formal de la teoría de números para LCGs con módulo potencia de 2 ($m = 2^e$) que la sucesión formada por los $k$ bits de orden más bajo posee un período que no supera $2^k$. 
-En particular:
-* El bit 0 (LSB) tiene un período estricto de $2^1 = 2$ (alterna periódicamente `0, 1, 0, 1`).
-* El bit 1 tiene un período de a lo sumo $2^2 = 4$.
-* Si los índices se reducen mediante la operación de resto módulo clásico `X % bound`, cuando `bound` es par o divisor de potencias de 2, la paridad del índice resultante queda directamente acoplada a la alternancia rígida del LSB.
-
-#### B. Reducción Sin Sesgo de Daniel Lemire sobre los 32 Bits Superiores:
-Para eliminar tanto la correlación de paridad de los bits bajos como el sesgo de módulo, el código implementa la **reducción rápida sin sesgo de Lemire (ACM TOMS, 2019)**:
-
-```c
-/* tests/benchmarks/benchmark_decisive_suite.c:419-438 */
-static inline int rng_next_unbiased_lemire(rng_t *rng, int bound) {
-    if (bound <= 1) return 0;
-    uint32_t b = (uint32_t)bound;
-    uint32_t x = rng_next(rng);
-    uint64_t m = (uint64_t)x * (uint64_t)b;
-    uint32_t l = (uint32_t)m;
-    if (l < b) {
-        uint32_t t = -b % b;
-        while (l < t) {
-            x = rng_next(rng);
-            m = (uint64_t)x * (uint64_t)b;
-            l = (uint32_t)m;
-        }
-    }
-    return (int)(m >> 32);
-}
-```
-
-* **Demostración de Aislamiento de Bits Débiles:**
-  El cálculo `m = (uint64_t)x * (uint64_t)bound` seguido de `m >> 32` extrae los 32 bits superiores del producto. La contribución de los bits inferiores de $X_n$ queda absorbida en los 32 bits bajos de $m$ (`l = (uint32_t)m`), mientras que el valor retornado depende exclusivamente de los bits más significativos de $X_n$, los cuales exhiben el período completo ($2^{32}$) y la máxima dispersión espectral del LCG.
-* **Demostración de Eliminación de Sesgo:**
-  La cantidad de enteros de 32 bits que caen en cada intervalo de tamaño `bound` es $\lfloor 2^{32} / \text{bound} \rfloor$. La condición de rechazo `l < t` (donde $t = (-b) \pmod b = (2^{32} - b) \pmod b$) descarta exactamente los $2^{32} \pmod{\text{bound}}$ valores residuales incompletos. Cada uno de los enteros resultantes en $[0, \text{bound}-1]$ tiene una probabilidad estrictamente uniforme:
-  $$P(J = k) = \frac{1}{\text{bound}}, \quad \forall k \in [0, \text{bound}-1]$$
-
-#### C. Ciclo de Vida del Estado Global `g_suite_rng`:
-* El estado global se define como variable estática de módulo:
-  ```c
-  static rng_t g_suite_rng;
-  ```
-* Se inicializa **una única vez** en la función `main()` con la semilla recibida por argumento CLI (`--seed S_0`):
-  ```c
-  rng_init(&g_suite_rng, seed);
-  ```
-* Se eliminaron por completo las variables locales `rng_t rng` en `main()` y la función deprecada `rng_next_bounded()`.
-* El estado avanza de forma determinista y continua a lo largo de las barajaduras de los cuatro datasets.
-
-#### D. Algoritmo de Fisher-Yates Paso a Paso:
-En cada bloque de evaluación, para $n$ motores configurados:
-```c
-for (int i = n - 1; i > 0; i--) {
-    int j = rng_next_unbiased_lemire(&g_suite_rng, i + 1);
-    engine_config_t *tmp = shuffled[i];
-    shuffled[i] = shuffled[j];
-    shuffled[j] = tmp;
-}
-```
-Esto genera las $n!$ permutaciones con equiprobabilidad exacta.
+### 3.2. Reducción Lemire sin Sesgo y Análisis de Correlación:
+1. **Eliminación del Sesgo de Partición Modular:**
+   Lemire calcula $m = X \times \text{bound}$ y rechaza los valores residuales en $t = (-b) \pmod b$, garantizando que cada índice en $[0, \text{bound}-1]$ tenga exactamente $\lfloor 2^{32} / \text{bound} \rfloor$ preimágenes bajo entradas uniformes.
+2. **Propagación de Acarreos y Ausencia de Independencia Estadística:**
+   La mitad superior del producto depende matemáticamente de los bits inferiores a través de los acarreos aritméticos de la multiplicación de 64 bits. Lemire elimina el sesgo de mapeo, pero **no suprime las correlaciones seriales intrínsecas del LCG**.
+3. **Validez Matemática de la Semilla Cero (`--seed 0`):**
+   Conforme al Teorema de Hull-Dobell, para el generador LCG adoptado el período es estrictamente $2^{32}$ para cualquier semilla en $[0, 2^{32}-1]$, incluyendo el estado inicial $0$.
 
 ---
 
-## 4. Matriz de Comparabilidad y Reglas de Paridad de Baselines
+## 4. Matriz de Comparabilidad, Memoria y Contratos de Integridad
 
-### 4.1. Verificación Activa del Checksum de Zstandard en Contrato Strict (R1-04)
-Para garantizar la paridad metodológica estricta frente a `BinPack Strict (CRC32 slicing-by-8)`:
-1. **Activación Obligatoria en el Contexto Activo:**
-   En [`run_zstd_l1()`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c#L808), [`run_zstd_l19()`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c#L1055) y [`measure_latencies_generic()`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c#L663):
-   ```c
-   ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);
-   ```
-2. **Inspección en Caliente del Frame Header Descriptor (FHD):**
-   Tras cada llamada de compresión, el harness valida obligatoriamente que el bit 2 (`Content_Checksum_flag`) esté encendido en el byte FHD (offset 4):
-   ```c
-   if (ZSTD_isError(c_sz) || (c_sz > 4 && (comp_buf[4] & 0x04) == 0)) {
-       all_pass = 0;
-   }
-   ```
-3. **Pre-flight Checksum Rejection Test:**
-   Se incorpora la función pre-flight [`pre_flight_validate_zstd_checksum_rejection()`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c#L556-L618), ejecutada obligatoriamente al arrancar `main()`:
-   - Comprime un búfer de prueba con `ZSTD_c_checksumFlag = 1`.
-   - Verifica la presencia del bit `0x04` en el encabezado.
-   - Corrompe un byte de la carga útil comprimida (`cmp[pos] ^= 0xA5`).
-   - Verifica que `ZSTD_decompressDCtx()` rechaza formalmente la descompresión con error (`ZSTD_isError(res) != 0`). Si aceptase el frame corrompido, la suite aborta con código fatal.
+### 4.1. Verificación Activa del Checksum de Zstandard
+1. **Configuración de Checksum:** `ZSTD_CCtx_setParameter(cctx, ZSTD_c_checksumFlag, 1);` activo en todos los runners de Zstandard.
+2. **Inspección de Encabezado FHD:** Se valida en caliente que el bit 2 (`Content_Checksum_flag`) esté activo en el byte 4 del frame (`(comp_buf[4] & 0x04) != 0`).
+3. **Pre-flight con Comprobación Específica de Error:**
+   En [`pre_flight_validate_zstd_checksum_rejection()`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c), se corrompe el checksum y se valida formalmente `ZSTD_error_checksum_wrong`.
 
-### 4.2. Demostración Analítica del Techo de Memoria de Trabajo (*Peak Engine Working Memory*) (R1-03)
-
-Para eliminar cualquier ambigüedad metodológica, se separan taxativamente:
-1. **`Peak Process RSS`:** Memoria física total del proceso medida por el sistema operativo (`getrusage`), que incluye los búferes del corpus completo mapeados en memoria, el búfer de salida, el runtime de C y la pila del hilo.
-2. **`Peak Engine Working Memory`:** La memoria interna activa requerida por el motor de streaming para procesar el flujo.
-
-#### A. Delimitación de Alcance Operacional:
-> [!IMPORTANT]
-> El techo operacional de **$\le 64.0\text{ MB}$** aplica estrictamente a la compresión acotada monohilo (`nb_workers = 1`). En ejecuciones multihilo, cada worker aloja su propio contexto de procesamiento en paralelo.
-
-#### B. Desglose Analítico Exacto de Componentes en [`src/binpack_stream.c`](file:///C:/Users/usuario/Desktop/binpack/src/binpack_stream.c):
-1. **`raw_chunk` (Búfer de entrada del bloque actual):**
-   $$\text{chunk\_size} = 16 \times 1024 \times 1024 \text{ bytes} = \mathbf{16.00\text{ MB}}$$
-2. **`prev_raw` (Búfer de historia/prefix dictionary del bloque previo):**
-   $$\text{chunk\_size} = 16 \times 1024 \times 1024 \text{ bytes} = \mathbf{16.00\text{ MB}}$$
-3. **`cmp_chunk` (Búfer acotado de salida comprimida):**
-   $$\text{cmp\_bound} = \text{ZSTD\_compressBound}(16\text{ MB}) + 65536 = 16.777.216 + 65.536 + 65.536 + 512 = 16.908.800 \text{ bytes} = \mathbf{16.12\text{ MB}}$$
-4. **Contexto Dinámico Zstandard (`ZSTD_CCtx` en Level 19 / `btultra`):**
-   Calculado mediante la función oficial de Meta Platforms `ZSTD_estimateCCtxSize_usingCParams()`:
-   - Al estar el tamaño de chunk acotado a 16 MB, el compilador y runtime limitan la ventana efectiva a `windowLog = 20` (ventana deslizante de 1 MB de coincidencia cruzada contra `prev_raw`).
-   - Hash Table (`hashLog = 19`): $2^{19} \times 4\text{ bytes} = 2.00\text{ MB}$.
-   - Chain Table (`chainLog = 19`): $2^{19} \times 4\text{ bytes} = 2.00\text{ MB}$.
-   - Estructuras auxiliares (árbol de sufijos, tablas de estado FSE, secuencias intermedias): $\approx \mathbf{0.40\text{ MB}}$.
-   - Subtotal `ZSTD_CCtx`: $2.00 + 2.00 + 0.40 = \mathbf{4.40\text{ MB}}$.
-5. **Tabla Dinámica de Índices de Chunks (`idx_table`):**
-   La tabla se dimensiona inicialmente con 16 entradas ($16 \times 36\text{ B} = 576\text{ B}$) y crece dinámicamente duplicándose según la cantidad total de bloques:
-   $$N_{\text{chunks}} = \left\lceil \frac{\text{Tamaño del Archivo}}{16\text{ MB}} \right\rceil$$
-   Cada entrada consume exactamente 36 bytes (`uint64_t uncompressed_offset`, `uint64_t compressed_offset`, `uint32_t uncompressed_size`, `uint32_t compressed_size`, `uint32_t crc32`, `uint32_t flags`).
-   - Para un archivo de 100 MB ($N=7$ chunks): $\text{idx\_table} = 576\text{ bytes}$ ($< 0.001\text{ MB}$).
-   - Para un archivo de 100 GB ($N=6.250$ chunks): $\text{idx\_table} = 6.250 \times 36\text{ B} = 225.000\text{ bytes} = \mathbf{0.22\text{ MB}}$.
-
-#### C. Fórmula Analítica Consolidada:
-$$\text{Memoria de Trabajo}(N_{\text{chunks}}) = 16.00\text{ MB} + 16.00\text{ MB} + 16.12\text{ MB} + 4.40\text{ MB} + (N_{\text{chunks}} \times 36\text{ B})$$
-
-$$\text{Memoria de Trabajo}(100\text{ GB}) = 52.52\text{ MB} + 0.22\text{ MB} = \mathbf{52.74\text{ MB}} \le \mathbf{64.0\text{ MB}}$$
-
-El límite de 64 MB queda formal y matemáticamente demostrado para cualquier archivo procesado en modo streaming monohilo.
+### 4.2. Reconciliación Cuantitativa y Taxonomía de Memoria en Cuatro Capas
+* **Total Búferes Propios BinPack:**
+  $$2(16.777.216) + 16.908.288 + 294.912 = \mathbf{50.757.632\text{ bytes}} \quad (48.406\text{ MiB} \approx 50.76\text{ MB})$$
+* **Estimador Streaming Pertinente:** `ZSTD_estimateCStreamSize()`:
+  - Runtime Mode (L4): $52.383.744\text{ B}$ ($49.96\text{ MiB} \le 64.0\text{ MB}$).
+  - Default Mode (L19): $117.870.592\text{ B}$ ($112.41\text{ MiB} \le 128.0\text{ MB}$).
 
 ---
 
-## 5. Procedimiento de Validación y Análisis Estadístico Dual (Fijado *A Priori*)
+## 5. Procedimiento de Validación y Análisis Estadístico Dual
 
-Para eliminar el sesgo de selección de indicadores (*cherry-picking*), se fija un protocolo de reporte dual obligatorio:
-
-### 5.1. Reporte Dual Obligatorio (Crudo vs. Filtrado)
-Para cada serie de 20 iteraciones, se computarán y reportarán en el CSV y en los informes ambos conjuntos de indicadores:
-
-| Métrica | Definición Cruda (Sin Exclusiones) | Definición Filtrada (Tukey Outliers Excluidos) |
-| :--- | :--- | :--- |
-| **Tendencia Central Principal** | $\text{Mediana}_{\text{raw}} = \tilde{x}(\{S_0..S_{19}\})$ | $\text{Mediana}_{\text{filt}} = \tilde{x}(\{S_i \in \text{Rango Tukey}\})$ |
-| **Tendencia Paramétrica** | $\text{Media}_{\text{raw}} = \frac{1}{20}\sum S_i$ | $\text{Media}_{\text{filt}} = \frac{1}{N_{\text{valid}}}\sum S_{\text{valid}}$ |
-| **Dispersión Paramétrica** | $\sigma_{\text{raw}} = \sqrt{\frac{1}{20}\sum (S_i - \mu_{\text{raw}})^2}$ | $\sigma_{\text{filt}} = \sqrt{\frac{1}{N_{\text{valid}}}\sum (S_i - \mu_{\text{filt}})^2}$ |
-| **Dispersión No Paramétrica** | $\text{IQR}_{\text{raw}} = Q_3 - Q_1$ | $\text{IQR}_{\text{filt}}$ |
-| **Coeficiente de Variación** | $\text{CV}_{\text{raw}} = \frac{\sigma_{\text{raw}}}{\mu_{\text{raw}}} \times 100\%$ | $\text{CV}_{\text{filt}} = \frac{\sigma_{\text{filt}}}{\mu_{\text{filt}}} \times 100\%$ |
-| **Auditoría de Exclusiones** | — | $N_{\text{out}}$ (cantidad) y $\%_{\text{out}} = \frac{N_{\text{out}}}{20} \times 100\%$ |
-
-### 5.2. Regla de Detección de Outliers (Tukey)
-Una muestra $S_i$ se clasifica formalmente como outlier si:
-$$S_i < Q_1 - 1.5 \times \text{IQR} \quad \lor \quad S_i > Q_3 + 1.5 \times \text{IQR}$$
-* Las observaciones excluidas **no se eliminan del registro**: permanecen visibles en las columnas `Raw_C_Sec_0..19` y `Raw_D_Sec_0..19`.
-* Se audita la cantidad $N_{\text{out}}$ en las columnas `Comp_Outliers` y `Decomp_Outliers`.
-
-### 5.3. Criterio Dual de Aceptación de Estabilidad
-Para que una medición se considere científicamente válida:
-1. **Estabilidad Filtrada Obligatoria:** $\text{CV}_{\text{filt}} \le 5.0\%$.
-2. **Límite de Inestabilidad Cruda:** $\text{CV}_{\text{raw}} \le 10.0\%$.
-3. **Límite de Exclusiones:** $N_{\text{out}} \le 2$ (máximo un $10\%$ de observaciones descartables sobre las 20 iteraciones).
+* **Tendencia Central:** Mediana cruda ($\text{Mediana}_{\text{raw}}$) y Mediana filtrada tras Tukey ($\text{Mediana}_{\text{filt}}$).
+* **Dispersión:** IQR crudo y filtrado ($\text{IQR}_{\text{raw}}$, $\text{IQR}_{\text{filt}}$), Coeficiente de Variación ($\text{CV}_{\text{raw}}$, $\text{CV}_{\text{filt}}$).
+* **Auditoría de Outliers:** Conteo exacto $N_{\text{out}}$ y porcentaje de descarte.
+* **Criterios de Estabilidad:** $\text{CV}_{\text{filt}} \le 5.0\%$, $\text{CV}_{\text{raw}} \le 10.0\%$, $N_{\text{out}} \le 2$.
 
 ---
 
-## 6. Especificación del Formato de Salida CSV
+## 6. Destino CSV, Identidad a Nivel de Kernel y Suite Adversarial
 
-El archivo generado por el harness cumplirá estrictamente con la siguiente estructura tabular inmutable:
-
-```csv
-Tier,Dataset,Engine,OriginalSize,CompressedSize,RatioPct,Comp_Raw_MBs,Comp_Filt_MBs,Comp_IQR_MBs,Comp_Outliers,Decomp_Raw_MBs,Decomp_Filt_MBs,Decomp_IQR_MBs,Decomp_Outliers,Comp_Med_ms,Decomp_Med_ms,Lat_4k_C_us,Lat_4k_D_us,Lat_64k_C_us,Lat_64k_D_us,PeakRSS_KB,Integrity,Seed,Raw_C_Sec_0..19,Raw_D_Sec_0..19
-```
+### Reglas de Conducta Exigidas y Manejo de Identidad:
+1. **`EEXIST`:** El archivo ya existe. Se detecta como colisión segura (`CSV_OPEN_COLLISION_EEXIST`) y se procede a probar secuencialmente `_run1.._run999` dentro del mismo directorio. **Jamás se sobrescribe ni se trunca el archivo existente.**
+2. **`ENOENT`:** El directorio preferido no existe (`CSV_OPEN_DIR_NOT_FOUND`). **Únicamente ante este error se autoriza el fallback al siguiente directorio candidato** (`docs/audit` $\rightarrow$ `.`).
+3. **`EACCES`, `EMFILE`, `ENFILE` u otros errores:** Se catalogan como errores operativos no recuperables (`CSV_OPEN_FATAL_ERROR`). **Se aborta inmediatamente sin intentar directorios alternativos**.
+4. **Manejo de Errores de Conversión a `FILE*` y Limpieza Defensiva Compartida:**
+   Si `fdopen()` / `_fdopen()` falla:
+   - Se invoca la función modular `defensive_cleanup_failed_exclusive_fd(int fd, const char *path)`.
+   - Se comprueba la identidad física del archivo:
+     - En **Windows**, mediante `_get_osfhandle(fd)` y `CreateFileA()` para comparar `BY_HANDLE_FILE_INFORMATION` (`dwVolumeSerialNumber`, `nFileIndexHigh`, `nFileIndexLow`).
+     - En **POSIX**, mediante `fstat(fd)` y `lstat(path)` para comparar `st_dev` y `st_ino`.
+   - **Política Defensiva:** Si la identidad no coincide o no puede ser verificada positivamente, **se suprime el intento de desvinculación para no afectar un archivo ajeno**.
+   - Si la desvinculación falla o se cancela, se emite una advertencia formal indicando que ha quedado un archivo residual inerte.
+   - **Ventana TOCTOU Residual Documentada:** Se reconoce formalmente que la verificación de identidad del archivo abierto (`fd`) previa a `unlink(path)` / `_unlink(path)` previene el borrado ante sustituciones ya ocurridas; no obstante, subsiste una ventana atómica residual de espacio de usuario entre el cierre del descriptor y la desvinculación de la ruta, gobernada por el sistema operativo subyacente.
+5. **Aborto Obligatorio en `main()`:**
+   Si `open_safe_csv_r5()` retorna `NULL`, el harness aborta fatalmente con código de salida `1`.
+6. **Suite Unitaria Adversarial de 7 Casos con Cierre de E/S Exhaustivo:**
+   - **Caso 1:** Creación limpia exclusiva (`CSV_OPEN_SUCCESS`) con validación de cierre.
+   - **Caso 2:** Detección de colisión `EEXIST`, preservación bit a bit, prevención de truncamiento y comprobación rigurosa de `fclose`.
+   - **Caso 3:** Detección de directorio inexistente `ENOENT`, autorización de fallback y validación de `fclose` en error.
+   - **Caso 4:** Agotamiento determinista de descriptores (`EMFILE`) verificado con retornos de kernel, límites restaurados, registro en runtime de `n_fds`, comprobación forzada de `errno == EMFILE`, y validación exhaustiva del bucle de cierre de descriptores.
+   - **Caso 5:** Inducción real de `EACCES` mediante directorio nuevo con DACL restrictiva en Windows (`icacls` con exit code 0 y `WaitForSingleObject` validado) y `0555` en POSIX, con verificación forzada de `errno == EACCES`, validación de `fclose` en error y limpieza integral certificada.
+   - **Caso 6:** Rotación verificada sobre sufijos preexistentes (`_run1.._run3`), selección de `_run4`, comprobación binaria bit a bit (`memcmp == 0`), validación estricta de retornos de E/S (`fwrite`/`fclose`/`fseek`/`ftell`/`fread`), detección de agotamiento y validación exhaustiva de `fclose(f_chosen)` y `fclose(f_exhaust)` en rutas de error.
+   - **Caso 7:** Identidad a nivel de kernel y preservación demostrada de archivo ajeno ante sustitución concurrente de ruta en Windows y POSIX mediante `defensive_cleanup_failed_exclusive_fd()`, con validación estricta del cierre de `orig_fd`.
 
 ---
 
-## 7. Registro Explícito de Limitaciones Experimentales y Precisiones Metodológicas
+## 7. Registro Explícito de Limitaciones Metodológicas
 
-1. **Alcance de la Detección de Virtualización (`CPUID.1:ECX[31]`):** Identifica entornos que anuncian la presencia de hipervisores cooperativos. La bandera `physical_core_verified = 1` denota *clasificación bare-metal según la información CPUID disponible*, no una prueba criptográfica infalible de silicio físico ante hipervisores con emulación hostil.
+1. **Alcance de la Detección de Virtualización (`CPUID.1:ECX[31]`):** Identifica hipervisores cooperativos. `physical_core_verified = 1` denota *clasificación bare-metal según la información CPUID disponible*, no una prueba criptográfica ante hipervisores con emulación hostil.
 2. **Abstracción de Topología en WSL2/Hyper-V:** La afinidad en `vCPU 2` garantiza aislamiento y determinismo en el espacio de kernel invitado, pero la planificación sobre el silicio físico permanece gobernada por Hyper-V.
 3. **Cuarentena de Sprintz:** Mantenida de forma estricta por desbordamiento aritmético en enteros signados.
-4. **Entorno Monohilo Normalizado:** Mide el rendimiento de un único hilo de ejecución aislado, no escalabilidad paralela NUMA.
+4. **Entorno Monohilo Normalizado:** Mide el rendimiento de un único hilo de ejecución aislado (`opt.nb_workers = 1`).
 
 ---
 
 ## 8. Checklist Previo a la Autorización de la Futura Campaña Decisiva
 
 - [x] **1. Integridad de Fuentes:** `git status` en la rama de auditoría certifica que `src/`, `include/` y `deps/` no poseen modificaciones.
-- [x] **2. Sincronización Código-Protocolo:** Implementación de Lemire, estado global `g_suite_rng`, compuertas de checksum Zstd y pre-flight rejection verificadas en el harness.
-- [ ] **3. Aprobación Formal de BP-008D:** Dictamen técnico favorable de la auditoría.
-- [ ] **4. Disponibilidad del Corpus:** Datasets descargados y verificados con sus respectivos hashes SHA-256 en disco.
-- [ ] **5. Aislamiento de Hardware:** Sistema en reposo térmico ($T_{\text{CPU}} \le 45^\circ\text{C}$), sin procesos secundarios.
-- [ ] **6. Inmutabilidad de CSV:** Destino fijado a un nuevo archivo (`decisive_benchmark_raw_r5.csv`), preservando intactos `pilot` a `r4`.
+- [x] **2. Sincronización Código-Protocolo:** Implementación de Lemire, estado global `g_suite_rng`, compuertas de checksum Zstd con verificación `ZSTD_error_checksum_wrong` y destino CSV `r5.csv`.
+- [x] **3. Aislamiento ISA Aprobado:** Script `scripts/audit_isa_isolation.sh` con flags sincronizadas 1:1 (`PORTABLE_CFLAGS` y `AVX2_CFLAGS`), sin `continue` fuera de bucle, con exigencia de exit code 0 y detección de bytes crudos.
+- [x] **4. Creación Atómica Exclusiva CSV Robusta y Suite Adversarial Estricta:** Validación completa de retornos de E/S y cierre de archivos/descriptores en todas las ramas de error, determinismo EMFILE comprobado con `n_fds` explícito y `errno == EMFILE`, EACCES real demostrado con `icacls` exit code 0, rotación y agotamiento de sufijos con integridad binaria de 256 bytes (`memcmp`), sustitución concurrente demostrada en Windows y POSIX con supresión de borrado de archivos ajenos vía `defensive_cleanup_failed_exclusive_fd()`, y semántica estricta 7/7 sin skips.
+- [x] **5. Corrección Aritmética y Taxonomía de Memoria:** Fórmulas exactas ($50.757.632\text{ B}$ propios), `ZSTD_estimateCStreamSize()` como estimador streaming oficial ($52.38\text{ MB}$ en L4 $\le 64\text{ MB}$; $117.87\text{ MB}$ en L19 $\le 128\text{ MB}$) y deslinde de las 4 categorías.
+- [x] **6. Enforzamiento de Monohilo:** `opt.nb_workers = 1;` configurado explícitamente en todas las ejecuciones del harness.
+- [x] **7. Integración Continua Multiplataforma Certificada sobre R13:** Ejecución y verificación del workflow en GitHub Actions sobre el commit exacto de R13 (Runs `42344207762` [push] y `42344210926` [pull_request]), validando la suite CSV 7/7 en Linux y Windows, y la auditoría ISA en Linux, completando 8/8 trabajos con resultado `Success` pleno.
+- [ ] **8. Aprobación Formal de BP-008D:** Dictamen técnico favorable de cierre emitido por la auditoría independiente.
+- [ ] **9. Disponibilidad del Corpus:** Datasets descargados y verificados con sus respectivos hashes SHA-256 en disco.
+- [ ] **10. Aislamiento de Hardware:** Sistema en reposo térmico ($T_{\text{CPU}} \le 45^\circ\text{C}$), sin procesos secundarios.
 
 ---
 
 ## 9. Criterio de Cierre del Hito BP-008D
 
-El Hito **BP-008D** se considera preparado para su **cierre técnico definitivo** en virtud de:
-1. La sincronización 100% comprobable entre este documento [`docs/audit/bp008d_experimental_protocol.md`](file:///C:/Users/usuario/Desktop/binpack/docs/audit/bp008d_experimental_protocol.md) y [`tests/benchmarks/benchmark_decisive_suite.c`](file:///C:/Users/usuario/Desktop/binpack/tests/benchmarks/benchmark_decisive_suite.c).
-2. La eliminación demostrada de la debilidad de bits bajos del LCG mediante la reducción sin sesgo de Daniel Lemire.
-3. El desglose analítico riguroso del techo de memoria de trabajo de $\le 64.0\text{ MB}$ para streaming monohilo.
-4. La inspección del frame descriptor de Zstd y el test pre-flight de rechazo ante corrupción de datos.
+Habiéndose completado y certificado en R13 y afinado documentalmente en R14:
+1. El aislamiento estricto de instrucciones SIMD verificado y aprobado (cero emisiones VEX/EVEX en portables).
+2. La suite adversarial CSV ejecutada y aprobada con 7/7 casos estrictos sin omisiones en Linux y Windows, con validación exhaustiva de retornos y cierres en todas las rutas de error.
+3. La corrección aritmética y taxonomía de memoria streaming bajo `ZSTD_estimateCStreamSize()`.
+4. La desactivación irreversible de paralelismo automático mediante `opt.nb_workers = 1`.
+5. La ausencia total de ejecución de la campaña de benchmarking de 20 iteraciones.
+6. La preservación intacta del núcleo del SDK (`src/`, `include/`, `deps/`).
+7. La verificación multiplataforma de CI con 8/8 trabajos exitosos en GitHub Actions sobre el commit exacto.
+
+El Hito **BP-008D** queda plenamente preparado y sometido para su **cierre técnico formal y definitivo** como fase preparatoria del protocolo experimental, supeditado exclusivamente al dictamen de cierre formal por parte del auditor técnico independiente.

@@ -1,0 +1,30 @@
+{
+  "milestone": "BP-011",
+  "phase": "Phase E - Commercial Viability Campaign",
+  "timestamp_utc": "2026-11-12T18:02:55Z",
+  "protocol": {
+    "num_measured_rounds": 20,
+    "warmup_rounds": 1,
+    "calendar": "Randomized 4x4 Latin Square Blocks (PCG32/Lemire seed=42, seq=54)",
+    "timer": "Windows QueryPerformanceCounter (QPC)",
+    "timestamp_codec": "R15.10 Literal Delta-of-Delta",
+    "zstd_baseline_level": 3
+  },
+  "environment": {
+    "os": "Windows",
+    "compiler": "Clang 22.1.8 ",
+    "working_tree_branch": "audit/bp1-core-safety",
+    "code_freeze": "src/, include/, deps/ 100% intact"
+  },
+  "hardware_io_audit": {
+    "storage_alignment_source": "GetDiskFreeSpaceA_fallback",
+    "logical_sector_bytes": 512,
+    "physical_sector_bytes": 4096,
+    "unbuffered_io_verified": true,
+    "real_hardware_io": true
+  },
+  "validation_status": {
+    "bit_exact_verified": true,
+    "crc32_verified": true
+  }
+}

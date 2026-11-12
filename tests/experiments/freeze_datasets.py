@@ -1,3 +1,16 @@
+#!/usr/bin/env python3
+"""
+DEPRECATION NOTICE:
+This script (freeze_datasets.py) is OBSOLETE and preserved solely as historical record.
+It was the unversioned 25-entry generator utilized prior to milestone BP-009 / OT-03.
+Execution is blocked (fail-closed) to prevent destructive overwriting of the canonical
+32-item manifest (datasets_checksums.json). Consult docs/audit/bp008a_datasets_inventory.md.
+"""
+import sys
+
+# Fail-closed operational guard: blocks execution before any logic or file access
+raise SystemExit("ERROR: freeze_datasets.py is DEPRECATED and disabled. Do not execute.")
+
 import os
 import hashlib
 import json

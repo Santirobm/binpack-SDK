@@ -1,0 +1,99 @@
+==================================================================================================================================
+BINPACK ENTERPRISE SDK â€” SCIENTIFIC BENCHMARK & COMPARABILITY PROTOCOL (BP-010 Instrument Revision 1 / Sampling Protocol R14)
+Hardware Topology: Logical Core 2 (Core ID Unknown) | Microsoft Hyper-V Virtual Guest (WSL2/Hyper-V) (vCPU 2, Sysfs Core ID Unknown, Hypervisor Topology Abstraction) [Physical Verified: NO (Virtualized/Abstracted) | Topology Gate: PASS]
+Execution Seed: 0 (Fisher-Yates Randomized Suite) | Isolated Memory per Subprocess (fork/wait4)
+Runtime Linked Versions: Zstd 1.6.0 (Num: 10600) | LZ4 1.10.1 (Num: 11001) | BinPack 2.2.0
+Protocol: 1 Warm-up + 20 Timed Iterations | Tukey Outlier Rule | Decimal MB/s (10^6 B/s) Directly from Samples
+BinPack Working Memory: 50,757,632 B (48.41 MiB) [2x16M raw + 16.91M cmp + 294.9K idx_table]
+Applicable Streaming Context (ZSTD_estimateCStreamSize): L4 = 1.55 MiB (Total = 49.96 MiB <= 64 MB) | L19 = 64.00 MiB (Total = 112.41 MiB <= 128 MB)
+Informative Non-Streaming Estimator: ZSTD_estimateCCtxSize(4) = 1.25 MiB | CCtxSize(19) = 48.00 MiB (not applicable to streaming engine)
+==================================================================================================================================
+
+[PRE-FLIGHT] Validating Gorilla and Chimp on Adversarial Test Vectors...
+  [PASS] Gorilla Float32: 100% Bit-Exact on adversarial patterns
+  [PASS] Chimp Float32:   100% Bit-Exact on adversarial patterns
+[PRE-FLIGHT] Validating Zstd Strict Checksum Flag and Corrupted Frame Rejection...
+  [PASS] Zstd Strict Checksum: Frame flag 0x04 verified, corrupted frame specifically rejected with ZSTD_error_checksum_wrong (Restored data doesn't match checksum)
+==================================================================================================
+BINPACK ENTERPRISE SDK â€” CSV ATOMIC EXCLUSIVE & ERROR FALLBACK SAFETY SUITE (BP-008D-R13)
+==================================================================================================
+  [PASS] Test 1: Clean exclusive creation succeeded with CSV_OPEN_SUCCESS.
+  [PASS] Test 2: Collision rejected with CSV_OPEN_COLLISION_EEXIST and 0-byte truncation prevented.
+  [PASS] Test 3: Inexistent directory detected as CSV_OPEN_DIR_NOT_FOUND (permitted fallback).
+  [INFO] Test 4: Low-level CRT descriptor pool exhausted at n_fds=8189 (capacity=8192, limit=8300), failing_errno=24 (Too many open files).
+  [PASS] Test 4: Descriptor exhaustion (EMFILE) verified deterministically on Windows (exhausted_at_fds=8189, CSV_OPEN_FATAL_ERROR, probe_errno=24, strict abort).
+  [PASS] Test 5: Real access denial verified on Windows (CSV_OPEN_FATAL_ERROR, errno=13 [EACCES], strict abort, no fallback).
+  [SUBPASS] Test 6E: Suffix exhaustion correctly aborted without data corruption.
+  [PASS] Test 6: Suffix rotation, bit-for-bit binary preservation and exhaustion abort verified.
+  [SUBPASS] Test 7A: Win32 file index correctly detected path substitution (mismatch).
+  [SUBPASS] Test 7B: Defensive cleanup successfully detected mismatch and suppressed unlink (returned 0).
+  [SUBPASS] Test 7C: Foreign substitute file preserved bit-for-bit after defensive cleanup.
+  [PASS] Test 7: File identity and foreign file deletion prevention under substitution verified.
+==================================================================================================
+CSV SAFETY UNIT TESTS SUMMARY (BP-008D-R13):
+  Total Required Cases: 7
+  Passed:               7
+  Failed:               0
+  Skipped:              0
+==================================================================================================
+[SUCCESS] ALL CSV SAFETY UNIT TESTS PASSED (7/7 STRICT WITHOUT SKIPS).
+==================================================================================================
+Output CSV Target: 'docs/audit/decisive_benchmark_raw_r5.csv' (Safe non-truncating exclusive creation)
+
+----------------------------------------------------------------------------------------------------------------------------------
+DATASET [1/4]: busybox_armv7l         | Categoria: ARMv7-A Production Binary  | Tamano:  1109128 Bytes (1.11 MB)
+----------------------------------------------------------------------------------------------------------------------------------
+Motor / Configuracion      | Ratio (%) | Comp (MB/s Â± IQR) | Decomp (MB/s Â± IQR) | Lat 4K (C/D) | Pico RSS | Integridad
+----------------------------------------------------------------------------------------------------------------------------------
+LZ4 v1.10 (RawBlock)       |   80.49%  |   824.3 Â± 9.5    |  5584.7 Â± 150.5   | 6.1 / 1.0    |  81020 KB | PASS
+Zstd v1.5.7 (L19 Frame)    |   51.04%  |     6.7 Â± 0.5    |   878.2 Â± 5.4     | 6.1 / 1.0    | 114956 KB | PASS
+Tier3: Ruta A (LZMA1 Puro) |   44.80%  |     5.8 Â± 0.2    |    61.3 Â± 0.8     | 6.1 / 1.0    | 114956 KB | PASS
+Zstd v1.5.7 (L1 Frame)     |   64.26%  |   484.1 Â± 6.6    |  1278.8 Â± 7.9     | 14.1 / 5.3   | 114956 KB | PASS
+BinPack (Strict CRC32)     |   61.66%  |       â€”          |   730.1 Â± 8.4     | 14.1 / 5.3   | 114956 KB | PASS
+Tier3: Ruta B (BCJ+LZMA1)  |   42.46%  |     5.7 Â± 0.1    |    62.6 Â± 0.6     | 14.1 / 5.3   | 114956 KB | PASS
+BinPack (Convenience API)  |   61.66%  |   356.3 Â± 6.1    |  1054.7 Â± 6.6     | 14.1 / 5.3   | 114956 KB | PASS
+BinPack (Default L19)      |   48.49%  |     6.6 Â± 0.6    |   602.5 Â± 4.4     | 14.1 / 5.3   | 116648 KB | PASS
+Tier3: Ruta C (BinPack Archival) |   42.48%  |     5.5 Â± 0.1    |    62.3 Â± 1.3     | 14.1 / 5.3   | 131012 KB | PASS
+BinPack (Fast Zero-CRC)    |   61.66%  |   367.6 Â± 3.9    |  1051.5 Â± 3.8     | 37.1 / 17.4  | 131012 KB | PASS
+
+----------------------------------------------------------------------------------------------------------------------------------
+DATASET [2/4]: nasa_turbofan_f32      | Categoria: NASA C-MAPSS Telemetry     | Tamano:  1980576 Bytes (1.98 MB)
+----------------------------------------------------------------------------------------------------------------------------------
+Motor / Configuracion      | Ratio (%) | Comp (MB/s Â± IQR) | Decomp (MB/s Â± IQR) | Lat 4K (C/D) | Pico RSS | Integridad
+----------------------------------------------------------------------------------------------------------------------------------
+Gorilla (24-ch Interleaved) |  106.18%  |    45.7 Â± 0.9     |   235.5 Â± 2.0     | â€”          | 131012 KB | PASS
+Chimp (24-ch Interleaved)  |  106.18%  |    51.6 Â± 0.1     |   244.5 Â± 2.0     | â€”          | 131012 KB | PASS
+BinPack (Transpose-F32)    |   31.02%  |     4.4 Â± 0.3     |   967.4 Â± 6.3     | â€”          | 131012 KB | PASS
+  [TIER 4A FAIR COMPARISON â€” CANAL INDIVIDUAL DESENTRELAZADO (Sensor 0, 82524 Bytes)]:
+  Gorilla (Single-Ch 0)    |  104.96%  |    38.8 Â± 0.2     |   241.4 Â± 2.7     | â€”          | 131012 KB | PASS
+  Chimp (Single-Ch 0)      |  105.00%  |    43.1 Â± 0.4     |   249.8 Â± 1.7     | â€”          | 131012 KB | PASS
+  BinPack (Single-Ch 0)    |   29.67%  |     4.5 Â± 0.0     |   769.8 Â± 8.6     | â€”          | 131012 KB | PASS
+  [TIER 4B AUDIT NOTICE]: Sprintz I16 excluded from production claims (Mathematical UB quarantine).
+
+----------------------------------------------------------------------------------------------------------------------------------
+DATASET [3/4]: silesia_mozilla        | Categoria: Silesia x86 Executable     | Tamano: 51220480 Bytes (51.22 MB)
+----------------------------------------------------------------------------------------------------------------------------------
+Motor / Configuracion      | Ratio (%) | Comp (MB/s Â± IQR) | Decomp (MB/s Â± IQR) | Lat 4K (C/D) | Pico RSS | Integridad
+----------------------------------------------------------------------------------------------------------------------------------
+LZ4 v1.10 (RawBlock)       |   51.49%  |   891.9 Â± 6.5    |  4610.2 Â± 321.2   | 4.4 / 0.8    | 159304 KB | PASS
+Zstd v1.5.7 (L19 Frame)    |   29.27%  |     4.1 Â± 0.1    |  1063.9 Â± 7.3     | 4.4 / 0.8    | 231136 KB | PASS
+Zstd v1.5.7 (L1 Frame)     |   38.99%  |   571.7 Â± 12.5   |  1419.5 Â± 3.1     | 12.0 / 4.9   | 231136 KB | PASS
+BinPack (Fast Zero-CRC)    |   38.99%  |   478.4 Â± 5.7    |  1519.1 Â± 32.2    | 31.0 / 16.3  | 231136 KB | PASS
+BinPack (Default L19)      |   29.41%  |     4.4 Â± 0.0    |   763.1 Â± 3.8     | 31.0 / 16.3  | 231136 KB | PASS
+BinPack (Strict CRC32)     |   38.99%  |       â€”          |   930.9 Â± 2.6     | 31.0 / 16.3  | 233728 KB | PASS
+
+----------------------------------------------------------------------------------------------------------------------------------
+DATASET [4/4]: silesia_samba          | Categoria: Silesia Structured C Code  | Tamano: 21606400 Bytes (21.61 MB)
+----------------------------------------------------------------------------------------------------------------------------------
+Motor / Configuracion      | Ratio (%) | Comp (MB/s Â± IQR) | Decomp (MB/s Â± IQR) | Lat 4K (C/D) | Pico RSS | Integridad
+----------------------------------------------------------------------------------------------------------------------------------
+Zstd v1.5.7 (L1 Frame)     |   25.40%  |   628.2 Â± 1.9    |  2052.8 Â± 20.4    | 12.6 / 4.9   | 233728 KB | PASS
+BinPack (Strict CRC32)     |   25.40%  |       â€”          |  1162.5 Â± 6.2     | 12.6 / 4.9   | 233728 KB | PASS
+BinPack (Default L19)      |   18.04%  |     4.6 Â± 0.0    |  1133.2 Â± 22.1    | 12.6 / 4.9   | 233728 KB | PASS
+Zstd v1.5.7 (L19 Frame)    |   17.96%  |     4.6 Â± 0.3    |  1967.3 Â± 44.7    | 12.6 / 4.9   | 272108 KB | PASS
+BinPack (Fast Zero-CRC)    |   25.40%  |   511.2 Â± 5.2    |  2307.3 Â± 42.7    | 15.9 / 15.3  | 272108 KB | PASS
+LZ4 v1.10 (RawBlock)       |   35.32%  |   854.5 Â± 17.5   |  5334.5 Â± 316.1   | 5.8 / 1.0    | 272108 KB | PASS
+
+==================================================================================================================================
+[COMPLETE] Benchmark execution finished cleanly. Raw sample data exported to 'docs/audit/decisive_benchmark_raw_r5.csv'.
+==================================================================================================================================
