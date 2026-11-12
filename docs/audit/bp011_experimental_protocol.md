@@ -1,9 +1,9 @@
-# Protocolo Experimental R15.9 — Hito BP-011
+# Protocolo Experimental R15.10 — Hito BP-011
 ## Industrial Time-Series Benchmark: Gorilla & Chimp vs. BinPack Transpose
 
 **Proyecto:** BinPack Enterprise SDK  
 **Hito:** BP-011  
-**Fase:** Fase A — Acta de Apertura y Protocolo Experimental (Revisión Definitiva R15.9)  
+**Fase:** Fase A — Acta de Apertura y Protocolo Experimental (Revisión Definitiva R15.10)  
 **Documento Rector:** `docs/audit/bp011_experimental_protocol.md`  
 **Rama:** `audit/bp1-core-safety`  
 **Estado:** PROTOCOLO FORMAL DEFINITIVO PARA DICTAMEN DE CIERRE DE FASE A  
@@ -12,17 +12,16 @@
 
 ## Control de Cambios y Registro Integral de Subsanaciones
 
-### Revisiones Previas (R15.1 a R15.8)
+### Revisiones Previas (R15.1 a R15.9)
 - **NC-01 (Cuartiles de Tukey y Regla de Signos):** Cuartiles de Tukey en base 1 y base 0 (`arr[4]`, `arr[5]`, etc.); regla unívoca de $k$ para la mediana en la prueba de signos como el mayor entero con cobertura bilateral $\ge 95\%$ ($k=6$, cobertura $95,861\%$ para $n_{\text{eff}}=20$), tabla exhaustiva para $n_{\text{eff}} < 20$ y tratamiento con $k=1$ y advertencia `UNDERSIZED_EFFECTIVE_SAMPLE` para $n_{\text{eff}} \le 5$.
-- **NC-02 (Separación de Amplificaciones y Bootstrap):** Definición independiente de $A_{\text{read}}$, $A_{\text{decomp}}$ y $A_{\text{store}}$ con $B_{\text{target}}$ libre de cabeceras; bootstrap percentil determinista con PRNG independiente.
+- **NC-02 (Separación de Amplificaciones, Bootstrap y Toolchains):** Definición independiente de amplificaciones; bootstrap percentil determinista con PRNG independiente; configuración canónica `/fp:strict` para MSVC y opciones precisas para GCC/Clang; regla unificada de tolerancia $|\Delta| \le \max(10^{-9}, 10^{-7} \cdot |\text{ref}|)$.
 - **NC-03 (Aplicabilidad de Consultas):** Regla de cardinalidad estricta y catalogación de $Q_2$ como `NOT_APPLICABLE` en DS-01 ($N < 10.000$).
 - **NC-04 (Prefijos Inequívocos y Máquina de Estados):** Árbol estrictamente libre de prefijos (*strictly prefix-free*) con `111110` para delta inicial y `111111` para escape absoluto. Aritmética segura en 3 pasos, máquina de estados con `has_prev_delta` y serialización Big-Endian portable en microsegundos `int64_t`.
 - **OBS-01 a OBS-06:** Desglose en 4 componentes de tamaño ($B_{\text{time}}$, $B_{\text{values}}$, $B_{\text{container}}$, $B_{\text{total}}$), densidades (bpv, bpt, bptuple, bpc), regímenes Hot/Cold Cache, reserva de $Q_{\text{conc}}$, familias Holm-Bonferroni por terna $(\text{Dataset}, \text{Consulta}, \text{Métrica})$ a $\alpha = 0.05$, y baseline Chimp128.
-- **Subsanaciones R15.5 a R15.7:** Correspondencia unívoca de estimandos e intervalos; tratamiento riguroso de empates y ceros; coeficiente de Fisher-Pearson; PCG32 canónico; Lemire en C; diseño en bloques de Cuadrados Latinos con balanceo $f_{m, p} \in \{2, 3\}$; desambiguación contractual entre índices bit-exactos y resultados flotantes con tolerancia.
+- **Subsanaciones R15.5 a R15.8:** Correspondencia unívoca de estimandos e intervalos; tratamiento riguroso de empates y ceros; coeficiente de Fisher-Pearson; PCG32 canónico; Lemire en C; diseño en bloques de Cuadrados Latinos con balanceo $f_{m, p} \in \{2, 3\}$; desambiguación contractual entre índices bit-exactos y resultados flotantes con tolerancia.
 
-### Revisión R15.9 (Presente Documento Definitivo)
-1. **Configuración Canónica de MSVC y Semántica Real de Toolchains (NC-02):** Se fija `/fp:strict` como configuración canónica obligatoria para MSVC (desactivando contracciones FMA implícitas en todas las versiones); se documenta el alcance real y no especulativo de las opciones de GCC (`-ffp-contract=off -fno-fast-math`, retirando el experimental `-frounding-math`) y Clang (`-ffp-contract=off -fno-fast-math -ffp-model=precise`); y se mandata la comprobación estricta en tiempo de ejecución del modo de redondeo `FE_TONEAREST` mediante `fegetround()`.
-2. **Regla Unificada de Tolerancia Numérica para Referencia Cero (NC-02):** Se formaliza el criterio canónico unificado de verificación combinando tolerancias absoluta y relativa: $|\text{valor}_{\text{obs}} - \text{valor}_{\text{ref}}| \le \max(10^{-9}, \; 10^{-7} \cdot |\text{valor}_{\text{ref}}|)$, garantizando validez analítica tanto para valores normales como para magnitudes nulas o próximas a cero.
+### Revisión R15.10 (Presente Documento Definitivo)
+1. **NC-03 — Verificación Normativa Efectiva del Entorno de Redondeo (Inmune a NDEBUG):** Se sustituye la macro condicional `assert()` por una verificación explícita e ineludible en el código `if (fegetround() != FE_TONEAREST) { abort(); }` con inclusión de `<fenv.h>` y `<stdlib.h>`, garantizando que compilaciones optimizadas en Release con `NDEBUG` definido verifiquen obligatoriamente el modo de redondeo `FE_TONEAREST` antes de cualquier cálculo estadístico e interrumpan inmediatamente la ejecución ante cualquier desviación.
 
 ---
 
@@ -548,14 +547,18 @@ Para garantizar que la prueba de hipótesis y el intervalo de confianza estimen 
      - **Secuencia de Índices de Remuestreo (Bit-Exactitud Estricta):** La secuencia completa de los $200.000$ índices de remuestreo generados ($B \times n = 10.000 \times 20$) mediante `bounded_rand_lemire(&boot_rng, 20)` sobre la instancia canónica `boot_rng` es **estrictamente bit-exacta** (idéntica bit a bit) entre todas las plataformas, compiladores y sistemas operativos admitidos.
      - **Formato Numérico y Reglas de Evaluación IEEE 754:** La acumulación aritmética de cada réplica se ejecuta obligatoriamente en formato IEEE 754 Binary64 (`double`), modo de redondeo estándar al más cercano (*roundTiesToEven* / `FE_TONEAREST`), en orden secuencial estricto y ascendente:
        $$\bar{d}^*_b = \frac{1}{20} \sum_{i=0}^{19} (x_{A, j_i} - x_{B, j_i})$$
-     - **Comprobación en Tiempo de Ejecución del Modo de Redondeo:**  
-       El ejecutable verificará formalmente al inicio de la fase analítica (mediante `<fenv.h>`) que el entorno de punto flotante se encuentra configurado en el modo canónico:
+     - **Comprobación Normativa Efectiva del Modo de Redondeo (NC-03):**  
+       Para garantizar que la verificación sea plenamente efectiva e independiente del modo de compilación (inmune a la eliminación por `NDEBUG` en builds de producción o Release), el ejecutable verificará formalmente antes de cualquier cálculo estadístico que el modo de redondeo activo es estrictamente `FE_TONEAREST` mediante una comprobación condicional explícita que aborte de inmediato la ejecución ante cualquier desviación:
        ```c
        #include <fenv.h>
-       #include <assert.h>
-       assert(fegetround() == FE_TONEAREST);
+       #include <stdlib.h>
+
+       // Verificación normativa obligatoria previa al análisis estadístico (inmune a NDEBUG)
+       if (fegetround() != FE_TONEAREST) {
+           abort(); // Invalida de inmediato la ejecución y prohíbe la emisión de resultados
+       }
        ```
-       Queda estrictamente prohibida la alteración del entorno de redondeo o de control durante el cálculo estadístico.
+       Cualquier valor retornado por `fegetround()` distinto de `FE_TONEAREST` invalida formalmente la ejecución del arnés analítico y veta la emisión de métricas. Queda estrictamente prohibida la alteración del entorno de redondeo o de control durante toda la campaña experimental.
      - **Tabla Canónica de Opciones de Compilación por Compilador Admitido:**  
        Para garantizar la consistencia numérica y evitar contracciones FMA implícitas o reasociaciones espurias entre diferentes toolchains admitidos:
 
@@ -643,7 +646,7 @@ Chimp128 se evalúa como una **referencia técnica especializada de alta capacid
 
 ## 9. Próximos Pasos tras la Revisión de la Fase A
 
-Una vez obtenida la aprobación formal de la presente revisión R15.9:
+Una vez obtenida la aprobación formal de la presente revisión R15.10:
 1. **Cierre Formal de la Fase A.**
 2. **Apertura de la Fase B (Auditoría de Codecs y Datasets):** Actividad exclusivamente de solo lectura dedicada a la inspección estática de las implementaciones fuente de Gorilla, Chimp/Chimp128 y la validación de integridad de los datasets formalizados.
 3. **Mantenimiento del Code Freeze:** Ninguna compilación ni ejecución de código hasta completar las Fases B, C y D.
