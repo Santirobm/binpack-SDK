@@ -1,0 +1,62 @@
+===============================================================================
+  BINPACK ENTERPRISE SDK — ARNES EXPERIMENTAL BP-011 (Fase C/D/E)
+  Validacion Decisiva de Viabilidad Comercial en Telemetria Industrial
+===============================================================================
+
+-------------------------------------------------------------------------------
+>>> EJECUTANDO CAMPAÑA EXPERIMENTAL EN DATASET: NASA_CMAPSS_FD001
+    Protocolo: 1 Warmup + 20 Rondas Balanceadas (Cuadrado Latino 4x4 Aleatorizado)
+-------------------------------------------------------------------------------
+  • Muestras: 20631 | Canales: 24 | Raw Payload: 4126200 bytes (4.13 MB)
+  [OK] Integridad de bloque y CRC-32 verificados con exito (CRC: 0xCDFB72F2)
+
+TABLA COMPARATIVA DE RENDIMIENTO MEDIANO (20 RONDAS) — DATASET: NASA_CMAPSS_FD001
+Motor                      |  Bytes Tot |     CR |      TP_comp |    TP_decomp |     RAM_comp |   RAM_decomp
+----------------------------------------------------------------------------------------------------------------
+Gorilla_Composed           |    2024295 |  2.04x |   336.23 MB/s |   374.28 MB/s |          0 B |          0 B
+Chimp128_Composed_Variant  |    1128382 |  3.66x |   607.13 MB/s |   566.09 MB/s |          0 B |          0 B
+BinPack_Transpose          |    1249969 |  3.30x |    15.18 MB/s |   846.74 MB/s |     165048 B |     165048 B
+Zstd_Composed              |     609301 |  6.77x |   604.24 MB/s |  2073.78 MB/s |    1303576 B |      95968 B
+
+METRICAS CLAVE DE VIABILIDAD COMERCIAL (BINPACK vs COMPETIDORES):
+  • Ahorro vs Gorilla:  +38.25 %
+  • Ahorro vs Chimp128: -10.78 %
+  • Consultas Selectivas Speedup: Q1=54.31x, Q2=1.14x, Q3=5.72x (Promedio=20.39x)
+  • Amplificacion de Descompresion Real Medida:
+    - BinPack:  Q1=20.63x, Q2=2.06x, Q3=1.00x (Ponderada=1.32x)
+    - Gorilla:  Ponderada=7.61x (medida con 10 canales en Q3)
+    - Chimp128: N/A (sin soporte de consultas selectivas en bloque)
+    - Zstd:     N/A (sin soporte de consultas selectivas en bloque)
+  • Ratio Throughput comp: 0.05x de Gorilla (requerido: >= 0.50x)
+  [OK] Prueba Unbuffered I/O en disco superada: 1249969 bytes verificados bit-exact.
+
+-------------------------------------------------------------------------------
+>>> EJECUTANDO CAMPAÑA EXPERIMENTAL EN DATASET: NASA_BEARING_IMS_TEST1
+    Protocolo: 1 Warmup + 20 Rondas Balanceadas (Cuadrado Latino 4x4 Aleatorizado)
+-------------------------------------------------------------------------------
+  • Muestras: 2156 | Canales: 48 | Raw Payload: 845152 bytes (0.85 MB)
+  [OK] Integridad de bloque y CRC-32 verificados con exito (CRC: 0xD5382E91)
+
+TABLA COMPARATIVA DE RENDIMIENTO MEDIANO (20 RONDAS) — DATASET: NASA_BEARING_IMS_TEST1
+Motor                      |  Bytes Tot |     CR |      TP_comp |    TP_decomp |     RAM_comp |   RAM_decomp
+----------------------------------------------------------------------------------------------------------------
+Gorilla_Composed           |     740936 |  1.14x |   191.57 MB/s |   212.24 MB/s |          0 B |          0 B
+Chimp128_Composed_Variant  |     703551 |  1.20x |   188.93 MB/s |   203.45 MB/s |          0 B |          0 B
+BinPack_Transpose          |     672329 |  1.26x |    19.55 MB/s |   959.85 MB/s |      17248 B |      17248 B
+Zstd_Composed              |     632404 |  1.34x |   462.17 MB/s |  1348.14 MB/s |    1303576 B |      95968 B
+
+METRICAS CLAVE DE VIABILIDAD COMERCIAL (BINPACK vs COMPETIDORES):
+  • Ahorro vs Gorilla:  +9.26 %
+  • Ahorro vs Chimp128: +4.44 %
+  • Consultas Selectivas Speedup: Q1=260.75x, Q2=N/A, Q3=12.30x (Promedio=136.53x)
+  • Amplificacion de Descompresion Real Medida:
+    - BinPack:  Q1=2.16x, Q2=N/A, Q3=1.00x (Ponderada=1.12x)
+    - Gorilla:  Ponderada=12.99x (medida con 10 canales en Q3)
+    - Chimp128: N/A (sin soporte de consultas selectivas en bloque)
+    - Zstd:     N/A (sin soporte de consultas selectivas en bloque)
+  • Ratio Throughput comp: 0.10x de Gorilla (requerido: >= 0.50x)
+  [OK] Prueba Unbuffered I/O en disco superada: 672329 bytes verificados bit-exact.
+
+Resultados consolidados guardados en: tests/experiments/bp011/bp011_campaign_results.csv y tests/experiments/bp011/bp011_campaign_results_raw.csv
+Sidecar de trazabilidad verificado guardado en: tests/experiments/bp011/bp011_campaign_results.csv.meta.json
+

@@ -957,6 +957,36 @@ static int bp011_run_campaign_dataset(
             size_t round_comp_ram = bp011_mem_tracker_get_peak_net();
             size_t round_comp_ws  = (ws_after > ws_before) ? (ws_after - ws_before) : 0;
 
+            /* Particionado exacto del directorio de series para validacion canonica (NC-D05) */
+            if (series_dir && num_series > 0) {
+                uint32_t t_cur = BP011_HEADER_SIZE_BYTES + ((eng == 2) ? num_channels * 12U : 0) + num_series * 32U;
+                uint32_t v_cur = t_cur + (uint32_t)time_bytes;
+                uint32_t t_rem = (uint32_t)time_bytes;
+                uint32_t v_rem = (uint32_t)val_bytes;
+                uint32_t s_rem = sample_count;
+
+                for (uint32_t m = 0; m < num_series; m++) {
+                    uint32_t sc = series_dir[m].sample_count;
+                    uint32_t tb = (m == num_series - 1) ? t_rem : (uint32_t)((uint64_t)t_rem * sc / s_rem);
+                    uint32_t vb = (m == num_series - 1) ? v_rem : (uint32_t)((uint64_t)v_rem * sc / s_rem);
+                    if (tb == 0) tb = 1;
+                    if (vb == 0) vb = 1;
+                    if (tb > t_rem) tb = t_rem;
+                    if (vb > v_rem) vb = v_rem;
+
+                    series_dir[m].time_stream_byte_offset = t_cur;
+                    series_dir[m].time_stream_bytes = tb;
+                    series_dir[m].values_stream_byte_offset = v_cur;
+                    series_dir[m].values_stream_bytes = vb;
+
+                    t_cur += tb;
+                    v_cur += vb;
+                    t_rem -= tb;
+                    v_rem -= vb;
+                    s_rem -= sc;
+                }
+            }
+
             /* Empaquetado canonico de bloque */
             bp011_status_t pkg_st = bp011_package_block(
                 file_buf, max_stream_cap,
@@ -1290,6 +1320,35 @@ static int bp011_run_campaign_dataset(
         results[3].decomp_amplification = 0.0; /* N/A: arquitectura monolitica sin consultas en bloque */
 
         /* Empaquetado canónico BinPack final para validación explícita de CRC-32 y Unbuffered I/O (Rev 6) */
+        if (series_dir && num_series > 0) {
+            uint32_t t_cur = BP011_HEADER_SIZE_BYTES + num_channels * 12U + num_series * 32U;
+            uint32_t v_cur = t_cur + (uint32_t)time_bytes;
+            uint32_t t_rem = (uint32_t)time_bytes;
+            uint32_t v_rem = (uint32_t)bp_val_sz;
+            uint32_t s_rem = sample_count;
+
+            for (uint32_t m = 0; m < num_series; m++) {
+                uint32_t sc = series_dir[m].sample_count;
+                uint32_t tb = (m == num_series - 1) ? t_rem : (uint32_t)((uint64_t)t_rem * sc / s_rem);
+                uint32_t vb = (m == num_series - 1) ? v_rem : (uint32_t)((uint64_t)v_rem * sc / s_rem);
+                if (tb == 0) tb = 1;
+                if (vb == 0) vb = 1;
+                if (tb > t_rem) tb = t_rem;
+                if (vb > v_rem) vb = v_rem;
+
+                series_dir[m].time_stream_byte_offset = t_cur;
+                series_dir[m].time_stream_bytes = tb;
+                series_dir[m].values_stream_byte_offset = v_cur;
+                series_dir[m].values_stream_bytes = vb;
+
+                t_cur += tb;
+                v_cur += vb;
+                t_rem -= tb;
+                v_rem -= vb;
+                s_rem -= sc;
+            }
+        }
+
         size_t bp_canonical_file_sz = 0;
         bp011_status_t pkg_bp_final = bp011_package_block(
             file_buf, max_stream_cap,
